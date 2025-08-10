@@ -1,0 +1,13 @@
+[package]
+name = "formulac"
+version = "0.1.0"
+edition = "2024"
+authors = ["KATOI4423 <katoi4423@gmail.com>"]
+description = "A complex-number and extensible function supported math expression parser for Rust"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/KATOI4423/formulac.git"
+readme = "README.md"
+keywords = ["math", "parser", "complex", "expression", "formula"]
+categories = ["parsing", "science", "mathematics"]
+
+[dependencies]
