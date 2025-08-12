@@ -1,14 +1,16 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! formulac
+//!
+//! `formulac` is a complex-number and extensible function supported math expression parser for Rust.
+//! This supports analysis and evaluation of complex mathematical expressions, and allows users to add user-defined functions.
+//!
+//! # Feature Overview
+//!
+//!
+//! # Examples
+//! ```
+//!
+//! ```
+//!
+//!
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+mod token;
