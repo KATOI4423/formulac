@@ -124,13 +124,13 @@ pub enum Token
     Argument(usize),
 
     /// Constant token for predefined mathematical constants.
-    Constant(f64),
+    Constant(Complex<f64>),
 
     /// Real number token.
-    Real(f64),
+    Real(Complex<f64>),
 
     /// Imaginary number token.
-    Imaginary(f64),
+    Imaginary(Complex<f64>),
 
     /// Operator token.
     Operator(Operator),
@@ -216,23 +216,23 @@ static OPERATORS: Map<&'static str, Operator> = phf_map! {
 };
 
 /// Map of mathematical constants by their string representation.
-static CONSTANTS: Map<&'static str, f64> = phf_map! {
-    "E" => std::f64::consts::E,
-    "FRAC_1_PI" => std::f64::consts::FRAC_1_PI,
-    "FRAC_1_SQRT_2" => std::f64::consts::FRAC_1_SQRT_2,
-    "FRAC_2_PI" => std::f64::consts::FRAC_2_PI,
-    "FRAC_2_SQRT_PI" => std::f64::consts::FRAC_2_SQRT_PI,
-    "FRAC_PI_2" => std::f64::consts::FRAC_PI_2,
-    "FRAC_PI_3" => std::f64::consts::FRAC_PI_3,
-    "FRAC_PI_4" => std::f64::consts::FRAC_PI_4,
-    "FRAC_PI_6" => std::f64::consts::FRAC_PI_6,
-    "FRAC_PI_8" => std::f64::consts::FRAC_PI_8,
-    "LN_10" => std::f64::consts::LN_10,
-    "LN_2" => std::f64::consts::LN_2,
-    "LOG10_E" => std::f64::consts::LOG10_E,
-    "LOG2_E" => std::f64::consts::LOG2_E,
-    "PI" => std::f64::consts::PI,
-    "SQRT_2" => std::f64::consts::SQRT_2,
+static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
+    "E" => Complex::new(std::f64::consts::E, 0.0),
+    "FRAC_1_PI" => Complex::new(std::f64::consts::FRAC_1_PI, 0.0),
+    "FRAC_1_SQRT_2" => Complex::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
+    "FRAC_2_PI" => Complex::new(std::f64::consts::FRAC_2_PI, 0.0),
+    "FRAC_2_SQRT_PI" => Complex::new(std::f64::consts::FRAC_2_SQRT_PI, 0.0),
+    "FRAC_PI_2" => Complex::new(std::f64::consts::FRAC_PI_2, 0.0),
+    "FRAC_PI_3" => Complex::new(std::f64::consts::FRAC_PI_3, 0.0),
+    "FRAC_PI_4" => Complex::new(std::f64::consts::FRAC_PI_4, 0.0),
+    "FRAC_PI_6" => Complex::new(std::f64::consts::FRAC_PI_6, 0.0),
+    "FRAC_PI_8" => Complex::new(std::f64::consts::FRAC_PI_8, 0.0),
+    "LN_10" => Complex::new(std::f64::consts::LN_10, 0.0),
+    "LN_2" => Complex::new(std::f64::consts::LN_2, 0.0),
+    "LOG10_E" => Complex::new(std::f64::consts::LOG10_E, 0.0),
+    "LOG2_E" => Complex::new(std::f64::consts::LOG2_E, 0.0),
+    "PI" => Complex::new(std::f64::consts::PI, 0.0),
+    "SQRT_2" => Complex::new(std::f64::consts::SQRT_2, 0.0),
 };
 
 /// Map of functions by their string representation.
@@ -299,13 +299,19 @@ fn make_token(str: &str, args: &[&str], vars: &Variables) -> Result<Token, Strin
         _ => (),
     }
 
-    if str.ends_with(IMAGINARY_UNIT)
-     && let Ok(val) = str[..(str.len() - IMAGINARY_UNIT.len())].parse::<f64>() {
-        return Ok(Token::Imaginary(val));
+    if str.ends_with(IMAGINARY_UNIT) {
+        let num_part =  &str[..(str.len() - IMAGINARY_UNIT.len())];
+        if let Ok(val) = num_part.parse::<f64>() {
+            return Ok(Token::Imaginary(Complex { re: 0.0, im: val }));
+        }
+        if num_part.is_empty() {
+            // Imaginary unit only
+            return Ok(Token::Imaginary(Complex { re: 0.0, im: 1.0 }));
+        }
     }
 
     if let Ok(val) = str.parse::<f64>() {
-        return Ok(Token::Real(val));
+        return Ok(Token::Real(Complex { re: val, im: 0.0 }));
     }
 
     return Err(format!("Unknown string {}", str));
@@ -474,16 +480,16 @@ mod tests {
     fn test_real() {
         let tokens = divide_to_tokens("6.28", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Real(6.28)
+            Token::Real(Complex { re: 6.28, im: 0.0 })
         ]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
 
     #[test]
     fn test_imaginary() {
-        let tokens = divide_to_tokens("-1.5i", &[], &Variables::new()).unwrap();
+        let tokens = divide_to_tokens("1.5i", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Imaginary(-1.5)
+            Token::Imaginary(Complex { re: 0.0, im: 1.5 })
         ]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
