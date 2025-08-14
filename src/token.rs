@@ -30,6 +30,8 @@ pub struct Operator {
     precedence: u8,
     /// Whether the operator is left associative.
     is_left_assoc: bool,
+    /// Operator string for comparision
+    str: &'static str,
     }
 
 impl Operator {
@@ -57,6 +59,16 @@ impl Operator {
     }
 }
 
+impl PartialEq for Operator {
+    fn eq(&self, other: &Self) -> bool {
+        // function pointer comparisons do not produce meaningful results since their addresses are not guaranteed to be unique,
+        // so don't compare function pointers
+        return self.is_left_assoc == other.is_left_assoc
+            && self.precedence == other.precedence
+            && self.str == other.str;
+    }
+}
+
 /// Represents a mathematical function with its implementation and expected argument count.
 #[derive(Debug, Clone)]
 pub struct Function {
@@ -64,6 +76,8 @@ pub struct Function {
     function: Func,
     /// Number of arguments the function accepts.
     args_num: u8,
+    /// Function string for comparision
+    str: &'static str,
 }
 
 impl Function {
@@ -86,8 +100,17 @@ impl Function {
     }
 }
 
+impl PartialEq for Function {
+    fn eq(&self, other: &Self) -> bool {
+        // function pointer comparisons do not produce meaningful results since their addresses are not guaranteed to be unique,
+        // so don't compare function pointers
+        return self.args_num == other.args_num
+            && self.str == other.str;
+    }
+}
+
 /// Token enum representing different types of tokens in the formula parser.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token
 {
     /// Variable token holding the resolved value.
@@ -185,11 +208,11 @@ fn pow(args: &[Complex<f64>]) -> Complex<f64> {
 
 /// Map of operators by their string representation.
 static OPERATORS: Map<&'static str, Operator> = phf_map! {
-    "+" => Operator{ function: add, precedence: 0, is_left_assoc: true },
-    "-" => Operator{ function: sub, precedence: 0, is_left_assoc: true },
-    "*" => Operator{ function: mul, precedence: 1, is_left_assoc: true },
-    "/" => Operator{ function: div, precedence: 1, is_left_assoc: true },
-    "^" => Operator{ function: pow, precedence: 2, is_left_assoc: false },
+    "+" => Operator{ function: add, precedence: 0, is_left_assoc: true, str: "+" },
+    "-" => Operator{ function: sub, precedence: 0, is_left_assoc: true, str: "-" },
+    "*" => Operator{ function: mul, precedence: 1, is_left_assoc: true, str: "*" },
+    "/" => Operator{ function: div, precedence: 1, is_left_assoc: true, str: "/" },
+    "^" => Operator{ function: pow, precedence: 2, is_left_assoc: false, str: "^" },
 };
 
 /// Map of mathematical constants by their string representation.
@@ -214,24 +237,24 @@ static CONSTANTS: Map<&'static str, f64> = phf_map! {
 
 /// Map of functions by their string representation.
 static FUNCTIONS: Map<&'static str, Function> = phf_map! {
-    "sin"   => Function{ function: sin,     args_num: 1 },
-    "cos"   => Function{ function: cos,     args_num: 1 },
-    "tan"   => Function{ function: tan,     args_num: 1 },
-    "asin"  => Function{ function: asin,    args_num: 1 },
-    "acos"  => Function{ function: acos,    args_num: 1 },
-    "atan"  => Function{ function: atan,    args_num: 1 },
-    "sinh"  => Function{ function: sinh,    args_num: 1 },
-    "cosh"  => Function{ function: cosh,    args_num: 1 },
-    "tanh"  => Function{ function: tanh,    args_num: 1 },
-    "asinh" => Function{ function: asinh,   args_num: 1 },
-    "acosh" => Function{ function: acosh,   args_num: 1 },
-    "atanh" => Function{ function: atanh,   args_num: 1 },
-    "exp"   => Function{ function: exp,     args_num: 1 },
-    "ln"    => Function{ function: ln,      args_num: 1 },
-    "log10" => Function{ function: log10,   args_num: 1 },
-    "sqrt"  => Function{ function: sqrt,    args_num: 1 },
+    "sin"   => Function{ function: sin,     args_num: 1,    str: "sin" },
+    "cos"   => Function{ function: cos,     args_num: 1,    str: "cos" },
+    "tan"   => Function{ function: tan,     args_num: 1,    str: "tan" },
+    "asin"  => Function{ function: asin,    args_num: 1,    str: "asin" },
+    "acos"  => Function{ function: acos,    args_num: 1,    str: "acos" },
+    "atan"  => Function{ function: atan,    args_num: 1,    str: "atan" },
+    "sinh"  => Function{ function: sinh,    args_num: 1,    str: "sinh" },
+    "cosh"  => Function{ function: cosh,    args_num: 1,    str: "cosh" },
+    "tanh"  => Function{ function: tanh,    args_num: 1,    str: "tanh" },
+    "asinh" => Function{ function: asinh,   args_num: 1,    str: "asinh" },
+    "acosh" => Function{ function: acosh,   args_num: 1,    str: "acosh" },
+    "atanh" => Function{ function: atanh,   args_num: 1,    str: "atanh" },
+    "exp"   => Function{ function: exp,     args_num: 1,    str: "exp" },
+    "ln"    => Function{ function: ln,      args_num: 1,    str: "ln" },
+    "log10" => Function{ function: log10,   args_num: 1,    str: "log10" },
+    "sqrt"  => Function{ function: sqrt,    args_num: 1,    str: "sqrt" },
 
-    "pow"   => Function{ function: pow,     args_num: 2 },
+    "pow"   => Function{ function: pow,     args_num: 2,    str: "pow" },
 };
 
 
