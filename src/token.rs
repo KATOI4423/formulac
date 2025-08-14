@@ -7,6 +7,8 @@ use phf::Map;
 use phf_macros::phf_map;
 use std::collections::VecDeque;
 
+use crate::variable::Variables;
+
 pub type FuncReturn = Complex<f64>;
 pub type FuncArgs = [Complex<f64>];
 
@@ -122,7 +124,7 @@ pub enum Token
     /// Variable token holding the resolved value.
     ///
     /// User-defined variable with external value resolved at parse time.
-    Variable(f64),
+    Variable(FuncReturn),
 
     /// Function argument token by position index.
     ///
@@ -270,13 +272,14 @@ static FUNCTIONS: Map<&'static str, Function> = phf_map! {
 ///
 /// * `str` - The string slice to convert.
 /// * `args` - List of argument variable names.
+/// * `vars` - List of variables table.
 ///
 /// # Returns
 ///
 /// * `Ok(Token)` if the string corresponds to a known token (operator, function,
 ///   constant, argument, or punctuation).
 /// * `Err(String)` if the string is unknown.
-fn make_token(str: &str, args: &[&str]) -> Result<Token, String> {
+fn make_token(str: &str, args: &[&str], vars: &Variables) -> Result<Token, String> {
     if let Some(operator) = OPERATORS.get(str) {
         return Ok(Token::Operator(operator.clone()));
     }
@@ -287,6 +290,10 @@ fn make_token(str: &str, args: &[&str]) -> Result<Token, String> {
 
     if let Some(constant) = CONSTANTS.get(str) {
         return Ok(Token::Constant(*constant));
+    }
+
+    if let Some(variable) = vars.get(str) {
+        return Ok(Token::Variable(*variable))
     }
 
     if let Some(position) = args.iter().position(|&val| val == str) {
@@ -321,12 +328,13 @@ fn make_token(str: &str, args: &[&str]) -> Result<Token, String> {
 ///
 /// * `formula` - The formula string to tokenize.
 /// * `args` - The list of argument variable names.
+/// * `vars` - The list of variables table.
 ///
 /// # Returns
 ///
 /// * `Ok(Tokens)` containing the parsed tokens if successful.
 /// * `Err(String)` with an error message if tokenization fails.
-pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> {
+pub fn divide_to_tokens(formula: &str, args: &[&str], vars: &Variables) -> Result<Tokens, String> {
     let mut tokens: Tokens = VecDeque::new();
     let mut current_start: usize = 0;
     let mut current_end: usize = 0;
@@ -353,7 +361,7 @@ pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> 
         if ch.is_whitespace() {
             if current_start != current_end {
                 let token_str = &formula[current_start..current_end];
-                tokens.push_back(make_token(token_str, args)?);
+                tokens.push_back(make_token(token_str, args, vars)?);
             }
             current_start = next_end;
             current_end = current_start;
@@ -370,7 +378,7 @@ pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> 
         let ch_str = &formula[idx..next_end];
         if is_number(current_str) || is_token(current_str) || is_token(ch_str) {
             if current_start != current_end {
-                tokens.push_back(make_token(current_str, args)?);
+                tokens.push_back(make_token(current_str, args, vars)?);
             }
             current_start = idx;
             current_end = next_end;
@@ -382,7 +390,7 @@ pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> 
 
     if current_start != current_end {
         let token_str = &formula[current_start..current_end];
-        tokens.push_back(make_token(token_str, args)?);
+        tokens.push_back(make_token(token_str, args, vars)?);
     }
 
     Ok(tokens)
@@ -398,28 +406,28 @@ mod tests {
 
     #[test]
     fn test_single_constant() {
-        let tokens = divide_to_tokens("E", &[]).unwrap();
+        let tokens = divide_to_tokens("E", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Constant(std::f64::consts::E)]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
 
     #[test]
     fn test_single_operator() {
-        let tokens = divide_to_tokens("+", &[]).unwrap();
+        let tokens = divide_to_tokens("+", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Operator(OPERATORS.get("+").unwrap().clone())]);
         assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
     }
 
     #[test]
     fn test_argument_lockup() {
-        let tokens = divide_to_tokens("y", &["y"]).unwrap();
+        let tokens = divide_to_tokens("y", &["y"], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Argument(0)]);
         assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
     }
 
     #[test]
     fn test_function_call() {
-        let tokens = divide_to_tokens("sin(PI)", &[]).unwrap();
+        let tokens = divide_to_tokens("sin(PI)", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("sin").unwrap().clone()),
             Token::LParen,
@@ -431,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_multiple_argument() {
-        let tokens = divide_to_tokens("x + y", &["x", "y"]).unwrap();
+        let tokens = divide_to_tokens("x + y", &["x", "y"], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Argument(0),
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
@@ -443,13 +451,13 @@ mod tests {
     #[test]
     fn test_unknown_token_error() {
         let token = "abc123";
-        let err = divide_to_tokens(token, &[]).unwrap_err();
+        let err = divide_to_tokens(token, &[], &Variables::new()).unwrap_err();
         assert_eq!(err, format!("Unknown string {}", token));
     }
 
     #[test]
     fn test_parentheses_and_comma() {
-        let tokens = divide_to_tokens("(,)", &[]).unwrap();
+        let tokens = divide_to_tokens("(,)", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::LParen,
             Token::Comma,
@@ -460,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_whitespace() {
-        let tokens = divide_to_tokens("ln (\tx\t)", &["x"]).unwrap();
+        let tokens = divide_to_tokens("ln (\tx\t)", &["x"], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("ln").unwrap().clone()),
             Token::LParen,
@@ -472,7 +480,7 @@ mod tests {
 
     #[test]
     fn test_real() {
-        let tokens = divide_to_tokens("6.28", &[]).unwrap();
+        let tokens = divide_to_tokens("6.28", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Real(6.28)
         ]);
@@ -481,18 +489,26 @@ mod tests {
 
     #[test]
     fn test_imaginary() {
-        let tokens = divide_to_tokens("-1.5i", &[]).unwrap();
+        let tokens = divide_to_tokens("-1.5i", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Imaginary(-1.5)
         ]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
 
+    #[test]
+    fn test_variable() {
+        let tokens = divide_to_tokens("a", &[], &Variables::from(&[("a", 3.0)])).unwrap();
+        let expected = VecDeque::from([
+            Token::Variable(FuncReturn::from(3.0))
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
 
     #[test]
     fn test_multibyte_token_boundary() {
         let token = "あ123";
-        let err = divide_to_tokens(token, &[]).unwrap_err();
+        let err = divide_to_tokens(token, &[], &Variables::new()).unwrap_err();
         assert_eq!(err, format!("Unknown string {}", token));
     }
 }
