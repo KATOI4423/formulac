@@ -32,9 +32,25 @@ pub struct Operator {
     is_left_assoc: bool,
     /// Operator string for comparision
     str: &'static str,
-    }
+}
 
 impl Operator {
+    /// Creates a new operator.
+    ///
+    /// # Arguments
+    ///
+    /// * `function` - Function pointer implementing the operator.
+    /// * `precedence` - Operator precedence.
+    /// * `is_left_assoc` - Left associativity flag.
+    pub fn new(function: Func, precedence: u8, is_left_assoc: bool, str: &'static str) -> Self {
+        Self {
+            function,
+            precedence,
+            is_left_assoc,
+            str,
+        }
+    }
+
     /// Executes the operator function with the given arguments.
     ///
     /// # Arguments
@@ -81,6 +97,20 @@ pub struct Function {
 }
 
 impl Function {
+    /// Creates a new mathematical function.
+    ///
+    /// # Arguments
+    ///
+    /// * `function` - Function pointer implementing the function.
+    /// * `args_num` - Number of expected arguments.
+    pub fn new(function: Func, args_num: u8, str: &'static str) -> Self {
+        Self {
+            function,
+            args_num,
+            str,
+        }
+    }
+
     /// Executes the function with the given arguments.
     ///
     /// # Arguments
