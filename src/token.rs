@@ -9,9 +9,6 @@ use std::collections::VecDeque;
 
 use crate::variable::Variables;
 
-pub type FuncReturn = Complex<f64>;
-pub type FuncArgs = [Complex<f64>];
-
 /// Function pointer type alias representing a mathematical function.
 ///
 /// This type defines a function that takes a slice of complex numbers as input
@@ -19,7 +16,7 @@ pub type FuncArgs = [Complex<f64>];
 ///
 /// This is used to represent operators and mathematical functions in the parser,
 /// where the input slice length corresponds to the number of function arguments.
-pub type Func = fn(&FuncArgs) -> FuncReturn;
+pub type Func = fn(&[Complex<f64>]) -> Complex<f64>;
 
 /// Constant string representing an imaginary unit
 const IMAGINARY_UNIT: &str = "i";
@@ -60,7 +57,7 @@ impl Operator {
     /// # Returns
     ///
     /// The computed complex number result.
-    pub fn func(&self, args: &FuncArgs) -> FuncReturn {
+    pub fn func(&self, args: &[Complex<f64>]) -> Complex<f64> {
         (self.function)(args)
     }
 
@@ -107,7 +104,7 @@ impl Function {
     /// # Returns
     ///
     /// The computed complex number result.
-    pub fn func(&self, args: &FuncArgs) -> FuncReturn {
+    pub fn func(&self, args: &[Complex<f64>]) -> Complex<f64> {
         (self.function)(args)
     }
 
@@ -124,7 +121,7 @@ pub enum Token
     /// Variable token holding the resolved value.
     ///
     /// User-defined variable with external value resolved at parse time.
-    Variable(FuncReturn),
+    Variable(Complex<f64>),
 
     /// Function argument token by position index.
     ///
@@ -163,29 +160,29 @@ pub enum Token
 pub type Tokens = VecDeque<Token>;
 
 /// Adds two complex numbers.
-fn add(args: &FuncArgs) -> FuncReturn {
+fn add(args: &[Complex<f64>]) -> Complex<f64> {
     args[0] + args[1]
 }
 /// Subtracts the second complex number from the first.
-fn sub(args: &FuncArgs) -> FuncReturn {
+fn sub(args: &[Complex<f64>]) -> Complex<f64> {
     args[0] - args[1]
 }
 /// Multiplies two complex numbers.
-fn mul(args: &FuncArgs) -> FuncReturn {
+fn mul(args: &[Complex<f64>]) -> Complex<f64> {
     args[0] * args[1]
 }
 /// Divides the first complex number by the second.
-fn div(args: &FuncArgs) -> FuncReturn {
+fn div(args: &[Complex<f64>]) -> Complex<f64> {
     args[0] / args[1]
 }
 
 /// Macro to define unary functions easily from method names on Complex<f64>.
 ///
 /// For example, define_unary_func!(sin) expands to
-/// `fn sin(args: &FuncArgs) -> FuncReturn { args[0].sin() }`.
+/// `fn sin(args: &[Complex<f64>]) -> Complex<f64> { args[0].sin() }`.
 macro_rules! define_unary_func {
     ($name:ident) => {
-        fn $name(args: &FuncArgs) -> FuncReturn {
+        fn $name(args: &[Complex<f64>]) -> Complex<f64> {
             args[0].$name()
         }
     };
@@ -209,7 +206,7 @@ define_unary_func!(log10);
 define_unary_func!(sqrt);
 
 /// Raises the first argument to the power of the second.
-fn pow(args: &FuncArgs) -> FuncReturn {
+fn pow(args: &[Complex<f64>]) -> Complex<f64> {
     args[0].powc(args[1])
 }
 
@@ -500,7 +497,7 @@ mod tests {
     fn test_variable() {
         let tokens = divide_to_tokens("a", &[], &Variables::from(&[("a", 3.0)])).unwrap();
         let expected = VecDeque::from([
-            Token::Variable(FuncReturn::from(3.0))
+            Token::Variable(Complex::from(3.0))
         ]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
