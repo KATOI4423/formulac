@@ -314,7 +314,7 @@ fn make_token(str: &str, args: &[&str], vars: &Variables) -> Result<Token, Strin
         return Ok(Token::Real(Complex { re: val, im: 0.0 }));
     }
 
-    return Err(format!("Unknown string {}", str));
+    return Err(format!("Unknown string \"{}\"", str));
 }
 
 /// Tokenizes a formula string into a sequence of Tokens.
@@ -334,61 +334,56 @@ fn make_token(str: &str, args: &[&str], vars: &Variables) -> Result<Token, Strin
 /// * `Err(String)` with an error message if tokenization fails.
 pub fn divide_to_tokens(formula: &str, args: &[&str], vars: &Variables) -> Result<Tokens, String> {
     let mut tokens: Tokens = VecDeque::new();
-    let mut current_start: usize = 0;
-    let mut current_end: usize = 0;
+    let mut chars = formula.char_indices().peekable();
+    let mut prev_is_value = false; // whether the previous token is finished by value or not
 
-    let is_token = |str: &str| -> bool {
-        OPERATORS.contains_key(str) || FUNCTIONS.contains_key(str) || CONSTANTS.contains_key(str)
-            || match str { "(" | ")" | "," => true, _ => false }
-    };
-
-    let is_number = |s: &str| -> bool {
-        let target = if s.ends_with(IMAGINARY_UNIT) {
-            &s[..(s.len()-IMAGINARY_UNIT.len())] // this range is always safe
-        } else {
-            s
-        };
-        target.parse::<f64>().is_ok()
-    };
-
-    let mut char_indices = formula.char_indices().peekable();
-
-    while let Some((idx, ch)) = char_indices.next() {
-        let next_end = idx + ch.len_utf8();
-
+    while let Some((start_idx, ch)) = chars.next() {
         if ch.is_whitespace() {
-            if current_start != current_end {
-                let token_str = &formula[current_start..current_end];
-                tokens.push_back(make_token(token_str, args, vars)?);
+            continue;
+        }
+
+        let end_idx = if ch.is_ascii_alphabetic() {
+            // English letters block (for function, variable, constance name)
+            let mut end = start_idx + ch.len_utf8();
+            while let Some(&(_, next_ch)) = chars.peek() {
+                if next_ch.is_ascii_alphabetic() || next_ch == '_' {
+                    let (idx, ch) = chars.next().unwrap();
+                    end = idx + ch.len_utf8();
+                } else {
+                    break;
+                }
             }
-            current_start = next_end;
-            current_end = current_start;
-            continue;
-        }
-
-        let extended_str = &formula[current_start..next_end];
-        if is_number(extended_str) || is_token(extended_str) {
-            current_end = next_end;
-            continue;
-        }
-
-        let current_str = &formula[current_start..current_end];
-        let ch_str = &formula[idx..next_end];
-        if is_number(current_str) || is_token(current_str) || is_token(ch_str) {
-            if current_start != current_end {
-                tokens.push_back(make_token(current_str, args, vars)?);
+            end
+        } else if ch.is_ascii_digit()
+            || ("+-".find(ch).is_some() && !prev_is_value)
+        {
+            // Numerical value (may have imaginary units at the end)
+            let mut end = start_idx + ch.len_utf8();
+            while let Some(&(_, next_ch)) = chars.peek() {
+                if next_ch.is_ascii_digit() || ".eE+-".find(next_ch).is_some() {
+                    let (idx, ch) = chars.next().unwrap();
+                    end = idx + ch.len_utf8();
+                } else if String::from(next_ch) == IMAGINARY_UNIT {
+                    let (idx, ch) = chars.next().unwrap();
+                    end = idx + ch.len_utf8();
+                    break;
+                } else {
+                    break;
+                }
             }
-            current_start = idx;
-            current_end = next_end;
-            continue;
-        }
+            end
+        } else {
+            // Symbol (operation, paren, comma, etc.)
+            start_idx + ch.len_utf8()
+        };
 
-        current_end = next_end;
-    }
-
-    if current_start != current_end {
-        let token_str = &formula[current_start..current_end];
-        tokens.push_back(make_token(token_str, args, vars)?);
+        let token_str = &formula[start_idx..end_idx];
+        let token = make_token(token_str, args, vars)?;
+        prev_is_value = matches!(token,
+            Token::Real(_) | Token::Imaginary(_) | Token::Variable(_) | Token::Constant(_)
+            | Token::Argument(_) | Token::RParen
+        );
+        tokens.push_back(token);
     }
 
     Ok(tokens)
@@ -405,7 +400,7 @@ mod tests {
     #[test]
     fn test_single_constant() {
         let tokens = divide_to_tokens("E", &[], &Variables::new()).unwrap();
-        let expected = VecDeque::from([Token::Constant(std::f64::consts::E)]);
+        let expected = VecDeque::from([Token::Constant(std::f64::consts::E.into())]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
 
@@ -448,9 +443,8 @@ mod tests {
 
     #[test]
     fn test_unknown_token_error() {
-        let token = "abc123";
-        let err = divide_to_tokens(token, &[], &Variables::new()).unwrap_err();
-        assert_eq!(err, format!("Unknown string {}", token));
+        let err = divide_to_tokens("abc123", &[], &Variables::new()).unwrap_err();
+        assert_eq!(err, "Unknown string \"abc\"");
     }
 
     #[test]
@@ -486,10 +480,43 @@ mod tests {
     }
 
     #[test]
+    fn test_unary_operator() {
+        let tokens = divide_to_tokens("-3.5", &[], &Variables::new()).unwrap();
+        let expected = VecDeque::from([
+            Token::Real(Complex { re: -3.5, im: 0.0 })
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
+
+    #[test]
+    fn test_scientific_notation() {
+        let tokens = divide_to_tokens("1.0e+4", &[], &Variables::new()).unwrap();
+        let expected = VecDeque::from([
+            Token::Real(Complex { re: 1.0E+04, im: 0.0 })
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
+
+    #[test]
+    fn test_start_with_period() {
+        let err = divide_to_tokens(".5", &[], &Variables::new()).unwrap_err();
+        assert_eq!(err, "Unknown string \".\"");
+    }
+
+    #[test]
     fn test_imaginary() {
         let tokens = divide_to_tokens("1.5i", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([
             Token::Imaginary(Complex { re: 0.0, im: 1.5 })
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
+
+    #[test]
+    fn test_imaginary_unit() {
+        let tokens = divide_to_tokens("i", &[], &Variables::new()).unwrap();
+        let expected = VecDeque::from([
+            Token::Imaginary(Complex { re: 0.0, im: 1.0 })
         ]);
         assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
     }
@@ -505,8 +532,7 @@ mod tests {
 
     #[test]
     fn test_multibyte_token_boundary() {
-        let token = "あ123";
-        let err = divide_to_tokens(token, &[], &Variables::new()).unwrap_err();
-        assert_eq!(err, format!("Unknown string {}", token));
+        let err = divide_to_tokens("あ123", &[], &Variables::new()).unwrap_err();
+        assert_eq!(err, "Unknown string \"あ\"");
     }
 }
