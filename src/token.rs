@@ -30,24 +30,9 @@ pub struct Operator {
     precedence: u8,
     /// Whether the operator is left associative.
     is_left_assoc: bool,
-}
-
-impl Operator {
-    /// Creates a new operator.
-    ///
-    /// # Arguments
-    ///
-    /// * `function` - Function pointer implementing the operator.
-    /// * `precedence` - Operator precedence.
-    /// * `is_left_assoc` - Left associativity flag.
-    pub fn new(function: Func, precedence: u8, is_left_assoc: bool) -> Self {
-        Self {
-            function,
-            precedence,
-            is_left_assoc
-        }
     }
 
+impl Operator {
     /// Executes the operator function with the given arguments.
     ///
     /// # Arguments
@@ -82,19 +67,6 @@ pub struct Function {
 }
 
 impl Function {
-    /// Creates a new mathematical function.
-    ///
-    /// # Arguments
-    ///
-    /// * `function` - Function pointer implementing the function.
-    /// * `args_num` - Number of expected arguments.
-    pub fn new(function: Func, args_num: u8) -> Self {
-        Self {
-            function,
-            args_num,
-        }
-    }
-
     /// Executes the function with the given arguments.
     ///
     /// # Arguments
