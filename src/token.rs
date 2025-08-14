@@ -19,6 +19,9 @@ pub type FuncArgs = [Complex<f64>];
 /// where the input slice length corresponds to the number of function arguments.
 pub type Func = fn(&FuncArgs) -> FuncReturn;
 
+/// Constant string representing an imaginary unit
+const IMAGINARY_UNIT: &str = "i";
+
 /// Represents a mathematical operator with its function, precedence, and associativity.
 #[derive(Debug, Clone)]
 pub struct Operator {
@@ -294,8 +297,19 @@ fn make_token(str: &str, args: &[&str]) -> Result<Token, String> {
         "(" => return Ok(Token::LParen),
         ")" => return Ok(Token::RParen),
         "," => return Ok(Token::Comma),
-        _   => return Err(format!("Unknown string {}", str)),
+        _ => (),
     }
+
+    if str.ends_with(IMAGINARY_UNIT)
+     && let Ok(val) = str[..(str.len() - IMAGINARY_UNIT.len())].parse::<f64>() {
+        return Ok(Token::Imaginary(val));
+    }
+
+    if let Ok(val) = str.parse::<f64>() {
+        return Ok(Token::Real(val));
+    }
+
+    return Err(format!("Unknown string {}", str));
 }
 
 /// Tokenizes a formula string into a sequence of Tokens.
@@ -322,6 +336,15 @@ pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> 
             || match str { "(" | ")" | "," => true, _ => false }
     };
 
+    let is_number = |s: &str| -> bool {
+        let target = if s.ends_with(IMAGINARY_UNIT) {
+            &s[..(s.len()-IMAGINARY_UNIT.len())] // this range is always safe
+        } else {
+            s
+        };
+        target.parse::<f64>().is_ok()
+    };
+
     let mut char_indices = formula.char_indices().peekable();
 
     while let Some((idx, ch)) = char_indices.next() {
@@ -338,14 +361,14 @@ pub fn divide_to_tokens(formula: &str, args: &[&str]) -> Result<Tokens, String> 
         }
 
         let extended_str = &formula[current_start..next_end];
-        if is_token(extended_str) {
+        if is_number(extended_str) || is_token(extended_str) {
             current_end = next_end;
             continue;
         }
 
         let current_str = &formula[current_start..current_end];
         let ch_str = &formula[idx..next_end];
-        if is_token(current_str) || is_token(ch_str) {
+        if is_number(current_str) || is_token(current_str) || is_token(ch_str) {
             if current_start != current_end {
                 tokens.push_back(make_token(current_str, args)?);
             }
@@ -446,6 +469,25 @@ mod tests {
         ]);
         assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
     }
+
+    #[test]
+    fn test_real() {
+        let tokens = divide_to_tokens("6.28", &[]).unwrap();
+        let expected = VecDeque::from([
+            Token::Real(6.28)
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
+
+    #[test]
+    fn test_imaginary() {
+        let tokens = divide_to_tokens("-1.5i", &[]).unwrap();
+        let expected = VecDeque::from([
+            Token::Imaginary(-1.5)
+        ]);
+        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+    }
+
 
     #[test]
     fn test_multibyte_token_boundary() {
