@@ -1,6 +1,6 @@
 [package]
 name = "formulac"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 authors = ["KATOI4423 <katoi4423@gmail.com>"]
 description = "A complex-number and extensible function supported math expression parser for Rust"
