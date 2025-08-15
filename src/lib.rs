@@ -34,8 +34,9 @@
 //! // Compile an expression with arguments
 //! let expr = compile("z + a * 2", &["z"], &vars, &users).unwrap();
 //!
-//! // Evaluate the compiled expression with argument a = (1 + 2i)
-//! let result = expr(&[Complex::new(1.0, 2.0)]);
+//! // Evaluate the compiled expression with argument z = (1 + 2i)
+//! let z = Complex::new(1.0, 2.0);
+//! let result = expr(&[z]);
 //! assert_abs_diff_eq!(result.re, 7.0, epsilon = 1.0e-10);
 //! assert_abs_diff_eq!(result.im, 10.0, epsilon = 1.0e-10);
 //! ```
