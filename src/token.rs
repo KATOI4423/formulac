@@ -73,6 +73,11 @@ impl Operator {
     pub fn is_left_assoc(&self) -> bool {
         self.is_left_assoc
     }
+
+    /// Returns the operator string
+    pub fn str(&self) -> &str {
+        self.str
+    }
 }
 
 impl PartialEq for Operator {
@@ -127,6 +132,11 @@ impl Function {
     /// Returns the number of arguments this function expects.
     pub fn args_num(&self) -> u8 {
         self.args_num
+    }
+
+    /// Returns the function string
+    pub fn str(&self) -> &str {
+        self.str
     }
 }
 
