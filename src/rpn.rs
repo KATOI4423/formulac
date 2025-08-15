@@ -31,10 +31,7 @@ fn make_rpn_case_of_rparen(rpn: &mut Tokens, stack: &mut Tokens) -> Result<(), S
     loop {
         match stack.pop_back() {
             Some(Token::LParen) => {
-                if let Some(Token::Function(func))= stack.back() {
-                    if rpn.len() < func.args_num() as usize {
-                        return Err(format!("Invalid formula: wrong arguments for function {}", func.str()))
-                    }
+                if let Some(Token::Function(_))= stack.back() {
                     rpn.push_back(stack.pop_back().unwrap());
                 }
                 return Ok(());
