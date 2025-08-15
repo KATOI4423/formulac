@@ -63,9 +63,9 @@ fn make_rpn_case_of_rparen(rpn: &mut Tokens, stack: &mut Tokens) -> Result<(), S
 /// In the Shunting-yard algorithm, commas separate function arguments.
 fn make_rpn_case_of_comma(rpn: &mut Tokens, stack: &mut Tokens) -> Result<(), String> {
     loop {
-        match stack.pop_back() {
+        match stack.back() {
             Some(Token::LParen) => return Ok(()),
-            Some(token) => rpn.push_back(token),
+            Some(_) => rpn.push_back(stack.pop_back().unwrap()),
             None => return Err("Invalid formula: Comma used, but Left Paren not found.".into()),
         }
     }
