@@ -230,8 +230,6 @@ pub fn compile<'a>(
     let mut variable_cnt: usize = 0;
 
     for token in rpn {
-        dbg!(format!("token: {:?}", token));
-        dbg!(format!("stack: {:?}", stack));
         match token {
             Token::Operator(oper)
                 => compile_case_of_operator(&mut stack, &mut func_list, oper)?,
