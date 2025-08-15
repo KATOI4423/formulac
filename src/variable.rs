@@ -9,6 +9,7 @@
 
 use num_complex::Complex;
 use std::collections::HashMap;
+use crate::token::Token;
 
 /// A collection of named variables for expression evaluation.
 ///
@@ -105,6 +106,67 @@ impl Variables {
     }
 }
 
+/// A table that stores user-defined tokens such as custom functions or constants.
+///
+/// `UserDefinedTable` allows dynamic registration and retrieval of tokens
+/// that are not part of the built-in operators, functions, or constants.
+/// This enables extending the formula parser at runtime with additional
+/// functionality defined by the user.
+///
+/// # Examples
+///
+/// ```
+/// use formulac::token::Token;
+/// use formulac::variable::UserDefinedTable;
+///
+/// // Create a new user-defined table
+/// let mut users = UserDefinedTable::new();
+///
+/// // Register a custom constant
+/// users.register("my_const", Token::Constant(num_complex::Complex::new(42.0, 0.0)));
+///
+/// // Retrieve the token
+/// if let Some(token) = users.get("my_const") {
+///     println!("Found token: {:?}", token);
+/// }
+/// ```
+///
+/// # Notes
+///
+/// - It is the caller's responsibility to ensure that user-defined tokens
+///   do not conflict with built-in names.
+/// - Only certain token types are valid for registration (`Token::Function`,
+///   `Token::Operator`, and `Token::Constant`).
+#[derive(Clone)]
+pub struct UserDefinedTable {
+    table: HashMap<String, Token>,
+}
+
+impl UserDefinedTable {
+    /// Creates an empty `UserDefinedTable`.
+    pub fn new() -> Self {
+        Self { table: HashMap::new(), }
+    }
+
+    /// Registers a new token under the given name.
+    ///
+    /// If the name already exists, the previous token is replaced and returned.
+    pub fn register(&mut self, name: &str, token: Token) -> Option<Token> {
+        self.table.insert(name.to_string(), token)
+    }
+
+    /// Retrieves a token by its name.
+    ///
+    /// Returns `Some(&Token)` if the name exists, or `None` otherwise.
+    pub fn get(&self, name: &str) -> Option<&Token> {
+        self.table.get(name)
+    }
+
+    /// Clear its table.
+    pub fn clear(&mut self) {
+        self.table.clear();
+    }
+}
 
 #[cfg(test)]
 mod tests {

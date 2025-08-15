@@ -23,15 +23,16 @@
 //! ```rust
 //! use approx::assert_abs_diff_eq;
 //! use num_complex::Complex;
-//! use formulac::variable::Variables;
+//! use formulac::variable::{Variables, UserDefinedTable};
 //! use formulac::compile;
 //!
 //! // Define available variables
+//! let mut users = UserDefinedTable::new();
 //! let mut vars = Variables::new();
 //! vars.insert(&[("a", Complex::new(3.0, 4.0))]);
 //!
 //! // Compile an expression with arguments
-//! let expr = compile("z + a * 2", &["z"], &vars).unwrap();
+//! let expr = compile("z + a * 2", &["z"], &vars, &users).unwrap();
 //!
 //! // Evaluate the compiled expression with argument a = (1 + 2i)
 //! let result = expr(&[Complex::new(1.0, 2.0)]);
@@ -45,16 +46,16 @@
 //! 3. The RPN sequence is compiled into a closure operating on a stack of `Complex<f64>` values.
 //! 4. The resulting closure can be called repeatedly with different arguments for fast evaluation.
 
-mod token;
+pub mod token;
 mod rpn;
 pub mod variable;
 
 use std::collections::VecDeque;
 
 use num_complex::Complex;
-use crate::token::{Token, Operator, Function};
+use crate::token::{Function, Operator, Token};
 use crate::rpn::make_rpn;
-use crate::variable::Variables;
+use crate::variable::{Variables, UserDefinedTable};
 
 type Stack = VecDeque<Complex<f64>>;
 type FuncList = VecDeque<Box<dyn Fn(&mut Stack, &[Complex<f64>])>>;
@@ -201,13 +202,14 @@ fn make_function(func_list: FuncList) -> impl Fn(&[Complex<f64>]) -> Complex<f64
 /// ```
 /// use approx::assert_abs_diff_eq;
 /// use num_complex::Complex;
-/// use formulac::variable::Variables;
+/// use formulac::variable::{Variables, UserDefinedTable};
 /// use formulac::compile;
 ///
+/// let mut users = UserDefinedTable::new();
 /// let mut vars = Variables::new();
 /// vars.insert(&[("c", Complex::new(0.5, 0.3))]);
 ///
-/// let expr = compile("z^2 + c", &["z"], &vars).unwrap();
+/// let expr = compile("z^2 + c", &["z"], &vars, &users).unwrap();
 /// let result = expr(&[Complex::new(0.3, -0.1)]);
 /// assert_abs_diff_eq!(result.re, 0.58, epsilon = 1.0e-10);
 /// assert_abs_diff_eq!(result.im, 0.24, epsilon = 1.0e-10);
@@ -215,10 +217,11 @@ fn make_function(func_list: FuncList) -> impl Fn(&[Complex<f64>]) -> Complex<f64
 pub fn compile<'a>(
     formula: &str,
     args: &[&str],
-    vars: &'a Variables
+    vars: &'a Variables,
+    users: &'a UserDefinedTable,
 ) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + 'a, String>
 {
-    let rpn = make_rpn(formula, args, vars)?;
+    let rpn = make_rpn(formula, args, vars, users)?;
     let mut func_list: FuncList = VecDeque::new();
     let mut stack: Stack = VecDeque::new();
 
@@ -261,30 +264,31 @@ mod tests {
     use super::*;
     use num_complex::Complex;
     use approx::assert_abs_diff_eq;
-    use crate::variable::Variables;
+    use crate::{variable::{UserDefinedTable, Variables}};
 
     #[test]
     fn test_compile_basic_operations() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
         // Addition
-        let expr = compile("1 + 2", &[], &vars).unwrap();
+        let expr = compile("1 + 2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 3.0, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
 
         // Subtraction
-        let expr = compile("5 - 2", &[], &vars).unwrap();
+        let expr = compile("5 - 2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 3.0, epsilon = 1e-12);
 
         // Multiplication
-        let expr = compile("3 * 4", &[], &vars).unwrap();
+        let expr = compile("3 * 4", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 12.0, epsilon = 1e-12);
 
         // Division
-        let expr = compile("10 / 2", &[], &vars).unwrap();
+        let expr = compile("10 / 2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 5.0, epsilon = 1e-12);
     }
@@ -292,15 +296,16 @@ mod tests {
     #[test]
     fn test_compile_complex_numbers() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
         // Real + imaginary
-        let expr = compile("1 + 2i", &[], &vars).unwrap();
+        let expr = compile("1 + 2i", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 1.0, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, 2.0, epsilon = 1e-12);
 
         // Imaginary squared
-        let expr = compile("i * i", &[], &vars).unwrap();
+        let expr = compile("i * i", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, -1.0, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
@@ -309,8 +314,9 @@ mod tests {
     fn test_compile_with_variables_and_arguments() {
         let mut vars = Variables::new();
         vars.insert(&[("a", Complex::new(2.0, 3.0))]);
+        let users = UserDefinedTable::new();
 
-        let expr = compile("a + x", &["x"], &vars).unwrap();
+        let expr = compile("a + x", &["x"], &vars, &users).unwrap();
         let result = expr(&[Complex::new(1.0, -1.0)]);
         assert_abs_diff_eq!(result.re, 3.0, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, 2.0, epsilon = 1e-12);
@@ -319,17 +325,18 @@ mod tests {
     #[test]
     fn test_compile_functions() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
         // Using built-in functions like sin, cos if supported
-        let expr = compile("sin(0)", &[], &vars).unwrap();
+        let expr = compile("sin(0)", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 0.0, epsilon = 1e-12);
 
-        let expr = compile("cos(0)", &[], &vars).unwrap();
+        let expr = compile("cos(0)", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 1.0, epsilon = 1e-12);
 
-        let expr = compile("1 / (1 - exp(1 - sin(x)))", &["x"], &vars).unwrap();
+        let expr = compile("1 / (1 - exp(1 - sin(x)))", &["x"], &vars, &users).unwrap();
         let result = expr(&[Complex { re: -0.5, im: 0.3 }]);
         assert_abs_diff_eq!(result.re, -0.266700693598727612, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, -0.094963820662336543, epsilon = 1e-12);
@@ -338,14 +345,15 @@ mod tests {
     #[test]
     fn test_compile_operator_precedence() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
         // Multiplication before addition
-        let expr = compile("1 + 2 * 3", &[], &vars).unwrap();
+        let expr = compile("1 + 2 * 3", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 7.0, epsilon = 1e-12);
 
         // Parentheses override precedence
-        let expr = compile("(1 + 2) * 3", &[], &vars).unwrap();
+        let expr = compile("(1 + 2) * 3", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 9.0, epsilon = 1e-12);
     }
@@ -353,12 +361,13 @@ mod tests {
     #[test]
     fn test_compile_negative_numbers() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
-        let expr = compile("-3 + 2", &[], &vars).unwrap();
+        let expr = compile("-3 + 2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, -1.0, epsilon = 1e-12);
 
-        let expr = compile("4 * -2", &[], &vars).unwrap();
+        let expr = compile("4 * -2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, -8.0, epsilon = 1e-12);
     }
@@ -366,19 +375,106 @@ mod tests {
     #[test]
     fn test_compile_errors() {
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
 
         // Missing operand
-        let err = match compile("1 +", &[], &vars) {
+        let err = match compile("1 +", &[], &vars, &users) {
             Ok(_) => panic!("Expected error, got Ok"),
             Err(e) => e,
         };
         assert!(err.contains("missing number of argument"));
 
         // Unknown variable
-        let err = match compile("x + 1", &[], &vars) {
+        let err = match compile("x + 1", &[], &vars, &users) {
             Ok(_) => panic!("Expected error, got Ok"),
             Err(e) => e,
         };
         assert!(err.contains("Unknown string"));
+    }
+
+    #[test]
+    fn test_user_defined_function_compile() {
+        let mut users = UserDefinedTable::new();
+
+        // Define a user function: g(x) = x^2
+        let g_token = Token::Function(Function::new(
+            |args| args[0] * args[0],
+            1,
+            "g",
+        ));
+        users.register("g", g_token.clone());
+
+        let vars = Variables::new();
+
+        // Compile formula using user-defined function
+        let func = compile("g(3)", &[], &vars, &users).unwrap();
+
+        let result = func(&[]);
+        assert_abs_diff_eq!(result.re, 9.0, epsilon = 1e-12);
+        assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_user_defined_function_with_argument() {
+        let mut users = UserDefinedTable::new();
+
+        // h(x) = x^2 + 1
+        users.register("h", Token::Function(Function::new(
+            |args| args[0] * args[0] + Complex::new(1.0, 0.0),
+            1,
+            "h",
+        )));
+
+        let mut vars = Variables::new();
+        vars.insert(&[("y", Complex::new(2.0, 0.0))]);
+
+        // Use variable in user function: h(y) = 5
+        let func = compile("h(y)", &["y"], &vars, &users).unwrap();
+        let result = func(&[Complex::new(2.0, 0.0)]);
+        assert_abs_diff_eq!(result.re, 5.0, epsilon = 1e-12);
+        assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
+    }
+
+    #[test]
+    fn test_user_defined_function_error() {
+        let mut users = UserDefinedTable::new();
+        // Define 1-arg function
+        users.register("f", Token::Function(Function::new(
+            |args| args[0] + Complex::new(1.0, 0.0),
+            1,
+            "f",
+        )));
+
+        let vars = Variables::new();
+
+        // Too many arguments should error
+        let compile_err = compile("f(1,2)", &[], &vars, &users);
+        assert!(compile_err.is_err());
+    }
+
+    #[test]
+    fn test_user_defined_function_nested() {
+        let mut users = UserDefinedTable::new();
+
+        // f(x) = x + 1
+        users.register("f", Token::Function(Function::new(
+            |args| args[0] + Complex::new(1.0, 0.0),
+            1,
+            "f",
+        )));
+        // g(x) = x * 2
+        users.register("g", Token::Function(Function::new(
+            |args| args[0] * Complex::new(2.0, 0.0),
+            1,
+            "g",
+        )));
+
+        let vars = Variables::new();
+
+        // Test nested call: f(g(3)) = f(6) = 7
+        let func = compile("f(g(3))", &[], &vars, &users).unwrap();
+        let result = func(&[]);
+        assert_abs_diff_eq!(result.re, 7.0, epsilon = 1e-12);
+        assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
     }
 }

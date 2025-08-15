@@ -5,7 +5,7 @@
 //! commas (for function arguments), and operator precedence/associativity.
 
 use crate::token::{divide_to_tokens, Operator, Token, Tokens};
-use crate::variable::Variables;
+use crate::variable::{Variables, UserDefinedTable};
 
 /// Handles the case when a right parenthesis `)` is encountered.
 ///
@@ -110,6 +110,7 @@ fn make_rpn_case_of_operator(oper: Operator, rpn: &mut Tokens, stack: &mut Token
 /// * `formula` - The mathematical expression in infix notation.
 /// * `args` - A list of argument names for functions.
 /// * `vars` - The variable table containing predefined variables and values.
+/// * `users` - The list of user defined tokens table.
 ///
 /// # Returns
 ///
@@ -117,8 +118,8 @@ fn make_rpn_case_of_operator(oper: Operator, rpn: &mut Tokens, stack: &mut Token
 /// * `Err(String)` - If the formula contains syntax errors (e.g., mismatched parentheses).
 ///
 /// # Example
-pub fn make_rpn(formula: &str, args: &[&str], vars: &Variables) -> Result<Tokens, String> {
-    let mut tokens = divide_to_tokens(formula, args, vars)?;
+pub fn make_rpn(formula: &str, args: &[&str], vars: &Variables, users: &UserDefinedTable) -> Result<Tokens, String> {
+    let mut tokens = divide_to_tokens(formula, args, vars, users)?;
     let mut rpn = Tokens::new();
     let mut stack = Tokens::new();
 
@@ -169,7 +170,7 @@ mod tests {
         vars.insert(&[("a", Complex::new(1.0, 0.0))]);
 
         // Test 1: simple arithmetic
-        let rpn = make_rpn("3 + 4 * 2", &[], &vars).unwrap();
+        let rpn = make_rpn("3 + 4 * 2", &[], &vars, &UserDefinedTable::new()).unwrap();
         let expected = vec![
             Token::Real(Complex::new(3.0, 0.0)),
             Token::Real(Complex::new(4.0, 0.0)),
@@ -183,7 +184,7 @@ mod tests {
         }
 
         // Test 2: function with argument
-        let rpn = make_rpn("sin(a)", &["a"], &vars).unwrap();
+        let rpn = make_rpn("sin(a)", &["a"], &vars, &UserDefinedTable::new()).unwrap();
         assert_eq!(rpn.len(), 2);
         match &rpn[0] {
             Token::Variable(_) => {},
@@ -195,7 +196,7 @@ mod tests {
         }
 
         // Test 3: nested functions and parentheses
-        let rpn = make_rpn("cos(1 + a)", &["a"], &vars).unwrap();
+        let rpn = make_rpn("cos(1 + a)", &["a"], &vars, &UserDefinedTable::new()).unwrap();
         assert_eq!(rpn.len(), 4);
         // rpn[0]: Real(1.0), rpn[1]: Variable(a), rpn[2]: Operator(+), rpn[3]: Function(cos)
     }
@@ -205,24 +206,45 @@ mod tests {
         let vars = Variables::new();
 
         // unmatched right parenthesis
-        let err = make_rpn("1 + )", &[], &vars).unwrap_err();
+        let err = make_rpn("1 + )", &[], &vars, &UserDefinedTable::new()).unwrap_err();
         assert!(err.contains("Right Paren used, but Left Paren not found"));
 
         // unmatched left parenthesis
-        let err = make_rpn("(1 + 2", &[], &vars).unwrap_err();
+        let err = make_rpn("(1 + 2", &[], &vars, &UserDefinedTable::new()).unwrap_err();
         assert!(err.contains("wrong arguments for function") || err.contains("Mismatched parentheses"));
     }
 
     #[test]
     fn test_make_rpn_nested_functions() {
         // cos(sin(x)) -> RPN: x sin cos
-        let rpn = make_rpn("cos(sin(x))", &["x"], &Variables::new()).unwrap();
+        let rpn = make_rpn("cos(sin(x))", &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
 
         // Expected RPN token sequence
         let expected = VecDeque::from([
             Token::Argument(0),
             Token::Function(Function::new(|args| args[0].sin(), 1, "sin")),
             Token::Function(Function::new(|args| args[0].cos(), 1, "cos")),
+        ]);
+
+        assert_eq!(rpn, expected, "RPN output does not match expected sequence");
+    }
+
+    #[test]
+    fn test_user_defined_function_rpn() {
+        let mut users = UserDefinedTable::new();
+        let f_token = Token::Function(Function::new(
+            |args| args[0] * Complex::new(2.0, 0.0),
+            1,
+            "double",
+        ));
+        users.register("double", f_token.clone());
+
+        let vars = Variables::new();
+
+        let rpn = make_rpn("double(3)", &[], &vars, &users).unwrap();
+        let expected = VecDeque::from([
+            Token::Real(Complex::from(3.0)),
+            f_token,
         ]);
 
         assert_eq!(rpn, expected, "RPN output does not match expected sequence");
