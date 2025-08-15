@@ -14,3 +14,6 @@ categories = ["parsing", "science", "mathematics"]
 num-complex = "0.4.6"
 phf = "0.12.1"
 phf_macros = "0.12.1"
+
+[dev-dependencies]
+approx = "0.5.1"
