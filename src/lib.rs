@@ -109,7 +109,6 @@ fn compile_case_of_operator(stack: &mut Stack, func_list: &mut FuncList, oper: O
 /// # Arguments
 /// * `stack` - The current compilation-time stack used for validation.
 /// * `func_list` - The list of compiled closures representing stack operations.
-/// * `variable_cnt` - The number of variables currently on the stack; updated after consuming arguments.
 /// * `func` - The function to compile.
 ///
 /// # Errors
@@ -119,17 +118,12 @@ fn compile_case_of_operator(stack: &mut Stack, func_list: &mut FuncList, oper: O
 /// ```
 /// // Called internally by `compile` when encountering a user-defined or built-in function.
 /// ```
-fn compile_case_of_function(stack: &mut Stack, func_list: &mut FuncList, variable_cnt: &mut usize, func: Function) -> Result<(), String> {
+fn compile_case_of_function(stack: &mut Stack, func_list: &mut FuncList, func: Function) -> Result<(), String> {
     let stack_len = stack.len();
     let args_num = func.args_num() as usize;
 
     if stack_len < args_num {
-        return Err("Invalid formula: missing number of argument for function".into());
-    }
-    if let Some(cnt) = variable_cnt.checked_sub(args_num) {
-        *variable_cnt = cnt;
-    } else {
-        return Err("Invalid formula: missing number of argument for function".into());
+        return Err(format!("Invalid formula: missing number of argument for function {}", func.str()));
     }
     func_list.push_back(Box::new(
         move |stack, _| {
@@ -227,14 +221,13 @@ pub fn compile<'a>(
     let rpn = make_rpn(formula, args, vars)?;
     let mut func_list: FuncList = VecDeque::new();
     let mut stack: Stack = VecDeque::new();
-    let mut variable_cnt: usize = 0;
 
     for token in rpn {
         match token {
             Token::Operator(oper)
                 => compile_case_of_operator(&mut stack, &mut func_list, oper)?,
             Token::Function(func)
-                => compile_case_of_function(&mut stack, &mut func_list, &mut variable_cnt, func)?,
+                => compile_case_of_function(&mut stack, &mut func_list, func)?,
             Token::Variable(v) |
             Token::Constant(v) |
             Token::Real(v) |
@@ -253,7 +246,11 @@ pub fn compile<'a>(
             Token::LParen | Token::RParen | Token::Comma
                 => return Err(format!("make_rpn returns invalid token list: it includes {:?}", token)),
         }
-        variable_cnt += 1;
+    }
+
+    if stack.len() != 1 {
+        // the result is pushed as the last element
+        return Err(format!("Invalid formula: too many token"));
     }
 
     Ok(make_function(func_list))
