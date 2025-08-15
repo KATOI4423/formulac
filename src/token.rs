@@ -433,29 +433,25 @@ pub fn divide_to_tokens(formula: &str, args: &[&str], vars: &Variables) -> Resul
 mod tests {
     use super::*;
 
-    fn tokens_to_debug_str(tokens: &Tokens) -> Vec<String> {
-        tokens.iter().map(|t| format!("{:?}", t)).collect()
-    }
-
     #[test]
     fn test_single_constant() {
         let tokens = divide_to_tokens("E", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Constant(std::f64::consts::E.into())]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
     fn test_single_operator() {
         let tokens = divide_to_tokens("+", &[], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Operator(OPERATORS.get("+").unwrap().clone())]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
     fn test_argument_lockup() {
         let tokens = divide_to_tokens("y", &["y"], &Variables::new()).unwrap();
         let expected = VecDeque::from([Token::Argument(0)]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -467,7 +463,18 @@ mod tests {
             Token::Constant(CONSTANTS.get("PI").unwrap().clone()),
             Token::RParen,
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn test_function_no_argument() {
+        let tokens = divide_to_tokens("sin()", &[], &Variables::new()).unwrap();
+        let expected = VecDeque::from([
+            Token::Function(FUNCTIONS.get("sin").unwrap().clone()),
+            Token::LParen,
+            Token::RParen,
+        ]);
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -478,7 +485,7 @@ mod tests {
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
             Token::Argument(1),
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -495,7 +502,7 @@ mod tests {
             Token::Comma,
             Token::RParen,
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -507,7 +514,7 @@ mod tests {
             Token::Argument(0),
             Token::RParen,
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens),tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -516,7 +523,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Real(Complex { re: 6.28, im: 0.0 })
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -525,7 +532,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Real(Complex { re: -3.5, im: 0.0 })
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -534,7 +541,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Real(Complex { re: 1.0E+04, im: 0.0 })
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -549,7 +556,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Imaginary(Complex { re: 0.0, im: 1.5 })
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -558,7 +565,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Imaginary(Complex { re: 0.0, im: 1.0 })
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]
@@ -567,7 +574,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Variable(Complex::from(3.0))
         ]);
-        assert_eq!(tokens_to_debug_str(&tokens), tokens_to_debug_str(&expected));
+        assert_eq!(tokens, expected);
     }
 
     #[test]

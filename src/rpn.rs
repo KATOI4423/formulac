@@ -159,7 +159,9 @@ pub fn make_rpn(formula: &str, args: &[&str], vars: &Variables) -> Result<Tokens
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::token::Function;
     use num_complex::Complex;
+    use std::collections::VecDeque;
 
     #[test]
     fn test_make_rpn_basic() {
@@ -209,5 +211,20 @@ mod tests {
         // unmatched left parenthesis
         let err = make_rpn("(1 + 2", &[], &vars).unwrap_err();
         assert!(err.contains("wrong arguments for function") || err.contains("Mismatched parentheses"));
+    }
+
+    #[test]
+    fn test_make_rpn_nested_functions() {
+        // cos(sin(x)) -> RPN: x sin cos
+        let rpn = make_rpn("cos(sin(x))", &["x"], &Variables::new()).unwrap();
+
+        // Expected RPN token sequence
+        let expected = VecDeque::from([
+            Token::Argument(0),
+            Token::Function(Function::new(|args| args[0].sin(), 1, "sin")),
+            Token::Function(Function::new(|args| args[0].cos(), 1, "cos")),
+        ]);
+
+        assert_eq!(rpn, expected, "RPN output does not match expected sequence");
     }
 }
