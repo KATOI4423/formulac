@@ -333,6 +333,11 @@ mod tests {
         let expr = compile("cos(0)", &[], &vars).unwrap();
         let result = expr(&[]);
         assert_abs_diff_eq!(result.re, 1.0, epsilon = 1e-12);
+
+        let expr = compile("1 / (1 - exp(1 - sin(x)))", &["x"], &vars).unwrap();
+        let result = expr(&[Complex { re: -0.5, im: 0.3 }]);
+        assert_abs_diff_eq!(result.re, -0.266700693598727612, epsilon = 1e-12);
+        assert_abs_diff_eq!(result.im, -0.094963820662336543, epsilon = 1e-12);
     }
 
     #[test]
