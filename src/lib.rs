@@ -23,6 +23,7 @@
 //! ```rust
 //! use approx::assert_abs_diff_eq;
 //! use num_complex::Complex;
+//! use formulac::token::{Token, Function};
 //! use formulac::variable::{Variables, UserDefinedTable};
 //! use formulac::compile;
 //!
@@ -39,6 +40,26 @@
 //! let result = expr(&[z]);
 //! assert_abs_diff_eq!(result.re, 7.0, epsilon = 1.0e-10);
 //! assert_abs_diff_eq!(result.im, 10.0, epsilon = 1.0e-10);
+//!
+//! // Evaluate the compiled expression with argument z = (2 - 1i)
+//! let z = Complex::new(2.0, -1.0);
+//! let result = expr(&[z]);
+//! assert_abs_diff_eq!(result.re, 8.0, epsilon = 1.0e-10);
+//! assert_abs_diff_eq!(result.im, 7.0, epsilon = 1.0e-10);
+//!
+//! // Use your original function func(z) = z^2 + (3 + 4i)
+//! let f = Token::Function(Function::new(
+//!     | args | args[0] * args[0] + Complex{ re: 3.0, im: 4.0 },
+//!     1,
+//!     "func",
+//! ));
+//! users.register("func", f);
+//!
+//! // Evaluate the compiled expression with argument z = (2 - 1i)
+//! let expr = compile("func(z)", &["z"], &vars, &users).unwrap();
+//! let result = expr(&[z]);
+//! assert_abs_diff_eq!(result.re, 6.0, epsilon = 1.0e-10);
+//! assert_abs_diff_eq!(result.im, 0.0, epsilon = 1.0e-10);
 //! ```
 //!
 //! ## How it works
