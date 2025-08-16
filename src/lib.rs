@@ -219,7 +219,7 @@ pub fn compile<'a>(
     formula: &str,
     args: &[&str],
     vars: &'a Variables,
-    users: &'a UserDefinedTable,
+    users: &UserDefinedTable,
 ) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + 'a, String>
 {
     let rpn = make_rpn(formula, args, vars, users)?;
