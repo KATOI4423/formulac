@@ -125,11 +125,8 @@ pub fn make_rpn(formula: &str, args: &[&str], vars: &Variables, users: &UserDefi
 
     while let Some(token) = tokens.pop_front() {
         match token {
-            Token::Variable(_) |
-            Token::Argument(_) |
-            Token::Constant(_) |
-            Token::Real(_) |
-            Token::Imaginary(_)
+            Token::Number(_) |
+            Token::Argument(_)
                 => rpn.push_back(token),
 
             Token::Function(_) |
@@ -172,9 +169,9 @@ mod tests {
         // Test 1: simple arithmetic
         let rpn = make_rpn("3 + 4 * 2", &[], &vars, &UserDefinedTable::new()).unwrap();
         let expected = vec![
-            Token::Real(Complex::new(3.0, 0.0)),
-            Token::Real(Complex::new(4.0, 0.0)),
-            Token::Real(Complex::new(2.0, 0.0)),
+            Token::Number(Complex::new(3.0, 0.0)),
+            Token::Number(Complex::new(4.0, 0.0)),
+            Token::Number(Complex::new(2.0, 0.0)),
             Token::Operator(Operator::new(|args| args[0] * args[1], 1, true, "*")),
             Token::Operator(Operator::new(|args| args[0] + args[1], 0, true, "+")),
         ];
@@ -187,7 +184,7 @@ mod tests {
         let rpn = make_rpn("sin(a)", &["a"], &vars, &UserDefinedTable::new()).unwrap();
         assert_eq!(rpn.len(), 2);
         match &rpn[0] {
-            Token::Variable(_) => {},
+            Token::Number(_) => {},
             _ => panic!("Expected Variable token"),
         }
         match &rpn[1] {
@@ -243,7 +240,7 @@ mod tests {
 
         let rpn = make_rpn("double(3)", &[], &vars, &users).unwrap();
         let expected = VecDeque::from([
-            Token::Real(Complex::from(3.0)),
+            Token::Number(Complex::from(3.0)),
             f_token,
         ]);
 

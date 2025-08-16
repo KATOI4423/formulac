@@ -123,7 +123,7 @@ impl Variables {
 /// let mut users = UserDefinedTable::new();
 ///
 /// // Register a custom constant
-/// users.register("my_const", Token::Constant(num_complex::Complex::new(42.0, 0.0)));
+/// users.register("my_const", Token::Number(num_complex::Complex::new(42.0, 0.0)));
 ///
 /// // Retrieve the token
 /// if let Some(token) = users.get("my_const") {

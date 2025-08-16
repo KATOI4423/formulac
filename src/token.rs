@@ -153,24 +153,17 @@ impl PartialEq for Function {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token
 {
-    /// Variable token holding the resolved value.
+    /// Numerical value token holding the resolved value.
     ///
-    /// User-defined variable with external value resolved at parse time.
-    Variable(Complex<f64>),
+    /// - User-defined variable with external value resolved at parse time.
+    /// - Constant token for predefined mathematical constants.
+    /// - Real or Imaginary number token.
+    Number(Complex<f64>),
 
     /// Function argument token by position index.
     ///
     /// Represents an argument index in the function's parameter list.
     Argument(usize),
-
-    /// Constant token for predefined mathematical constants.
-    Constant(Complex<f64>),
-
-    /// Real number token.
-    Real(Complex<f64>),
-
-    /// Imaginary number token.
-    Imaginary(Complex<f64>),
 
     /// Operator token.
     Operator(Operator),
@@ -322,11 +315,11 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
     }
 
     if let Some(constant) = CONSTANTS.get(str) {
-        return Ok(Token::Constant(*constant));
+        return Ok(Token::Number(*constant));
     }
 
     if let Some(variable) = vars.get(str) {
-        return Ok(Token::Variable(*variable))
+        return Ok(Token::Number(*variable))
     }
 
     if let Some(position) = args.iter().position(|&val| val == str) {
@@ -335,14 +328,11 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
 
     if let Some(token) = users.get(str) {
         match token {
-            Token::Constant(_) |
+            Token::Number(_) |
             Token::Operator(_) |
             Token::Function(_)
                 => return Ok(token.clone()),
-            Token::Variable(_) |
             Token::Argument(_) |
-            Token::Real(_) |
-            Token::Imaginary(_) |
             Token::LParen | Token::RParen | Token::Comma
                 => return Err(format!("Invaild user defined token: {:?}", token)),
         }
@@ -358,16 +348,16 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
     if str.ends_with(IMAGINARY_UNIT) {
         let num_part =  &str[..(str.len() - IMAGINARY_UNIT.len())];
         if let Ok(val) = num_part.parse::<f64>() {
-            return Ok(Token::Imaginary(Complex { re: 0.0, im: val }));
+            return Ok(Token::Number(Complex { re: 0.0, im: val }));
         }
         if num_part.is_empty() {
             // Imaginary unit only
-            return Ok(Token::Imaginary(Complex { re: 0.0, im: 1.0 }));
+            return Ok(Token::Number(Complex { re: 0.0, im: 1.0 }));
         }
     }
 
     if let Ok(val) = str.parse::<f64>() {
-        return Ok(Token::Real(Complex { re: val, im: 0.0 }));
+        return Ok(Token::Number(Complex { re: val, im: 0.0 }));
     }
 
     return Err(format!("Unknown string \"{}\"", str));
@@ -437,8 +427,7 @@ pub fn divide_to_tokens(formula: &str, args: &[&str], vars: &Variables, users: &
         let token_str = &formula[start_idx..end_idx];
         let token = make_token(token_str, args, vars, users)?;
         prev_is_value = matches!(token,
-            Token::Real(_) | Token::Imaginary(_) | Token::Variable(_) | Token::Constant(_)
-            | Token::Argument(_) | Token::RParen
+            Token::Number(_) | Token::Argument(_) | Token::RParen
         );
         tokens.push_back(token);
     }
@@ -453,7 +442,7 @@ mod tests {
     #[test]
     fn test_single_constant() {
         let tokens = divide_to_tokens("E", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
-        let expected = VecDeque::from([Token::Constant(std::f64::consts::E.into())]);
+        let expected = VecDeque::from([Token::Number(std::f64::consts::E.into())]);
         assert_eq!(tokens, expected);
     }
 
@@ -477,7 +466,7 @@ mod tests {
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("sin").unwrap().clone()),
             Token::LParen,
-            Token::Constant(CONSTANTS.get("PI").unwrap().clone()),
+            Token::Number(CONSTANTS.get("PI").unwrap().clone()),
             Token::RParen,
         ]);
         assert_eq!(tokens, expected);
@@ -538,7 +527,7 @@ mod tests {
     fn test_real() {
         let tokens = divide_to_tokens("6.28", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Real(Complex { re: 6.28, im: 0.0 })
+            Token::Number(Complex { re: 6.28, im: 0.0 })
         ]);
         assert_eq!(tokens, expected);
     }
@@ -547,7 +536,7 @@ mod tests {
     fn test_unary_operator() {
         let tokens = divide_to_tokens("-3.5", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Real(Complex { re: -3.5, im: 0.0 })
+            Token::Number(Complex { re: -3.5, im: 0.0 })
         ]);
         assert_eq!(tokens, expected);
     }
@@ -556,7 +545,7 @@ mod tests {
     fn test_scientific_notation() {
         let tokens = divide_to_tokens("1.0e+4", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Real(Complex { re: 1.0E+04, im: 0.0 })
+            Token::Number(Complex { re: 1.0E+04, im: 0.0 })
         ]);
         assert_eq!(tokens, expected);
     }
@@ -571,7 +560,7 @@ mod tests {
     fn test_imaginary() {
         let tokens = divide_to_tokens("1.5i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Imaginary(Complex { re: 0.0, im: 1.5 })
+            Token::Number(Complex { re: 0.0, im: 1.5 })
         ]);
         assert_eq!(tokens, expected);
     }
@@ -580,7 +569,7 @@ mod tests {
     fn test_imaginary_unit() {
         let tokens = divide_to_tokens("i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Imaginary(Complex { re: 0.0, im: 1.0 })
+            Token::Number(Complex { re: 0.0, im: 1.0 })
         ]);
         assert_eq!(tokens, expected);
     }
@@ -589,7 +578,7 @@ mod tests {
     fn test_variable() {
         let tokens = divide_to_tokens("a", &[], &Variables::from(&[("a", 3.0)]), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Variable(Complex::from(3.0))
+            Token::Number(Complex::from(3.0))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -598,9 +587,9 @@ mod tests {
     fn test_e() {
         let tokens = divide_to_tokens("1e+5 + E", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Real(Complex { re: 1.0e5, im: 0.0 }),
+            Token::Number(Complex { re: 1.0e5, im: 0.0 }),
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
-            Token::Constant(CONSTANTS.get("E").unwrap().clone()),
+            Token::Number(CONSTANTS.get("E").unwrap().clone()),
         ]);
         assert_eq!(tokens, expected);
     }
@@ -633,7 +622,7 @@ mod tests {
         // Expect: [Token::Real(2.0), Token::Function(f)]
         assert_eq!(tokens.len(), 4); // "f", "(", "2", ")"
         assert_eq!(tokens, VecDeque::from([
-            f_token, Token::LParen, Token::Real(Complex::from(2.0)), Token::RParen,
+            f_token, Token::LParen, Token::Number(Complex::from(2.0)), Token::RParen,
         ]));
     }
 }

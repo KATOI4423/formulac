@@ -253,10 +253,7 @@ pub fn compile<'a>(
                 => compile_case_of_operator(&mut stack, &mut func_list, oper)?,
             Token::Function(func)
                 => compile_case_of_function(&mut stack, &mut func_list, func)?,
-            Token::Variable(v) |
-            Token::Constant(v) |
-            Token::Real(v) |
-            Token::Imaginary(v) => {
+            Token::Number(v) => {
                 stack.push_back(v);
                 func_list.push_back(Box::new(
                     move |stack, _| stack.push_back(v)
