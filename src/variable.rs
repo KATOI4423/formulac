@@ -3,7 +3,7 @@
 //! This module provides the `Variables` struct, which manages a table of named
 //! variables used in mathematical expressions.
 //!
-//! Each variable is stored as a `Complex<f64>` (typically `Complex<f64>`), allowing
+//! Each variable is stored as a `Complex<f64>`, allowing
 //! both real and complex values to be represented. The module provides convenient
 //! methods to insert, retrieve, check, and clear variables.
 
