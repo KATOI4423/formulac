@@ -440,28 +440,28 @@ mod tests {
 
     #[test]
     fn test_single_constant() {
-        let tokens = divide_to_tokens("E", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("E", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([Token::Number(std::f64::consts::E.into())]);
         assert_eq!(tokens, expected);
     }
 
     #[test]
     fn test_single_operator() {
-        let tokens = divide_to_tokens("+", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("+", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([Token::Operator(OPERATORS.get("+").unwrap().clone())]);
         assert_eq!(tokens, expected);
     }
 
     #[test]
     fn test_argument_lockup() {
-        let tokens = divide_to_tokens("y", &["y"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("y", &["y"], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([Token::Argument(0)]);
         assert_eq!(tokens, expected);
     }
 
     #[test]
     fn test_function_call() {
-        let tokens = divide_to_tokens("sin(PI)", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("sin(PI)", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("sin").unwrap().clone()),
             Token::LParen,
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_function_no_argument() {
-        let tokens = divide_to_tokens("sin()", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("sin()", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("sin").unwrap().clone()),
             Token::LParen,
@@ -484,7 +484,7 @@ mod tests {
 
     #[test]
     fn test_multiple_argument() {
-        let tokens = divide_to_tokens("x + y", &["x", "y"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("x + y", &["x", "y"], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Argument(0),
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
@@ -495,13 +495,13 @@ mod tests {
 
     #[test]
     fn test_unknown_token_error() {
-        let err = divide_to_tokens("abc123", &[], &Variables::new(), &UserDefinedTable::new()).unwrap_err();
+        let err = divide_to_tokens("abc123", &[], &Variables::default(), &UserDefinedTable::default()).unwrap_err();
         assert_eq!(err, "Unknown string \"abc\"");
     }
 
     #[test]
     fn test_parentheses_and_comma() {
-        let tokens = divide_to_tokens("(,)", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("(,)", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::LParen,
             Token::Comma,
@@ -512,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_whitespace() {
-        let tokens = divide_to_tokens("ln (\tx\t)", &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("ln (\tx\t)", &["x"], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Function(FUNCTIONS.get("ln").unwrap().clone()),
             Token::LParen,
@@ -524,7 +524,7 @@ mod tests {
 
     #[test]
     fn test_real() {
-        let tokens = divide_to_tokens("6.28", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("6.28", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(6.28, 0.0))
         ]);
@@ -533,7 +533,7 @@ mod tests {
 
     #[test]
     fn test_unary_operator() {
-        let tokens = divide_to_tokens("-3.5", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("-3.5", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(-3.5, 0.0))
         ]);
@@ -542,7 +542,7 @@ mod tests {
 
     #[test]
     fn test_scientific_notation() {
-        let tokens = divide_to_tokens("1.0e+4", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("1.0e+4", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(1.0E+04, 0.0))
         ]);
@@ -551,13 +551,13 @@ mod tests {
 
     #[test]
     fn test_start_with_period() {
-        let err = divide_to_tokens(".5", &[], &Variables::new(), &UserDefinedTable::new()).unwrap_err();
+        let err = divide_to_tokens(".5", &[], &Variables::default(), &UserDefinedTable::default()).unwrap_err();
         assert_eq!(err, "Unknown string \".\"");
     }
 
     #[test]
     fn test_imaginary() {
-        let tokens = divide_to_tokens("1.5i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("1.5i", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(0.0, 1.5))
         ]);
@@ -566,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_imaginary_unit() {
-        let tokens = divide_to_tokens("i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("i", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(0.0, 1.0))
         ]);
@@ -575,7 +575,7 @@ mod tests {
 
     #[test]
     fn test_variable() {
-        let tokens = divide_to_tokens("a", &[], &Variables::from(&[("a", 3.0)]), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("a", &[], &Variables::from(&[("a", 3.0)]), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::from(3.0))
         ]);
@@ -584,7 +584,7 @@ mod tests {
 
     #[test]
     fn test_e() {
-        let tokens = divide_to_tokens("1e+5 + E", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let tokens = divide_to_tokens("1e+5 + E", &[], &Variables::default(), &UserDefinedTable::default()).unwrap();
         let expected = VecDeque::from([
             Token::Number(Complex::new(1.0e5, 0.0)),
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
@@ -595,14 +595,14 @@ mod tests {
 
     #[test]
     fn test_multibyte_token_boundary() {
-        let err = divide_to_tokens("あ123", &[], &Variables::new(), &UserDefinedTable::new()).unwrap_err();
+        let err = divide_to_tokens("あ123", &[], &Variables::default(), &UserDefinedTable::default()).unwrap_err();
         assert_eq!(err, "Unknown string \"あ\"");
     }
 
     #[test]
     fn test_user_defined_function_basic() {
         // Prepare user-defined function table
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
 
         // Define a simple 1-argument function: f(x) = x + 1
         let f_token = Token::Function(Function::new(
@@ -613,7 +613,7 @@ mod tests {
 
         users.register("f", f_token.clone());
 
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         // Tokenize formula using user-defined function
         let tokens = divide_to_tokens("f(2)", &[], &vars, &users).unwrap();

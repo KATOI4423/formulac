@@ -22,7 +22,7 @@ use crate::token::Token;
 /// use formulac::variable::Variables;
 /// use num_complex::Complex;
 ///
-/// let mut vars = Variables::new();
+/// let mut vars = Variables::default();
 /// vars.insert(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
 ///
 /// assert!(vars.contains("x"));
@@ -73,7 +73,7 @@ impl Variables {
     /// use formulac::variable::Variables;
     /// use num_complex::Complex;
     ///
-    /// let mut vars = Variables::new();
+    /// let mut vars = Variables::default();
     /// vars.insert(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
     /// ```
     pub fn insert<V>(&mut self, items: &[(&str, V)])
@@ -106,6 +106,12 @@ impl Variables {
     }
 }
 
+impl Default for Variables {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// A table that stores user-defined tokens such as custom functions or constants.
 ///
 /// `UserDefinedTable` allows dynamic registration and retrieval of tokens
@@ -120,7 +126,7 @@ impl Variables {
 /// use formulac::variable::UserDefinedTable;
 ///
 /// // Create a new user-defined table
-/// let mut users = UserDefinedTable::new();
+/// let mut users = UserDefinedTable::default();
 ///
 /// // Register a custom constant
 /// users.register("my_const", Token::Number(num_complex::Complex::new(42.0, 0.0)));
@@ -168,20 +174,26 @@ impl UserDefinedTable {
     }
 }
 
+impl Default for UserDefinedTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_insert_real() {
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         vars.insert(&[("a", 1.0)]);
         assert_eq!(*vars.get("a").unwrap(), Complex::from(1.0));
     }
 
     #[test]
     fn test_insert_complex() {
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         vars.insert(&[("b", Complex::new(1.0, 2.0))]);
         assert_eq!(*vars.get("b").unwrap(), Complex::new(1.0, 2.0));
     }
@@ -195,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_contains() {
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         assert_eq!(vars.contains("test"), false);
 
         vars.insert(&[("test", 1.0)]);

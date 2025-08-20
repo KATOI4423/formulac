@@ -28,8 +28,8 @@
 //! use formulac::compile;
 //!
 //! // Define available variables
-//! let mut users = UserDefinedTable::new();
-//! let mut vars = Variables::new();
+//! let mut users = UserDefinedTable::default();
+//! let mut vars = Variables::default();
 //! vars.insert(&[("a", Complex::new(3.0, 4.0))]);
 //!
 //! // Compile an expression with arguments
@@ -227,8 +227,8 @@ fn make_function(func_list: FuncList) -> impl Fn(&[Complex<f64>]) -> Complex<f64
 /// use formulac::variable::{Variables, UserDefinedTable};
 /// use formulac::compile;
 ///
-/// let mut users = UserDefinedTable::new();
-/// let mut vars = Variables::new();
+/// let mut users = UserDefinedTable::default();
+/// let mut vars = Variables::default();
 /// vars.insert(&[("c", Complex::new(0.5, 0.3))]);
 ///
 /// let expr = compile("z^2 + c", &["z"], &vars, &users).unwrap();
@@ -287,8 +287,8 @@ mod tests {
 
     #[test]
     fn test_compile_basic_operations() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         // Addition
         let expr = compile("1 + 2", &[], &vars, &users).unwrap();
@@ -314,8 +314,8 @@ mod tests {
 
     #[test]
     fn test_compile_complex_numbers() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         // Real + imaginary
         let expr = compile("1 + 2i", &[], &vars, &users).unwrap();
@@ -331,9 +331,9 @@ mod tests {
     }
     #[test]
     fn test_compile_with_variables_and_arguments() {
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         vars.insert(&[("a", Complex::new(2.0, 3.0))]);
-        let users = UserDefinedTable::new();
+        let users = UserDefinedTable::default();
 
         let expr = compile("a + x", &["x"], &vars, &users).unwrap();
         let result = expr(&[Complex::new(1.0, -1.0)]);
@@ -343,8 +343,8 @@ mod tests {
 
     #[test]
     fn test_compile_functions() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         // Using built-in functions like sin, cos if supported
         let expr = compile("sin(0)", &[], &vars, &users).unwrap();
@@ -363,8 +363,8 @@ mod tests {
 
     #[test]
     fn test_compile_operator_precedence() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         // Multiplication before addition
         let expr = compile("1 + 2 * 3", &[], &vars, &users).unwrap();
@@ -379,8 +379,8 @@ mod tests {
 
     #[test]
     fn test_compile_negative_numbers() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         let expr = compile("-3 + 2", &[], &vars, &users).unwrap();
         let result = expr(&[]);
@@ -393,8 +393,8 @@ mod tests {
 
     #[test]
     fn test_compile_errors() {
-        let vars = Variables::new();
-        let users = UserDefinedTable::new();
+        let vars = Variables::default();
+        let users = UserDefinedTable::default();
 
         // Missing operand
         let err = match compile("1 +", &[], &vars, &users) {
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_user_defined_function_compile() {
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
 
         // Define a user function: g(x) = x^2
         let g_token = Token::Function(Function::new(
@@ -423,7 +423,7 @@ mod tests {
         ));
         users.register("g", g_token.clone());
 
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         // Compile formula using user-defined function
         let func = compile("g(3)", &[], &vars, &users).unwrap();
@@ -435,7 +435,7 @@ mod tests {
 
     #[test]
     fn test_user_defined_function_with_argument() {
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
 
         // h(x) = x^2 + 1
         users.register("h", Token::Function(Function::new(
@@ -444,7 +444,7 @@ mod tests {
             "h",
         )));
 
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         vars.insert(&[("y", Complex::new(2.0, 0.0))]);
 
         // Use variable in user function: h(y) = 5
@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn test_user_defined_function_error() {
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
         // Define 1-arg function
         users.register("f", Token::Function(Function::new(
             |args| args[0] + Complex::new(1.0, 0.0),
@@ -464,7 +464,7 @@ mod tests {
             "f",
         )));
 
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         // Too many arguments should error
         let compile_err = compile("f(1,2)", &[], &vars, &users);
@@ -473,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_user_defined_function_nested() {
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
 
         // f(x) = x + 1
         users.register("f", Token::Function(Function::new(
@@ -488,7 +488,7 @@ mod tests {
             "g",
         )));
 
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         // Test nested call: f(g(3)) = f(6) = 7
         let func = compile("f(g(3))", &[], &vars, &users).unwrap();

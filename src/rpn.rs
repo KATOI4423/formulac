@@ -163,11 +163,11 @@ mod tests {
 
     #[test]
     fn test_make_rpn_basic() {
-        let mut vars = Variables::new();
+        let mut vars = Variables::default();
         vars.insert(&[("a", Complex::new(1.0, 0.0))]);
 
         // Test 1: simple arithmetic
-        let rpn = make_rpn("3 + 4 * 2", &[], &vars, &UserDefinedTable::new()).unwrap();
+        let rpn = make_rpn("3 + 4 * 2", &[], &vars, &UserDefinedTable::default()).unwrap();
         let expected = vec![
             Token::Number(Complex::new(3.0, 0.0)),
             Token::Number(Complex::new(4.0, 0.0)),
@@ -181,7 +181,7 @@ mod tests {
         }
 
         // Test 2: function with argument
-        let rpn = make_rpn("sin(a)", &["a"], &vars, &UserDefinedTable::new()).unwrap();
+        let rpn = make_rpn("sin(a)", &["a"], &vars, &UserDefinedTable::default()).unwrap();
         assert_eq!(rpn.len(), 2);
         match &rpn[0] {
             Token::Number(_) => {},
@@ -193,28 +193,28 @@ mod tests {
         }
 
         // Test 3: nested functions and parentheses
-        let rpn = make_rpn("cos(1 + a)", &["a"], &vars, &UserDefinedTable::new()).unwrap();
+        let rpn = make_rpn("cos(1 + a)", &["a"], &vars, &UserDefinedTable::default()).unwrap();
         assert_eq!(rpn.len(), 4);
         // rpn[0]: Real(1.0), rpn[1]: Variable(a), rpn[2]: Operator(+), rpn[3]: Function(cos)
     }
 
     #[test]
     fn test_make_rpn_errors() {
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         // unmatched right parenthesis
-        let err = make_rpn("1 + )", &[], &vars, &UserDefinedTable::new()).unwrap_err();
+        let err = make_rpn("1 + )", &[], &vars, &UserDefinedTable::default()).unwrap_err();
         assert!(err.contains("Right Paren used, but Left Paren not found"));
 
         // unmatched left parenthesis
-        let err = make_rpn("(1 + 2", &[], &vars, &UserDefinedTable::new()).unwrap_err();
+        let err = make_rpn("(1 + 2", &[], &vars, &UserDefinedTable::default()).unwrap_err();
         assert!(err.contains("wrong arguments for function") || err.contains("Mismatched parentheses"));
     }
 
     #[test]
     fn test_make_rpn_nested_functions() {
         // cos(sin(x)) -> RPN: x sin cos
-        let rpn = make_rpn("cos(sin(x))", &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let rpn = make_rpn("cos(sin(x))", &["x"], &Variables::default(), &UserDefinedTable::default()).unwrap();
 
         // Expected RPN token sequence
         let expected = VecDeque::from([
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn test_user_defined_function_rpn() {
-        let mut users = UserDefinedTable::new();
+        let mut users = UserDefinedTable::default();
         let f_token = Token::Function(Function::new(
             |args| args[0] * Complex::new(2.0, 0.0),
             1,
@@ -236,7 +236,7 @@ mod tests {
         ));
         users.register("double", f_token.clone());
 
-        let vars = Variables::new();
+        let vars = Variables::default();
 
         let rpn = make_rpn("double(3)", &[], &vars, &users).unwrap();
         let expected = VecDeque::from([
