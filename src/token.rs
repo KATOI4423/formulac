@@ -348,16 +348,16 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
     if str.ends_with(IMAGINARY_UNIT) {
         let num_part =  &str[..(str.len() - IMAGINARY_UNIT.len())];
         if let Ok(val) = num_part.parse::<f64>() {
-            return Ok(Token::Number(Complex { re: 0.0, im: val }));
+            return Ok(Token::Number(Complex::new(0.0, val)));
         }
         if num_part.is_empty() {
             // Imaginary unit only
-            return Ok(Token::Number(Complex { re: 0.0, im: 1.0 }));
+            return Ok(Token::Number(Complex::new(0.0, 1.0)));
         }
     }
 
     if let Ok(val) = str.parse::<f64>() {
-        return Ok(Token::Number(Complex { re: val, im: 0.0 }));
+        return Ok(Token::Number(Complex::new(val, 0.0)));
     }
 
     return Err(format!("Unknown string \"{}\"", str));
@@ -527,7 +527,7 @@ mod tests {
     fn test_real() {
         let tokens = divide_to_tokens("6.28", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: 6.28, im: 0.0 })
+            Token::Number(Complex::new(6.28, 0.0))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -536,7 +536,7 @@ mod tests {
     fn test_unary_operator() {
         let tokens = divide_to_tokens("-3.5", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: -3.5, im: 0.0 })
+            Token::Number(Complex::new(-3.5, 0.0))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -545,7 +545,7 @@ mod tests {
     fn test_scientific_notation() {
         let tokens = divide_to_tokens("1.0e+4", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: 1.0E+04, im: 0.0 })
+            Token::Number(Complex::new(1.0E+04, 0.0))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -560,7 +560,7 @@ mod tests {
     fn test_imaginary() {
         let tokens = divide_to_tokens("1.5i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: 0.0, im: 1.5 })
+            Token::Number(Complex::new(0.0, 1.5))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -569,7 +569,7 @@ mod tests {
     fn test_imaginary_unit() {
         let tokens = divide_to_tokens("i", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: 0.0, im: 1.0 })
+            Token::Number(Complex::new(0.0, 1.0))
         ]);
         assert_eq!(tokens, expected);
     }
@@ -587,7 +587,7 @@ mod tests {
     fn test_e() {
         let tokens = divide_to_tokens("1e+5 + E", &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         let expected = VecDeque::from([
-            Token::Number(Complex { re: 1.0e5, im: 0.0 }),
+            Token::Number(Complex::new(1.0e5, 0.0)),
             Token::Operator(OPERATORS.get("+").unwrap().clone()),
             Token::Number(CONSTANTS.get("E").unwrap().clone()),
         ]);

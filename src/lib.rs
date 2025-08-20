@@ -49,7 +49,7 @@
 //!
 //! // Use your original function func(z) = z^2 + (3 + 4i)
 //! let f = Token::Function(Function::new(
-//!     | args | args[0] * args[0] + Complex{ re: 3.0, im: 4.0 },
+//!     | args | args[0] * args[0] + Complex::new(3.0, 4.0),
 //!     1,
 //!     "func",
 //! ));
@@ -115,7 +115,7 @@ fn compile_case_of_operator(stack: &mut Stack, func_list: &mut FuncList, oper: O
         }
     ));
     stack.pop_back(); stack.pop_back();
-    stack.push_back(Complex { re: 0.0, im: 0.0 }); // temp value (the actual calculated value can only be obtained at runtime)
+    stack.push_back(Complex::new(0.0, 0.0)); // temp value (the actual calculated value can only be obtained at runtime)
     return Ok(());
 }
 
@@ -161,7 +161,7 @@ fn compile_case_of_function(stack: &mut Stack, func_list: &mut FuncList, func: F
     for _ in 0..args_num {
         stack.pop_back();
     }
-    stack.push_back(Complex { re: 0.0, im: 0.0 }); // temp value (the actual calculated value can only be obtained at runtime)
+    stack.push_back(Complex::new(0.0, 0.0)); // temp value (the actual calculated value can only be obtained at runtime)
     return Ok(());
 }
 
@@ -260,7 +260,7 @@ pub fn compile<'a>(
                 ));
             },
             Token::Argument(idx) => {
-                stack.push_back(Complex { re: 0.0, im: 0.0 }); // push temp value (the actual argument used can only be obtained at runtime)
+                stack.push_back(Complex::new(0.0, 0.0)); // push temp value (the actual argument used can only be obtained at runtime)
                 func_list.push_back(Box::new(
                     move |stack, args| stack.push_back(args[idx])
                 ));
@@ -356,7 +356,7 @@ mod tests {
         assert_abs_diff_eq!(result.re, 1.0, epsilon = 1e-12);
 
         let expr = compile("1 / (1 - exp(1 - sin(x)))", &["x"], &vars, &users).unwrap();
-        let result = expr(&[Complex { re: -0.5, im: 0.3 }]);
+        let result = expr(&[Complex::new(-0.5, 0.3)]);
         assert_abs_diff_eq!(result.re, -0.266700693598727612, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, -0.094963820662336543, epsilon = 1e-12);
     }
