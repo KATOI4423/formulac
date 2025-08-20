@@ -60,7 +60,7 @@ impl Variables {
     {
         let mut vars = Self::new();
         vars.insert(items);
-        return vars;
+        vars
     }
 
     /// Inserts multiple variables into the table.

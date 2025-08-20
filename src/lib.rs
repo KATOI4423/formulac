@@ -116,7 +116,7 @@ fn compile_case_of_operator(stack: &mut Stack, func_list: &mut FuncList, oper: O
     ));
     stack.pop_back(); stack.pop_back();
     stack.push_back(Complex::new(0.0, 0.0)); // temp value (the actual calculated value can only be obtained at runtime)
-    return Ok(());
+    Ok(())
 }
 
 /// Compiles a function token into a stack operation.
@@ -162,7 +162,7 @@ fn compile_case_of_function(stack: &mut Stack, func_list: &mut FuncList, func: F
         stack.pop_back();
     }
     stack.push_back(Complex::new(0.0, 0.0)); // temp value (the actual calculated value can only be obtained at runtime)
-    return Ok(());
+    Ok(())
 }
 
 /// Creates an executable function from a list of stack operations.
@@ -193,7 +193,7 @@ fn make_function(func_list: FuncList) -> impl Fn(&[Complex<f64>]) -> Complex<f64
         for f in func_list.iter() {
             f(&mut stack, args);
         }
-        return stack.pop_back().expect("stack is empty");
+        stack.pop_back().expect("stack is empty")
     }
 }
 

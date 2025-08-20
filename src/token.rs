@@ -84,9 +84,9 @@ impl PartialEq for Operator {
     fn eq(&self, other: &Self) -> bool {
         // function pointer comparisons do not produce meaningful results since their addresses are not guaranteed to be unique,
         // so don't compare function pointers
-        return self.is_left_assoc == other.is_left_assoc
+        self.is_left_assoc == other.is_left_assoc
             && self.precedence == other.precedence
-            && self.str == other.str;
+            && self.str == other.str
     }
 }
 
@@ -144,8 +144,7 @@ impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
         // function pointer comparisons do not produce meaningful results since their addresses are not guaranteed to be unique,
         // so don't compare function pointers
-        return self.args_num == other.args_num
-            && self.str == other.str;
+        (self.args_num == other.args_num) && (self.str == other.str)
     }
 }
 
@@ -360,7 +359,7 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
         return Ok(Token::Number(Complex::new(val, 0.0)));
     }
 
-    return Err(format!("Unknown string \"{}\"", str));
+    Err(format!("Unknown string \"{}\"", str))
 }
 
 /// Tokenizes a formula string into a sequence of Tokens.
