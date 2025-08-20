@@ -1,13 +1,97 @@
 # formulac
 
-A complex-number and extensible function supported math expression parser for Rust.
+A Rust crate for parsing and evaluating mathematical expressions with full complex-number support and extensible user-defined functions.
 
 ## Features
 
-- Complex number support
-- Extendable function definitions (special functions, etc.)
-- Elementary functions support
+- **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
+- **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
+- **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
+- **User-defined functions** — Easily register custom functions or constants at runtime using a simple API.
+- **Safe and dependency-light** — No use of unsafe Rust or heavyweight external parsers.
+
+---
+
+## Usage
+
+Add to your `Cargo.toml`:
+
+```bash
+cargo add formulac
+```
+
+or
+
+```toml
+[dependencies]
+formulac = "0.3"
+num-complex = "0.4"
+```
+
+### Basic Example
+
+```rust
+use num_complex::Complex;
+use formulac::{compile, variable::Variables, UserDefinedTable};
+
+fn main() {
+    let mut vars = Variables::new();
+    vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+
+    let users = UserDefinedTable::new();
+    let formula = "sin(z) + a * cos(z)";
+    let expr = compile(formula, &["z"], &vars, &users)
+        .expect("Failed to compile formula");
+
+    let result = expr(&[Complex::new(1.0, 2.0)]); // calc 'sin(1+2i) + (3+2i) * cos(1+2i)'
+    println!("Result = {}", result);
+}
+```
+
+### Registering a Custom Function
+
+```rust
+use num_complex::Complex;
+use formulac::{compile, variable::Variables, UserDefinedTable, token::Operator};
+
+// Create user-defined function table
+let mut users = UserDefinedTable::new();
+
+// Define a function f(x) = x^2 + 1
+let f_token = Token::Function(Function::new(
+    |args| args[0] * args[0] + Complex::new(1.0, 0.0),
+    1,
+    "f",
+));
+users.register("f", f_token);
+
+let mut vars = Variables::new();
+let expr = compile("f(3)", &[], &vars, &users).unwrap();
+assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
+```
+
+---
+
+## Core Types & API Overview
+
+- **`compile`**
+  Compiles a formula string into a Rust closure `Fn(&[Complex<f64>]) -> Complex<f64>` that evaluates the expression for given variable values.
+
+- **`Variables`**
+  A lookup table mapping variable names (strings) to `Complex<f64>` values, used during parsing.
+
+- **`UserDefinedTable`**
+  Allows registration of custom functions or constants under user-defined names for use in expressions.
+
+---
 
 ## License
 
-MIT OR Apache-2.0
+Licensed under **MIT OR Apache-2.0** — choose the license that best suits your project.
+
+---
+
+## Contribution & Contact
+
+Contributions, feature requests, and bug reports are welcome!
+Please feel free to open issues or submit pull requests via the GitHub repository.
