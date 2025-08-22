@@ -344,8 +344,7 @@ fn make_token(str: &str, args: &[&str], vars: &Variables, users: &UserDefinedTab
         _ => (),
     }
 
-    if str.ends_with(IMAGINARY_UNIT) {
-        let num_part =  &str[..(str.len() - IMAGINARY_UNIT.len())];
+    if let Some(num_part) = str.strip_suffix(IMAGINARY_UNIT) {
         if let Ok(val) = num_part.parse::<f64>() {
             return Ok(Token::Number(Complex::new(0.0, val)));
         }
