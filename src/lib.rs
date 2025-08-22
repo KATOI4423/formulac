@@ -272,7 +272,7 @@ pub fn compile<'a>(
 
     if stack.len() != 1 {
         // the result is pushed as the last element
-        return Err(format!("Invalid formula: too many token"));
+        return Err("Invalid formula: too many token".into());
     }
 
     Ok(make_function(func_list))
