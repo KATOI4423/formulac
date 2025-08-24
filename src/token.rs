@@ -259,12 +259,15 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "FRAC_PI_4" => Complex::new(std::f64::consts::FRAC_PI_4, 0.0),
     "FRAC_PI_6" => Complex::new(std::f64::consts::FRAC_PI_6, 0.0),
     "FRAC_PI_8" => Complex::new(std::f64::consts::FRAC_PI_8, 0.0),
-    "LN_10" => Complex::new(std::f64::consts::LN_10, 0.0),
     "LN_2" => Complex::new(std::f64::consts::LN_2, 0.0),
-    "LOG10_E" => Complex::new(std::f64::consts::LOG10_E, 0.0),
+    "LN_10" => Complex::new(std::f64::consts::LN_10, 0.0),
+    "LOG2_10" => Complex::new(std::f64::consts::LOG2_10, 0.0),
     "LOG2_E" => Complex::new(std::f64::consts::LOG2_E, 0.0),
+    "LOG10_2" => Complex::new(std::f64::consts::LOG10_2, 0.0),
+    "LOG10_E" => Complex::new(std::f64::consts::LOG10_E, 0.0),
     "PI" => Complex::new(std::f64::consts::PI, 0.0),
     "SQRT_2" => Complex::new(std::f64::consts::SQRT_2, 0.0),
+    "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
 };
 
 /// Map of functions by their string representation.
