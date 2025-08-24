@@ -15,7 +15,7 @@ const IMAGINARY_UNIT: char = 'i';
 /// A `Lexeme` stores a text slice and its span (start..end indices) within
 /// the original input string.
 #[derive(Debug, Clone, PartialEq)]
-struct Lexeme<'a> {
+pub struct Lexeme<'a> {
     text: &'a str,
     span: std::ops::Range<usize>,
 }
