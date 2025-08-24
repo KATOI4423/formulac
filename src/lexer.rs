@@ -7,8 +7,6 @@
 //! The lexer handles identifiers, numeric literals (including decimal, scientific
 //! notation, and imaginary unit), and single-character operators or punctuation.
 
-use std::collections::VecDeque;
-
 /// Cpmstamt char representing an imaginary unit
 const IMAGINARY_UNIT: char = 'i';
 
@@ -48,7 +46,7 @@ impl<'a> Lexeme<'a> {
 }
 
 /// Type alias for a collection of lexemes.
-pub type Lexemes<'a> = VecDeque<Lexeme<'a>>;
+pub type Lexemes<'a> = Vec<Lexeme<'a>>;
 
 /// Parses an identifier starting at `start_idx`.
 ///
@@ -150,7 +148,7 @@ pub fn from_str<'a>(input: &'a str) -> Lexemes<'a> {
             &input[start_idx..end_idx],
             start_idx..end_idx,
         );
-        lexemes.push_back(lexeme);
+        lexemes.push(lexeme);
     }
 
     lexemes
