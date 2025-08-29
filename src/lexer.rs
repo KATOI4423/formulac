@@ -124,7 +124,7 @@ fn parse_number(start_idx: usize, chars: &mut std::iter::Peekable<std::str::Char
 /// # Returns
 ///
 /// A `VecDeque` of lexemes representing identifiers, numbers, and single-character tokens..
-pub fn from_str<'a>(input: &'a str) -> Lexemes<'a> {
+pub fn from<'a>(input: &'a str) -> Lexemes<'a> {
     let mut lexemes = Lexemes::default();
     let mut chars = input.char_indices().peekable();
 
@@ -159,15 +159,15 @@ mod tests {
     use super::*;
 
     fn lex_texts(input: &str) -> Vec<&str> {
-        from_str(input).iter().map(|l| l.text()).collect()
+        from(input).iter().map(|l| l.text()).collect()
     }
 
     #[test]
     fn test_empty_and_whitespace() {
-        let lexemes = from_str("");
+        let lexemes = from("");
         assert!(lexemes.is_empty());
 
-        let lexemes = from_str("   \t\n  ");
+        let lexemes = from("   \t\n  ");
         assert!(lexemes.is_empty());
     }
 
