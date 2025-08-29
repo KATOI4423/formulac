@@ -5,6 +5,7 @@ use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
 use crate::variable::Variables;
 use num_complex::Complex;
+use num_complex::ComplexFloat;
 use phf::Map;
 use phf_macros::phf_map;
 
@@ -315,6 +316,36 @@ impl AstNode {
     ) -> Result<Self, String> {
         parse_to_ast(lexemes, vars, args)
     }
+
+    pub fn simplify(self) -> Self {
+        match self {
+            Self::UnaryOperator { kind, expr } => {
+                let expr = expr.simplify();
+                if let AstNode::Number(val ) = expr {
+                    AstNode::Number(apply_unary(kind, val))
+                } else {
+                    AstNode::UnaryOperator { kind, expr: Box::new(expr) }
+                }
+            },
+            Self::BinaryOperator { kind, left, right } => {
+                let left = left.simplify();
+                let right = right.simplify();
+                fold_binary(kind, left, right)
+            },
+            Self::FunctionCall { kind, args } => {
+                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
+                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
+                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
+                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
+                    }).collect();
+                    AstNode::Number(apply_function(kind, &nums))
+                } else {
+                    AstNode::FunctionCall { kind, args }
+                }
+            },
+            _ => self,
+        }
+    }
 }
 
 fn make_unary_operator_astnode<'a>(
@@ -501,11 +532,112 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
     Ok(ret)
 }
 
+fn apply_unary(kind: UnaryOperatorKind, x: Complex<f64>) -> Complex<f64> {
+    match kind {
+        UnaryOperatorKind::Positive => x,
+        UnaryOperatorKind::Negative => -x,
+    }
+}
+
+fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
+    match (left, right) {
+        (AstNode::Number(l), AstNode::Number(r))
+            => AstNode::Number(apply_binary(kind, l, r)),
+        (AstNode::BinaryOperator { kind: k1, left: l1, right: r1 }, AstNode::Number(r))
+            if matches!(k1, BinaryOperatorKind::Add | BinaryOperatorKind::Mul) =>
+        {
+            if let AstNode::Number(r1_val) = *r1 {
+                AstNode::BinaryOperator {
+                    kind,
+                    left: l1,
+                    right: Box::new(AstNode::Number(apply_binary(k1, r1_val, r))),
+                }
+            } else {
+                unreachable!()
+            }
+        }
+        (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
+    }
+}
+
+fn apply_binary(kind: BinaryOperatorKind, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
+    match kind {
+        BinaryOperatorKind::Add => l + r,
+        BinaryOperatorKind::Sub => l - r,
+        BinaryOperatorKind::Mul => l * r,
+        BinaryOperatorKind::Div => l / r,
+        BinaryOperatorKind::Pow => l.powc(r),
+    }
+}
+
+fn apply_function(kind: FunctionKind, args: &[Complex<f64>]) -> Complex<f64> {
+    match kind {
+        FunctionKind::Sin => args[0].sin(),
+        FunctionKind::Cos => args[0].cos(),
+        FunctionKind::Tan => args[0].tan(),
+        FunctionKind::Asin => args[0].asin(),
+        FunctionKind::Acos => args[0].acos(),
+        FunctionKind::Atan => args[0].atan(),
+        FunctionKind::Sinh => args[0].sinh(),
+        FunctionKind::Cosh => args[0].cosh(),
+        FunctionKind::Tanh => args[0].tanh(),
+        FunctionKind::Asinh => args[0].asinh(),
+        FunctionKind::Acosh => args[0].acosh(),
+        FunctionKind::Atanh => args[0].atanh(),
+        FunctionKind::Exp => args[0].exp(),
+        FunctionKind::Ln => args[0].ln(),
+        FunctionKind::Log10 => args[0].log10(),
+        FunctionKind::Sqrt => args[0].sqrt(),
+        FunctionKind::Abs => Complex::from(args[0].abs()),
+        FunctionKind::Conj => args[0].conj(),
+
+        FunctionKind::Pow => args[0].powc(args[1]),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use num_complex::Complex;
     use crate::lexer;
+    use approx::assert_abs_diff_eq;
+
+    macro_rules! assert_astnode_eq {
+        ($left:expr, $right:expr) => {{
+            fn inner(left: &AstNode, right: &AstNode) {
+                let epsilon = 1.0e-12;
+                match (left, right) {
+                    (AstNode::Number(l), AstNode::Number(r)) => {
+                        assert_abs_diff_eq!(l.re(), r.re(), epsilon = epsilon);
+                        assert_abs_diff_eq!(l.im(), r.im(), epsilon = epsilon);
+                    }
+                    (AstNode::Argument(l), AstNode::Argument(r)) => {
+                        assert_eq!(l, r);
+                    }
+                    (AstNode::UnaryOperator { kind: lk, expr: le }, AstNode::UnaryOperator { kind: rk, expr: re }) => {
+                        assert_eq!(lk, rk);
+                        inner(le, re);
+                    }
+                    (AstNode::BinaryOperator { kind: lk, left: ll, right: lr },
+                    AstNode::BinaryOperator { kind: rk, left: rl, right: rr }) => {
+                        assert_eq!(lk, rk);
+                        inner(ll, rl);
+                        inner(lr, rr);
+                    }
+                    (AstNode::FunctionCall { kind: lk, args: la },
+                    AstNode::FunctionCall { kind: rk, args: ra }) => {
+                        assert_eq!(lk, rk);
+                        assert_eq!(la.len(), ra.len());
+                        for (a, b) in la.iter().zip(ra.iter()) {
+                            inner(a, b);
+                        }
+                    }
+                    (l, r) => panic!("AST nodes differ: left = {:?}, right = {:?}", l, r),
+                }
+            }
+            inner(&$left, &$right);
+        }};
+    }
 
     #[test]
     fn test_unary_operator_kind_from() {
@@ -812,5 +944,141 @@ mod tests {
         let lexemes = lexer::from("@");
         let res = parse_to_ast(&lexemes, &Variables::new(), &[]);
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_simplify_number() {
+        let node = AstNode::Number(Complex::new(3.0, 0.0));
+        assert_astnode_eq!(node.clone().simplify(), node);
+    }
+
+    #[test]
+    fn test_simplify_unary_operator() {
+        let node = AstNode::UnaryOperator {
+            kind: UnaryOperatorKind::Negative,
+            expr: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(simplified, AstNode::Number(Complex::new(-2.0, 0.0)));
+    }
+
+    #[test]
+    fn test_simplify_binary_operator_full() {
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(simplified, AstNode::Number(Complex::new(5.0, 0.0)));
+    }
+
+    #[test]
+    fn test_simplify_binary_operator_partial() {
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::Argument(0)),
+            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(
+            simplified,
+            AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Add,
+                left: Box::new(AstNode::Argument(0)),
+                right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_simplify_binary_operator_chain() {
+        // x + 2 + 3 -> x + 5
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Add,
+                left: Box::new(AstNode::Argument(0)),
+                right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+            }),
+            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(
+            simplified,
+            AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Add,
+                left: Box::new(AstNode::Argument(0)),
+                right: Box::new(AstNode::Number(Complex::new(5.0, 0.0))),
+            }
+        );
+
+        // x * 2 * 3 * 4 -> x * 24
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Mul,
+            left: Box::new(AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Mul,
+                left: Box::new(AstNode::BinaryOperator {
+                    kind: BinaryOperatorKind::Mul,
+                    left: Box::new(AstNode::Argument(0)),
+                    right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+                }),
+                right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+            }),
+            right: Box::new(AstNode::Number(Complex::new(4.0, 0.0))),
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(
+            simplified,
+            AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Mul,
+                left: Box::new(AstNode::Argument(0)),
+                right: Box::new(AstNode::Number(Complex::new(24.0, 0.0))),
+            }
+        );
+    }
+
+    #[test]
+    fn test_simplify_function_call_full() {
+        let node = AstNode::FunctionCall {
+            kind: FunctionKind::Pow,
+            args: vec![
+                AstNode::Number(Complex::new(2.0, 0.0)),
+                AstNode::Number(Complex::new(3.0, 0.0)),
+            ],
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(simplified, AstNode::Number(Complex::new(8.0, 0.0)));
+
+        let node = AstNode::FunctionCall {
+            kind: FunctionKind::Exp,
+            args: vec![
+                AstNode::Number(Complex::new(2.0, 0.0)),
+            ],
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(simplified, AstNode::Number(Complex::new(2.0, 0.0).exp()));
+    }
+
+    #[test]
+    fn test_simplify_function_call_partial() {
+        let node = AstNode::FunctionCall {
+            kind: FunctionKind::Pow,
+            args: vec![
+                AstNode::Argument(0),
+                AstNode::Number(Complex::new(3.0, 0.0)),
+            ],
+        };
+        let simplified = node.simplify();
+        assert_astnode_eq!(
+            simplified,
+            AstNode::FunctionCall {
+                kind: FunctionKind::Pow,
+                args: vec![
+                    AstNode::Argument(0),
+                    AstNode::Number(Complex::new(3.0, 0.0)),
+                ],
+            }
+        );
     }
 }
