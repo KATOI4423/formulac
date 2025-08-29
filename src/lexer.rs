@@ -8,7 +8,7 @@
 //! notation, and imaginary unit), and single-character operators or punctuation.
 
 /// Cpmstamt char representing an imaginary unit
-const IMAGINARY_UNIT: char = 'i';
+pub const IMAGINARY_UNIT: char = 'i';
 
 /// Represents a single lexeme etracted from the input string.
 ///
