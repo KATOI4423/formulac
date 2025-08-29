@@ -51,6 +51,13 @@ impl UnaryOperatorKind {
             _ => None,
         }
     }
+
+    pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
+        match self {
+            Self::Positive => x,
+            Self::Negative => -x,
+        }
+    }
 }
 
 impl std::fmt::Display for UnaryOperatorKind {
@@ -98,6 +105,16 @@ impl BinaryOperatorKind {
             "/" => Some(Self::Div),
             "^" => Some(Self::Pow),
             _ => None,
+        }
+    }
+
+    pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
+        match self {
+            Self::Add => l + r,
+            Self::Sub => l - r,
+            Self::Mul => l * r,
+            Self::Div => l / r,
+            Self::Pow => l.powc(r),
         }
     }
 }
@@ -160,6 +177,31 @@ impl FunctionKind {
         match self {
             FunctionKind::Pow => 2,
             _ => 1,
+        }
+    }
+
+    pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
+        match self {
+            Self::Sin => args[0].sin(),
+            Self::Cos => args[0].cos(),
+            Self::Tan => args[0].tan(),
+            Self::Asin => args[0].asin(),
+            Self::Acos => args[0].acos(),
+            Self::Atan => args[0].atan(),
+            Self::Sinh => args[0].sinh(),
+            Self::Cosh => args[0].cosh(),
+            Self::Tanh => args[0].tanh(),
+            Self::Asinh => args[0].asinh(),
+            Self::Acosh => args[0].acosh(),
+            Self::Atanh => args[0].atanh(),
+            Self::Exp => args[0].exp(),
+            Self::Ln => args[0].ln(),
+            Self::Log10 => args[0].log10(),
+            Self::Sqrt => args[0].sqrt(),
+            Self::Abs => Complex::from(args[0].abs()),
+            Self::Conj => args[0].conj(),
+
+            Self::Pow => args[0].powc(args[1]),
         }
     }
 }
@@ -322,7 +364,7 @@ impl AstNode {
             Self::UnaryOperator { kind, expr } => {
                 let expr = expr.simplify();
                 if let AstNode::Number(val ) = expr {
-                    AstNode::Number(apply_unary(kind, val))
+                    AstNode::Number(kind.apply(val))
                 } else {
                     AstNode::UnaryOperator { kind, expr: Box::new(expr) }
                 }
@@ -338,7 +380,7 @@ impl AstNode {
                     let nums: Vec<Complex<f64>> = args.iter().map(|a| {
                         if let AstNode::Number(v) = a { *v } else { unreachable!() }
                     }).collect();
-                    AstNode::Number(apply_function(kind, &nums))
+                    AstNode::Number(kind.apply(&nums))
                 } else {
                     AstNode::FunctionCall { kind, args }
                 }
@@ -532,17 +574,10 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
     Ok(ret)
 }
 
-fn apply_unary(kind: UnaryOperatorKind, x: Complex<f64>) -> Complex<f64> {
-    match kind {
-        UnaryOperatorKind::Positive => x,
-        UnaryOperatorKind::Negative => -x,
-    }
-}
-
 fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
     match (left, right) {
         (AstNode::Number(l), AstNode::Number(r))
-            => AstNode::Number(apply_binary(kind, l, r)),
+            => AstNode::Number(kind.apply(l, r)),
         (AstNode::BinaryOperator { kind: k1, left: l1, right: r1 }, AstNode::Number(r))
             if matches!(k1, BinaryOperatorKind::Add | BinaryOperatorKind::Mul) =>
         {
@@ -550,48 +585,13 @@ fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNo
                 AstNode::BinaryOperator {
                     kind,
                     left: l1,
-                    right: Box::new(AstNode::Number(apply_binary(k1, r1_val, r))),
+                    right: Box::new(AstNode::Number(k1.apply( r1_val, r))),
                 }
             } else {
                 unreachable!()
             }
         }
         (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
-    }
-}
-
-fn apply_binary(kind: BinaryOperatorKind, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
-    match kind {
-        BinaryOperatorKind::Add => l + r,
-        BinaryOperatorKind::Sub => l - r,
-        BinaryOperatorKind::Mul => l * r,
-        BinaryOperatorKind::Div => l / r,
-        BinaryOperatorKind::Pow => l.powc(r),
-    }
-}
-
-fn apply_function(kind: FunctionKind, args: &[Complex<f64>]) -> Complex<f64> {
-    match kind {
-        FunctionKind::Sin => args[0].sin(),
-        FunctionKind::Cos => args[0].cos(),
-        FunctionKind::Tan => args[0].tan(),
-        FunctionKind::Asin => args[0].asin(),
-        FunctionKind::Acos => args[0].acos(),
-        FunctionKind::Atan => args[0].atan(),
-        FunctionKind::Sinh => args[0].sinh(),
-        FunctionKind::Cosh => args[0].cosh(),
-        FunctionKind::Tanh => args[0].tanh(),
-        FunctionKind::Asinh => args[0].asinh(),
-        FunctionKind::Acosh => args[0].acosh(),
-        FunctionKind::Atanh => args[0].atanh(),
-        FunctionKind::Exp => args[0].exp(),
-        FunctionKind::Ln => args[0].ln(),
-        FunctionKind::Log10 => args[0].log10(),
-        FunctionKind::Sqrt => args[0].sqrt(),
-        FunctionKind::Abs => Complex::from(args[0].abs()),
-        FunctionKind::Conj => args[0].conj(),
-
-        FunctionKind::Pow => args[0].powc(args[1]),
     }
 }
 
