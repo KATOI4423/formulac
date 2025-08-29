@@ -428,18 +428,6 @@ fn parse_in_binary_operator<'a>(
     }
 }
 
-fn parse_in_operator<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    token_stack: &mut Vec<Token<'a>>,
-    lexeme: Lexeme<'a>,
-    prev_is_value: &bool,
-) -> Result<(), String> {
-    match prev_is_value {
-        true => parse_in_binary_operator(ast_nodes, token_stack, lexeme),
-        false => parse_in_unary_operator(token_stack, lexeme),
-    }
-}
-
 fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> Result<AstNode, String> {
     let mut ast_nodes: Vec<AstNode> = Vec::new();
     let mut token_stack: Vec<Token> = Vec::new();
@@ -459,7 +447,10 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
                 prev_is_value = true;
             },
             Token::Operator(lexeme) => {
-                parse_in_operator(&mut ast_nodes, &mut token_stack, lexeme, &prev_is_value)?;
+                match prev_is_value {
+                    true => parse_in_binary_operator(&mut ast_nodes, &mut token_stack, lexeme)?,
+                    false => parse_in_unary_operator(&mut token_stack, lexeme)?,
+                };
                 prev_is_value = false;
             },
             Token::Function(_) => {
