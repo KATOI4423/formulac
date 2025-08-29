@@ -307,6 +307,16 @@ enum AstNode {
     },
 }
 
+impl AstNode {
+    pub fn from<'a>(
+        lexemes: &[Lexeme<'a>],
+        vars: &Variables,
+        args: &[&str]
+    ) -> Result<Self, String> {
+        parse_to_ast(lexemes, vars, args)
+    }
+}
+
 fn make_unary_operator_astnode<'a>(
     ast_nodes: &mut Vec<AstNode>,
     oper: UnaryOperatorKind,
