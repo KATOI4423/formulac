@@ -14,10 +14,11 @@ pub const IMAGINARY_UNIT: char = 'i';
 ///
 /// A `Lexeme` stores a text slice and its span (start..end indices) within
 /// the original input string.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Lexeme<'a> {
     text: &'a str,
-    span: std::ops::Range<usize>,
+    start: usize,
+    end: usize,
 }
 
 impl<'a> Lexeme<'a> {
@@ -30,7 +31,8 @@ impl<'a> Lexeme<'a> {
     pub fn new(text: &'a str, span: std::ops::Range<usize>) -> Self {
         Self {
             text,
-            span,
+            start: span.start,
+            end: span.end,
         }
     }
 
@@ -39,9 +41,14 @@ impl<'a> Lexeme<'a> {
         self.text
     }
 
-    /// Returns the span of the lexeme in the original input string.
-    pub fn span(&self) -> &std::ops::Range<usize> {
-        &self.span
+    /// Returns the start index of the lexeme in the original input string.
+    pub fn start(&self) -> &usize {
+        &self.start
+    }
+
+    /// Returns the end index of the lexeme in the original input string.
+    pub fn end(&self) -> &usize {
+        &self.end
     }
 }
 

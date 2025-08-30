@@ -11,7 +11,7 @@ use phf_macros::phf_map;
 
 macro_rules! lexeme_name_with_range {
     ($lexeme: expr) => {
-        format!("{name} at {start}..{end}", name=$lexeme.text(), start=$lexeme.span().start, end=$lexeme.span().end)
+        format!("{name} at {start}..{end}", name=$lexeme.text(), start=$lexeme.start(), end=$lexeme.end())
     };
 }
 
@@ -38,7 +38,7 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
 };
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum UnaryOperatorKind {
     Positive,   Negative,
 }
@@ -79,7 +79,7 @@ struct BinaryOperatorInfo {
     pub is_left_assoc: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum BinaryOperatorKind {
     Add,    Sub,    Mul,    Div,
     Pow,
@@ -132,7 +132,7 @@ impl std::fmt::Display for BinaryOperatorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum FunctionKind {
     Sin,    Cos,    Tan,
     Asin,   Acos,   Atan,
@@ -235,7 +235,7 @@ impl std::fmt::Display for FunctionKind {
 }
 
 /// Token enum representing different types of tokens.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum Token<'a> {
     /// Numerical value token holding the resolved value.
     ///
@@ -430,6 +430,34 @@ impl AstNode {
         stack.push(Self::FunctionCall { kind: func, args });
         Ok(())
     }
+
+    fn execute<'a>(&self, tokens: &mut Vec<Token<'a>>) {
+        match self {
+            Self::Number(val) => tokens.push(Token::Number(*val)),
+            Self::Argument(i) => tokens.push(Token::Argument(*i)),
+            Self::UnaryOperator { kind, expr } => {
+                Self::execute(expr, tokens);
+                tokens.push(Token::UnaryOperator(*kind));
+            },
+            Self::BinaryOperator { kind, left, right } => {
+                Self::execute(left, tokens);
+                Self::execute(right, tokens);
+                tokens.push(Token::BinaryOperator(*kind));
+            }
+            Self::FunctionCall { kind, args } => {
+                for arg in args {
+                    Self::execute(arg, tokens);
+                }
+                tokens.push(Token::Function(*kind));
+            },
+        }
+    }
+
+    pub fn compile<'a>(&self) -> Vec<Token<'a>> {
+        let mut tokens: Vec<Token<'a>> = Vec::new();
+        self.execute(&mut tokens);
+        tokens
+    }
 }
 
 fn parse_in_right_paren<'a>(
@@ -446,7 +474,7 @@ fn parse_in_right_paren<'a>(
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in RParen at {s}..{e}",
-                    s=lexeme.span().start, e=lexeme.span().end,
+                    s=lexeme.start(), e=lexeme.end(),
                 ))
             },
         }
@@ -468,7 +496,7 @@ fn parse_in_comma<'a>(
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in Comma at {s}..{e}",
-                    s=lexeme.span().start, e=lexeme.span().end,
+                    s=lexeme.start(), e=lexeme.end(),
                 ))
             },
         }
@@ -1079,6 +1107,101 @@ mod tests {
                     AstNode::Number(Complex::new(3.0, 0.0)),
                 ],
             }
+        );
+    }
+
+    #[test]
+    fn test_compile_number() {
+        let ast = AstNode::Number(Complex::new(1.0, 0.0));
+        let tokens = ast.compile();
+        assert_eq!(tokens, vec![Token::Number(Complex::new(1.0, 0.0))]);
+    }
+
+    #[test]
+    fn test_compile_argument() {
+        let ast = AstNode::Argument(1);
+        let tokens = ast.compile();
+        assert_eq!(tokens, vec![Token::Argument(1)]);
+    }
+
+    #[test]
+    fn test_compile_unary_operator() {
+        let ast = AstNode::UnaryOperator {
+            kind: UnaryOperatorKind::Negative,
+            expr: Box::new(AstNode::Number(Complex::new(1.0, 0.0)))
+        };
+        let tokens = ast.compile();
+        assert_eq!(
+            tokens,
+            vec![Token::Number(Complex::new(1.0, 0.0)), Token::UnaryOperator(UnaryOperatorKind::Negative)]
+        );
+    }
+
+    #[test]
+    fn test_compile_binary_operator() {
+        let ast = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::Number(Complex::new(1.0, 0.0))),
+            right: Box::new(AstNode::Argument(1))
+        };
+        let tokens = ast.compile();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Number(Complex::new(1.0, 0.0)),
+                Token::Argument(1),
+                Token::BinaryOperator(BinaryOperatorKind::Add),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_function_single_argument() {
+        let ast = AstNode::FunctionCall {
+            kind: FunctionKind::Sin,
+            args: vec![AstNode::Number(Complex::new(1.0, 0.0))]
+        };
+        let tokens = ast.compile();
+        assert_eq!(tokens, vec![Token::Number(Complex::new(1.0, 0.0)), Token::Function(FunctionKind::Sin)]);
+    }
+
+    #[test]
+    fn test_compile_function_multi_arguments() {
+        let ast = AstNode::FunctionCall {
+            kind: FunctionKind::Pow,
+            args: vec![AstNode::Number(Complex::new(2.0, 0.0)), AstNode::Argument(0)]
+        };
+        let tokens = ast.compile();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Number(Complex::new(2.0, 0.0)),
+                Token::Argument(0),
+                Token::Function(FunctionKind::Pow),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_nested_expression() {
+        // cos(1 + 2)
+        let ast = AstNode::FunctionCall {
+            kind: FunctionKind::Cos,
+            args: vec![AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Add,
+                left: Box::new(AstNode::Number(Complex::new(1.0, 0.0))),
+                right: Box::new(AstNode::Number(Complex::new(2.0, 0.0)))
+            }],
+        };
+        let tokens = ast.compile();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Number(Complex::new(1.0, 0.0)),
+                Token::Number(Complex::new(2.0, 0.0)),
+                Token::BinaryOperator(BinaryOperatorKind::Add),
+                Token::Function(FunctionKind::Cos),
+            ]
         );
     }
 }
