@@ -388,48 +388,48 @@ impl AstNode {
             _ => self,
         }
     }
-}
 
-fn make_unary_operator_astnode<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    oper: UnaryOperatorKind,
-) -> Result<(), String> {
-    let expr = ast_nodes.pop()
-        .ok_or(format!("Missing unary opeator {}", oper))?;
-    ast_nodes.push(AstNode::UnaryOperator { kind: oper, expr: Box::new(expr) });
-    Ok(())
-}
-
-fn make_binary_operator_astnode<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    oper: BinaryOperatorKind,
-) -> Result<(), String> {
-    let right = ast_nodes.pop()
-        .ok_or(format!("Missing right operand for {}", oper))?;
-    let left = ast_nodes.pop()
-        .ok_or(format!("missing left operand for {}", oper))?;
-    ast_nodes.push(AstNode::BinaryOperator{
-        kind: oper,
-        left: Box::new(left),
-        right: Box::new(right),
-    });
-    Ok(())
-}
-
-fn make_function_astnode<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    func: FunctionKind,
-) -> Result<(), String> {
-    let n = func.arg_num();
-    let mut args = Vec::new();
-    args.resize(n, AstNode::Argument(0)); // Dummy AstNode for initializing
-    for i in (0..n).rev() { // this is expanded to `for (i=n-1; i >= 0; i--)` by LLVM
-        let arg = ast_nodes.pop()
-            .ok_or(format!("Missing function argument for {}", func))?;
-        args[i] = arg;
+    fn from_unary<'a>(
+        stack: &mut Vec<Self>,
+        oper: UnaryOperatorKind,
+    ) -> Result<(), String> {
+        let expr = stack.pop()
+            .ok_or(format!("Missing unary opeator {}", oper))?;
+        stack.push(Self::UnaryOperator { kind: oper, expr: Box::new(expr) });
+        Ok(())
     }
-    ast_nodes.push(AstNode::FunctionCall { kind: func, args });
-    Ok(())
+
+    fn from_binary<'a>(
+        stack: &mut Vec<Self>,
+        oper: BinaryOperatorKind,
+    ) -> Result<(), String> {
+        let right = stack.pop()
+            .ok_or(format!("Missing right operand for {}", oper))?;
+        let left = stack.pop()
+            .ok_or(format!("missing left operand for {}", oper))?;
+        stack.push(Self::BinaryOperator{
+            kind: oper,
+            left: Box::new(left),
+            right: Box::new(right),
+        });
+        Ok(())
+    }
+
+    fn from_function<'a>(
+        stack: &mut Vec<Self>,
+        func: FunctionKind,
+    ) -> Result<(), String> {
+        let n = func.arg_num();
+        let mut args = Vec::new();
+        args.resize(n, Self::Argument(0)); // Dummy Self for initializing
+        for i in (0..n).rev() { // this is expanded to `for (i=n-1; i >= 0; i--)` by LLVM
+            let arg = stack.pop()
+                .ok_or(format!("Missing function argument for {}", func))?;
+            args[i] = arg;
+        }
+        stack.push(Self::FunctionCall { kind: func, args });
+        Ok(())
+    }
 }
 
 fn parse_in_right_paren<'a>(
@@ -440,9 +440,9 @@ fn parse_in_right_paren<'a>(
     while let Some(token) = token_stack.pop() {
         match token {
             Token::LParen(_) => break,
-            Token::UnaryOperator(oper) => make_unary_operator_astnode(ast_nodes, oper)?,
-            Token::BinaryOperator(oper) => make_binary_operator_astnode(ast_nodes, oper)?,
-            Token::Function(func) => make_function_astnode(ast_nodes, func)?,
+            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper)?,
+            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper)?,
+            Token::Function(func) => AstNode::from_function(ast_nodes, func)?,
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in RParen at {s}..{e}",
@@ -463,8 +463,8 @@ fn parse_in_comma<'a>(
     while let Some(token) = token_stack.last() {
         match token {
             Token::LParen(_) => break,
-            Token::UnaryOperator(oper) => make_unary_operator_astnode(ast_nodes, oper.clone())?,
-            Token::BinaryOperator(oper) => make_binary_operator_astnode(ast_nodes, oper.clone())?,
+            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper.clone())?,
+            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper.clone())?,
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in Comma at {s}..{e}",
@@ -502,7 +502,7 @@ fn parse_in_binary_operator<'a>(
                 break;
             }
             token_stack.pop();
-            make_binary_operator_astnode(ast_nodes, top_oper)?;
+            AstNode::from_binary(ast_nodes, top_oper)?;
         }
         token_stack.push(Token::BinaryOperator(oper_kind));
         Ok(())
@@ -558,9 +558,9 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
 
     while let Some(token) = token_stack.pop() {
         match token {
-            Token::UnaryOperator(oper) => make_unary_operator_astnode(&mut ast_nodes, oper)?,
-            Token::BinaryOperator(oper) => make_binary_operator_astnode(&mut ast_nodes, oper)?,
-            Token::Function(func) => make_function_astnode(&mut ast_nodes, func)?,
+            Token::UnaryOperator(oper) => AstNode::from_unary(&mut ast_nodes, oper)?,
+            Token::BinaryOperator(oper) => AstNode::from_binary(&mut ast_nodes, oper)?,
+            Token::Function(func) => AstNode::from_function(&mut ast_nodes, func)?,
             _ => return Err("Unexpected token at the end".into()),
         }
     }
