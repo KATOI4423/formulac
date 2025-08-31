@@ -58,56 +58,52 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
 };
 
-/// Represents a unary operator in a mathematical expression.
+#[doc(hidden)]
+/// Internal macro to define all unary operators.
 ///
-/// Currently supports:
-/// - `Positive` (`+`): Unary plus, returns the operand unchanged.
-/// - `Negative` (`-`): Unary minus, negates the operand.
-///
-/// # Methods
-///
-/// - `from(s: &str) -> Option<Self>`: Parses a string into a `UnaryOperatorKind`.
-///   Returns `Some(Positive)` for `"+"`, `Some(Negative)` for `"-"`,
-///   or `None` for unrecognized strings.
-///
-/// - `apply(&self, x: Complex<f64>) -> Complex<f64>`: Applies the unary operator
-///   to the given `Complex<f64>` value and returns the result.
-///
-/// The `Display` implementation outputs `"+"` or `"-"` accordingly.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum UnaryOperatorKind {
-    Positive,
-    Negative,
-}
-
-impl UnaryOperatorKind {
-    /// Converts a string representation to a `UnaryOperatorKind`.
-    pub fn from(s: &str) -> Option<Self> {
-        match s {
-            "+" => Some(Self::Positive),
-            "-" => Some(Self::Negative),
-            _ => None,
+/// This macro is **not intended for public use**.
+/// It centralizes the enum variants, string representation, and apply logic for unary operators.
+macro_rules! unary_operator_kind {
+    ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
+        /// Represents a unary operator in a mathematical expression.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum UnaryOperatorKind {
+            $($name),*
         }
-    }
 
-    /// Applies the unary operator to a complex number.
-    pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
-        match self {
-            Self::Positive => x,
-            Self::Negative => -x,
+        impl UnaryOperatorKind {
+            /// Converts a string representation to a `UnaryOperatorKind`.
+            pub fn from(s: &str) -> Option<Self> {
+                match s {
+                    $( $symbol => Some(Self::$name), )*
+                    _ => None,
+                }
+            }
+
+            /// Applies the unary operator to a complex number.
+            pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
+                match self {
+                    $( Self::$name => $apply(x), )*
+                }
+            }
         }
-    }
+
+        impl std::fmt::Display for UnaryOperatorKind {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let s = match self {
+                    $( Self::$name => $symbol, )*
+                };
+                write!(f, "{}", s)
+            }
+        }
+    };
 }
 
-impl std::fmt::Display for UnaryOperatorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::Positive => "+",
-            Self::Negative => "-",
-        };
-        write!(f, "{}", s)
-    }
+unary_operator_kind! {
+    Positive => { symbol: "+", apply: |x: Complex<f64>| x },
+    Negative => { symbol: "-", apply: |x: Complex<f64>| -x },
 }
+
 
 /// Information about a binary operator in a mathematical expression.
 ///
@@ -122,204 +118,166 @@ pub struct BinaryOperatorInfo {
     pub is_left_assoc: bool,
 }
 
-/// Represents a binary operator in a mathematical expression.
+#[doc(hidden)]
+/// Internal macro to define all binary operators.
 ///
-/// Currently supported operators:
-/// - `Add` (`+`)
-/// - `Sub` (`-`)
-/// - `Mul` (`*`)
-/// - `Div` (`/`)
-/// - `Pow` (`^`)
-///
-/// # Methods
-///
-/// - `info(&self) -> BinaryOperatorInfo`
-///   Returns precedence and associativity of the operator.
-///
-/// - `from(s: &str) -> Option<Self>`
-///   Parses a string into a `BinaryOperatorKind`.
-///
-/// - `apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64>`
-///   Applies the operator to two `Complex<f64>` operands and returns the result.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BinaryOperatorKind {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
+/// This macro is **not intended for public use**.
+/// It centralizes the enum variants, string representation, precedence, associativity, and apply logic.
+macro_rules! binary_operators {
+    ($($name:ident => {
+        symbol: $symbol:expr,
+        precedence: $prec:expr,
+        left_assoc: $assoc:expr,
+        apply: $apply:expr
+    }),* $(,)?) => {
+        /// Represents a binary operator in a mathematical expression.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum BinaryOperatorKind {
+            $($name),*
+        }
+
+        impl BinaryOperatorKind {
+            /// Returns operator precedence and associativity.
+            pub fn info(&self) -> BinaryOperatorInfo {
+                match self {
+                    $(Self::$name => BinaryOperatorInfo { precedence: $prec, is_left_assoc: $assoc },)*
+                }
+            }
+
+            /// Converts a string to the corresponding operator.
+            pub fn from(s: &str) -> Option<Self> {
+                match s {
+                    $($symbol => Some(Self::$name),)*
+                    _ => None,
+                }
+            }
+
+            /// Applies the operator to two complex numbers.
+            pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
+                match self {
+                    $(Self::$name => $apply(l, r),)*
+                }
+            }
+        }
+
+        impl std::fmt::Display for BinaryOperatorKind {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let s = match self {
+                    $(Self::$name => $symbol,)*
+                };
+                write!(f, "{}", s)
+            }
+        }
+    };
 }
 
-impl BinaryOperatorKind {
-    /// Returns operator precedence and associativity information.
-    pub fn info(&self) -> BinaryOperatorInfo {
-        match self {
-            Self::Add | Self::Sub => BinaryOperatorInfo { precedence: 0, is_left_assoc: true },
-            Self::Mul | Self::Div => BinaryOperatorInfo { precedence: 1, is_left_assoc: true },
-            Self::Pow             => BinaryOperatorInfo { precedence: 2, is_left_assoc: false },
-        }
-    }
-
-    /// Converts a string representation to a `BinaryOperatorKind`.
-    pub fn from(s: &str) -> Option<Self> {
-        match s {
-            "+" => Some(Self::Add),
-            "-" => Some(Self::Sub),
-            "*" => Some(Self::Mul),
-            "/" => Some(Self::Div),
-            "^" => Some(Self::Pow),
-            _ => None,
-        }
-    }
-
-    /// Applies the binary operator to two complex numbers.
-    pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
-        match self {
-            Self::Add => l + r,
-            Self::Sub => l - r,
-            Self::Mul => l * r,
-            Self::Div => l / r,
-            Self::Pow => l.powc(r),
-        }
-    }
+binary_operators! {
+    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l + r },
+    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l - r },
+    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l * r },
+    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l / r },
+    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<f64>, r: Complex<f64>| l.powc(r) },
 }
 
-impl std::fmt::Display for BinaryOperatorKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            Self::Add => "+",
-            Self::Sub => "-",
-            Self::Mul => "*",
-            Self::Div => "/",
-            Self::Pow => "^",
-        };
-        write!(f, "{}", s)
-    }
-}
 
-/// Represents a mathematical function that can be applied to one or more complex numbers.
+#[doc(hidden)]
+/// Internal macro for defining built-in mathematical functions.
 ///
-/// Supports common trigonometric, hyperbolic, logarithmic, exponential, and arithmetic functions,
-/// as well as complex-specific operations like conjugation.
+/// This macro is **not intended for public use**.
+/// It centralizes the declaration of functions in one place and automatically
+/// generates the [`FunctionKind`] enum and its implementations (`from`, `arity`,
+/// `apply`, and `Display`).
 ///
-/// Currently supported functions:
-/// - Trigonometric: `Sin`, `Cos`, `Tan`
-/// - Inverse Trigonometric: `Asin`, `Acos`, `Atan`
-/// - Hyperbolic: `Sinh`, `Cosh`, `Tanh`
-/// - Inverse Hyperbolic: `Asinh`, `Acosh`, `Atanh`
-/// - Exponential and logarithmic: `Exp`, `Ln`, `Log10`
-/// - Other: `Sqrt`, `Abs`, `Conj`
-/// - Power: `Pow` (takes 2 arguments)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum FunctionKind {
-    Sin,    Cos,    Tan,
-    Asin,   Acos,   Atan,
-    Sinh,   Cosh,   Tanh,
-    Asinh,  Acosh,  Atanh,
-    Exp,    Ln,     Log10,
-    Sqrt,   Abs,
-    Conj,
+/// # Developer Notes
+/// - Each function must declare:
+///   - The enum variant name
+///   - Its canonical string name
+///   - The number of arguments it takes
+///   - How it is applied to its arguments
+/// - To add or remove a built-in function, update the list inside this macro.
+/// - User-defined functions should *not* be added here; use [`UserDefinedTable`] instead.
+///
+/// This macro ensures consistency across:
+/// - Parsing (string → enum)
+/// - Evaluation (apply)
+/// - Formatting (Display)
+macro_rules! functions {
+    ($( $variant: ident => {
+        name: $name:expr,
+        arity: $arity:expr,
+        apply: |$a:ident| $body:expr
+    }, )*) => {
+        /// Represents a mathematical function that can be applied to one or more complex numbers.
+        ///
+        /// Supports common trigonometric, hyperbolic, logarithmic, exponential, and arithmetic functions,
+        /// as well as complex-specific operations like conjugation.
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum FunctionKind {
+            $( $variant, )*
+        }
 
-    Pow,
+        impl FunctionKind {
+            /// Converts a string representation of a function into a `FunctionKind`.
+            ///
+            /// Returns `None` if the string does not match any supported function.
+            pub fn from(s: &str) -> Option<Self> {
+                match s {
+                    $( $name => Some(Self::$variant), )*
+                    _ => None,
+                }
+            }
+
+            /// Returns arity, the number of arguments that the function takes.
+            pub fn arity(&self) -> usize {
+                match self {
+                    $( Self::$variant => $arity, )*
+                }
+            }
+
+            /// Applies the function to a slice of complex numbers and returns the result.
+            ///
+            /// The number of elements in `args` must match the value returned by `arity`.
+            pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
+                match self {
+                    $( Self::$variant => {
+                        let $a = args;
+                        $body
+                    }, )*
+                }
+            }
+        }
+
+        impl std::fmt::Display for FunctionKind {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let s = match self {
+                    $( Self::$variant => $name, )*
+                };
+                write!(f, "{}", s)
+            }
+        }
+    };
 }
 
-impl FunctionKind {
-    /// Converts a string representation of a function into a `FunctionKind`.
-    ///
-    /// Returns `None` if the string does not match any supported function.
-    pub fn from(s: &str) -> Option<FunctionKind> {
-        match s {
-            "sin"       => Some(FunctionKind::Sin),
-            "cos"       => Some(FunctionKind::Cos),
-            "tan"       => Some(FunctionKind::Tan),
-            "asin"      => Some(FunctionKind::Asin),
-            "acos"      => Some(FunctionKind::Acos),
-            "atan"      => Some(FunctionKind::Atan),
-            "sinh"      => Some(FunctionKind::Sinh),
-            "cosh"      => Some(FunctionKind::Cosh),
-            "tanh"      => Some(FunctionKind::Tanh),
-            "asinh"     => Some(FunctionKind::Asinh),
-            "acosh"     => Some(FunctionKind::Acosh),
-            "atanh"     => Some(FunctionKind::Atanh),
-            "exp"       => Some(FunctionKind::Exp),
-            "ln"        => Some(FunctionKind::Ln),
-            "log10"     => Some(FunctionKind::Log10),
-            "sqrt"      => Some(FunctionKind::Sqrt),
-            "abs"       => Some(FunctionKind::Abs),
-            "conj"      => Some(FunctionKind::Conj),
-
-            "pow"       => Some(FunctionKind::Pow),
-
-            _ => None,
-        }
-    }
-
-    /// Returns the number of arguments that the function takes.
-    ///
-    /// Most functions take 1 argument, except `Pow`, which takes 2 arguments.
-    pub fn arg_num(&self) -> usize {
-        match self {
-            FunctionKind::Pow => 2,
-            _ => 1,
-        }
-    }
-
-    /// Applies the function to a slice of complex numbers and returns the result.
-    ///
-    /// The number of elements in `args` must match the value returned by `arg_num`.
-    pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
-        match self {
-            Self::Sin => args[0].sin(),
-            Self::Cos => args[0].cos(),
-            Self::Tan => args[0].tan(),
-            Self::Asin => args[0].asin(),
-            Self::Acos => args[0].acos(),
-            Self::Atan => args[0].atan(),
-            Self::Sinh => args[0].sinh(),
-            Self::Cosh => args[0].cosh(),
-            Self::Tanh => args[0].tanh(),
-            Self::Asinh => args[0].asinh(),
-            Self::Acosh => args[0].acosh(),
-            Self::Atanh => args[0].atanh(),
-            Self::Exp => args[0].exp(),
-            Self::Ln => args[0].ln(),
-            Self::Log10 => args[0].log10(),
-            Self::Sqrt => args[0].sqrt(),
-            Self::Abs => Complex::from(args[0].abs()),
-            Self::Conj => args[0].conj(),
-
-            Self::Pow => args[0].powc(args[1]),
-        }
-    }
-}
-
-impl std::fmt::Display for FunctionKind {
-    /// Returns the canonical string representation of the function (e.g., `"sin"`, `"cos"`, `"pow"`).
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
-            FunctionKind::Sin   => "sin",
-            FunctionKind::Cos   => "cos",
-            FunctionKind::Tan   => "tan",
-            FunctionKind::Asin  => "asin",
-            FunctionKind::Acos  => "acos",
-            FunctionKind::Atan  => "atan",
-            FunctionKind::Sinh  => "sinh",
-            FunctionKind::Cosh  => "cosh",
-            FunctionKind::Tanh  => "tanh",
-            FunctionKind::Asinh => "asinh",
-            FunctionKind::Acosh => "acosh",
-            FunctionKind::Atanh => "atanh",
-            FunctionKind::Exp   => "exp",
-            FunctionKind::Ln    => "ln",
-            FunctionKind::Log10 => "log10",
-            FunctionKind::Sqrt  => "sqrt",
-            FunctionKind::Abs   => "abs",
-            FunctionKind::Conj  => "conj",
-
-            FunctionKind::Pow   => "pow",
-        };
-        write!(f, "{}", s)
-    }
+functions! {
+    Sin     => { name: "sin",       arity: 1,   apply: |a| a[0].sin() },
+    Cos     => { name: "cos",       arity: 1,   apply: |a| a[0].cos() },
+    Tan     => { name: "tan",       arity: 1,   apply: |a| a[0].tan() },
+    Asin    => { name: "asin",      arity: 1,   apply: |a| a[0].asin() },
+    Acos    => { name: "acos",      arity: 1,   apply: |a| a[0].acos() },
+    Atan    => { name: "atan",      arity: 1,   apply: |a| a[0].atan() },
+    Sinh    => { name: "sinh",      arity: 1,   apply: |a| a[0].sinh() },
+    Cosh    => { name: "cosh",      arity: 1,   apply: |a| a[0].cosh() },
+    Tanh    => { name: "tanh",      arity: 1,   apply: |a| a[0].tanh() },
+    Asinh   => { name: "asinh",     arity: 1,   apply: |a| a[0].asinh() },
+    Acosh   => { name: "acosh",     arity: 1,   apply: |a| a[0].acosh() },
+    Atanh   => { name: "atanh",     arity: 1,   apply: |a| a[0].atanh() },
+    Exp     => { name: "exp",       arity: 1,   apply: |a| a[0].exp() },
+    Ln      => { name: "ln",        arity: 1,   apply: |a| a[0].ln() },
+    Log10   => { name: "log10",     arity: 1,   apply: |a| a[0].log10() },
+    Sqrt    => { name: "sqrt",      arity: 1,   apply: |a| a[0].sqrt() },
+    Abs     => { name: "abs",       arity: 1,   apply: |a| Complex::from(a[0].abs()) },
+    Conj    => { name: "conj",      arity: 1,   apply: |a| a[0].conj() },
+    Pow     => { name: "pow",       arity: 2,   apply: |a| a[0].powc(a[1]) },
 }
 
 /// Represents a parsed token in a mathematical expression.
@@ -505,7 +463,7 @@ pub fn make_function_list<'a>(
             Token::Function(func) => {
                 func_list.push(Box::new(
                     move |stack, _args| {
-                        let n = func.arg_num();
+                        let n = func.arity();
                         let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
                         args.resize(n, Complex::new(0.0, 0.0));
 
@@ -662,7 +620,7 @@ impl AstNode {
         stack: &mut Vec<Self>,
         func: FunctionKind,
     ) -> Result<(), String> {
-        let n = func.arg_num();
+        let n = func.arity();
         let mut args = Vec::new();
         args.resize(n, Self::Argument(0)); // Dummy Self for initializing
         for i in (0..n).rev() { // this is expanded to `for (i=n-1; i >= 0; i--)` by LLVM
@@ -1041,7 +999,7 @@ mod function_kind_tests {
     }
 
     #[test]
-    fn test_function_kind_arg_num() {
+    fn test_function_kind_arity() {
         let single_arg_functions = [
             FunctionKind::Sin,
             FunctionKind::Cos,
@@ -1062,7 +1020,7 @@ mod function_kind_tests {
         ];
 
         for func in &single_arg_functions {
-            assert_eq!(func.arg_num(), 1, "{:?} should have 1 argument", func);
+            assert_eq!(func.arity(), 1, "{:?} should have 1 argument", func);
         }
 
         let double_args_functions = [
@@ -1070,7 +1028,7 @@ mod function_kind_tests {
         ];
 
         for func in &double_args_functions {
-            assert_eq!(func.arg_num(), 2, "{:?} should have 2 argument", func);
+            assert_eq!(func.arity(), 2, "{:?} should have 2 argument", func);
         }
     }
 }
