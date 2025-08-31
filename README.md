@@ -1,13 +1,15 @@
 # formulac
 
-A Rust crate for parsing and evaluating mathematical expressions with full complex-number support and extensible user-defined functions.
+A Rust crate for parsing and evaluating mathematical expressions with full complex-number support, extensible user-defined functions, and detailed AST representation.
 
 ## Features
 
 - **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
 - **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
 - **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
-- **User-defined functions** — Easily register custom functions or constants at runtime using a simple API.
+- **Unary & Binary operators** — Unary operators (`+`, `-`) and binary operators (`+`, `-`, `*`, `/`, `^`) are represented as `UnaryOperatorKind` and `BinaryOperatorKind`.
+- **Abstract Syntax Tree (AST)** — Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures.
+- **User-defined functions** — Easily register custom functions or constants at runtime using a simple API (`UserDefinedTable`).
 - **Safe and dependency-light** — No use of unsafe Rust or heavyweight external parsers.
 
 ---
@@ -24,7 +26,7 @@ or
 
 ```toml
 [dependencies]
-formulac = "0.3"
+formulac = "0.4"
 num-complex = "0.4"
 ```
 
@@ -32,7 +34,7 @@ num-complex = "0.4"
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, variable::Variables, UserDefinedTable};
+use formulac::{compile, variable::Variables, variable::UserDefinedTable};
 
 fn main() {
     let mut vars = Variables::new();
@@ -52,18 +54,18 @@ fn main() {
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, variable::Variables, UserDefinedTable, token::Operator};
+use formulac::{compile, variable::Variables, UserDefinedTable, UserDefinedFunction};
 
 // Create user-defined function table
 let mut users = UserDefinedTable::new();
 
 // Define a function f(x) = x^2 + 1
-let f_token = Token::Function(Function::new(
-    |args| args[0] * args[0] + Complex::new(1.0, 0.0),
+let func = UserDefinedFuncion::new(
+    "my_func",
+    |args: &[Complex<f64>]| args[0] * args[0] + Complex::new(1.0, 0.0),
     1,
-    "f",
-));
-users.register("f", f_token);
+);
+users.register("f", func);
 
 let mut vars = Variables::new();
 let expr = compile("f(3)", &[], &vars, &users).unwrap();
@@ -81,7 +83,7 @@ assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
   A lookup table mapping variable names (strings) to `Complex<f64>` values, used during parsing.
 
 - **`UserDefinedTable`**
-  Allows registration of custom functions or constants under user-defined names for use in expressions.
+  Allows registration of custom functions under user-defined names for use in expressions.
 
 ---
 
