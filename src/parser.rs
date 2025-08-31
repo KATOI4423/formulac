@@ -236,7 +236,7 @@ impl std::fmt::Display for FunctionKind {
 
 /// Token enum representing different types of tokens.
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum Token<'a> {
+pub enum Token<'a> {
     /// Numerical value token holding the resolved value.
     ///
     /// - User-defined variable with external value resolved at parse time.
@@ -315,24 +315,66 @@ impl<'a> Token<'a> {
 
 }
 
-fn parse_real(s: &str) -> Option<Complex<f64>> {
-    s.parse::<f64>().ok().map(|value| Complex::from(value))
-}
+pub fn make_function_list<'a>(tokens: Vec<Token<'a>>)
+    -> Vec<Box<dyn Fn(
+        &mut Vec<Complex<f64>>, // tempolary stack of value in token
+        &[Complex<f64>] // arguments list
+    )>>
+{
+    let mut func_list: Vec<Box<dyn Fn(&mut Vec<Complex<f64>>, &[Complex<f64>])>> = Vec::new();
 
-fn parse_imaginary(s: &str) -> Option<Complex<f64>> {
-    let num_part = s.strip_suffix(IMAGINARY_UNIT)?;
-    if num_part.is_empty() {
-        return Some(Complex::I);
-    }
-    match num_part.parse::<f64>() {
-        Ok(val) => Some(Complex::new(0.0, val)),
-        Err(_) => None,
-    }
-}
+    for token in tokens {
+        match token {
+            Token::Number(val) => {
+                func_list.push(Box::new(
+                    move |stack, _args| stack.push(val)
+                ));
+            },
+            Token::Argument(idx) => {
+                func_list.push(Box::new(
+                    move |stack, args| stack.push(args[idx])
+                ));
+            },
+            Token::UnaryOperator(oper) => {
+                func_list.push(Box::new(
+                    move |stack, _args| {
+                        let expr = stack.pop().unwrap();
+                        stack.push(oper.apply(expr));
+                    }
+                ));
+            },
+            Token::BinaryOperator(oper) => {
+                func_list.push(Box::new(
+                    move |stack, _args| {
+                        let r = stack.pop().unwrap();
+                        let l = stack.pop().unwrap();
+                        stack.push(oper.apply(l, r));
+                    }
+                ))
+            },
+            Token::Function(func) => {
+                func_list.push(Box::new(
+                    move |stack, _args| {
+                        let n = func.arg_num();
+                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                        args.resize(n, Complex::new(0.0, 0.0));
 
+                        for i in (0..n).rev() {
+                            args[i] = stack.pop().unwrap();
+                        }
+                        stack.push(func.apply(&args));
+                    }
+                ));
+            },
+            _ => unreachable!("Invalid tokens found: use compiled tokens"),
+        }
+    }
+
+    func_list
+}
 
 #[derive(Debug, Clone, PartialEq)]
-enum AstNode {
+pub enum AstNode {
     Number(Complex<f64>),
     Argument(usize),
     UnaryOperator {
