@@ -3,7 +3,7 @@
 
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
-use crate::variable::Variables;
+use crate::variable::{Variables, UserDefinedFunction, UserDefinedTable};
 use num_complex::Complex;
 use num_complex::ComplexFloat;
 use phf::Map;
@@ -235,7 +235,7 @@ impl std::fmt::Display for FunctionKind {
 }
 
 /// Token enum representing different types of tokens.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token<'a> {
     /// Numerical value token holding the resolved value.
     ///
@@ -260,6 +260,9 @@ pub enum Token<'a> {
 
     /// Function token.
     Function(FunctionKind),
+
+    /// User Defined Function token.
+    UserFunction(UserDefinedFunction<'a>),
 
     /// Left parenthesis token '('.
     LParen(Lexeme<'a>),
@@ -290,7 +293,8 @@ impl<'a> Token<'a> {
     pub fn from(
         lexeme: &Lexeme<'a>,
         args: &[&str],
-        vars: &Variables,
+        vars: &'a Variables,
+        users: &'a UserDefinedTable,
     ) -> Result<Self, String> {
         let text = lexeme.text();
 
@@ -320,6 +324,10 @@ impl<'a> Token<'a> {
             return Ok(Token::Function(func_kind));
         }
 
+        if let Some(user_func) = users.get(text) {
+            return Ok(Token::UserFunction(user_func.clone()));
+        }
+
         match text {
             "(" => Ok(Token::LParen(lexeme.clone())),
             ")" => Ok(Token::RParen(lexeme.clone())),
@@ -330,11 +338,12 @@ impl<'a> Token<'a> {
 
 }
 
-pub fn make_function_list<'a>(tokens: Vec<Token<'a>>)
-    -> Vec<Box<dyn Fn(
-        &mut Vec<Complex<f64>>, // tempolary stack of value in token
-        &[Complex<f64>] // arguments list
-    )>>
+pub fn make_function_list<'a>(
+    tokens: Vec<Token<'a>>,
+) -> Vec<Box<dyn Fn(
+    &mut Vec<Complex<f64>>, // tempolary stack of value in token
+    &[Complex<f64>] // arguments list
+) + 'a>>
 {
     let mut func_list: Vec<Box<dyn Fn(&mut Vec<Complex<f64>>, &[Complex<f64>])>> = Vec::new();
 
@@ -381,6 +390,20 @@ pub fn make_function_list<'a>(tokens: Vec<Token<'a>>)
                     }
                 ));
             },
+            Token::UserFunction(func) => {
+                func_list.push(Box::new(
+                    move |stack, _args| {
+                        let n = func.arity();
+                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                        args.resize(n, Complex::ZERO);
+
+                        for i in (0..n).rev() {
+                            args[i] = stack.pop().unwrap();
+                        }
+                        stack.push(func.apply(&args));
+                    }
+                ))
+            }
             _ => unreachable!("Invalid tokens found: use compiled tokens"),
         }
     }
@@ -410,10 +433,11 @@ pub enum AstNode {
 impl AstNode {
     pub fn from<'a>(
         lexemes: &[Lexeme<'a>],
+        args: &[&str],
         vars: &Variables,
-        args: &[&str]
+        users: &UserDefinedTable,
     ) -> Result<Self, String> {
-        parse_to_ast(lexemes, vars, args)
+        parse_to_ast(lexemes, args, vars, users)
     }
 
     pub fn simplify(self) -> Self {
@@ -596,7 +620,12 @@ fn parse_in_binary_operator<'a>(
     }
 }
 
-fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> Result<AstNode, String> {
+fn parse_to_ast<'a>(
+    lexemes: &[Lexeme<'a>],
+    args: &[&str],
+    vars: &Variables,
+    users: &UserDefinedTable,
+) -> Result<AstNode, String>{
     let mut ast_nodes: Vec<AstNode> = Vec::new();
     let mut token_stack: Vec<Token> = Vec::new();
     // record whether the previous token is finished by value or not to evaluate the token is unary operator or binary operator.
@@ -604,7 +633,7 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
     let mut lexemes = lexemes.iter().peekable();
 
     while let Some(lexeme) = lexemes.next() {
-        let token = Token::from(lexeme, args, vars)?;
+        let token = Token::from(lexeme, args, vars, users)?;
         match token {
             Token::Number(val) => {
                 ast_nodes.push(AstNode::Number(val));
@@ -621,7 +650,7 @@ fn parse_to_ast<'a>(lexemes: &[Lexeme<'a>], vars: &Variables, args: &[&str]) -> 
                 };
                 prev_is_value = false;
             },
-            Token::Function(_) => {
+            Token::Function(_) | Token::UserFunction(_) => {
                 token_stack.push(token);
                 prev_is_value = false;
             },
@@ -840,8 +869,9 @@ mod tests {
     fn test_number_token() {
         let lex = Lexeme::new("3.14", 0..4);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(3.14, 0.0)),
             _ => panic!("Expected Number token"),
@@ -852,8 +882,9 @@ mod tests {
     fn test_imaginary_number() {
         let lex = Lexeme::new("2i", 0..2);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(0.0, 2.0)),
             _ => panic!("Expected Number token"),
@@ -864,8 +895,9 @@ mod tests {
     fn test_constant_token() {
         let lex = Lexeme::new("PI", 0..2);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(std::f64::consts::PI, 0.0)),
             _ => panic!("Expected Number token"),
@@ -877,7 +909,8 @@ mod tests {
         let lex = Lexeme::new("arg0", 0..4);
         let vars = Variables::new();
         let args = ["arg0"];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let users = UserDefinedTable::new();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Argument(pos) => assert_eq!(pos, 0),
             _ => panic!("Expected Argument token"),
@@ -889,7 +922,8 @@ mod tests {
         let lex = Lexeme::new("+", 0..1);
         let vars = Variables::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let users = UserDefinedTable::new();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Operator(_) => {}, // OK
             _ => panic!("Expected Operator token"),
@@ -900,8 +934,9 @@ mod tests {
     fn test_function_token() {
         let lex = Lexeme::new("sin", 0..3);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars).unwrap();
+        let token = Token::from(&lex, &args, &vars, &users).unwrap();
         match token {
             Token::Function(f) => assert_eq!(f, FunctionKind::Sin),
             _ => panic!("Expected Function token"),
@@ -914,26 +949,28 @@ mod tests {
         let lex_r = Lexeme::new(")", 0..1);
         let lex_c = Lexeme::new(",", 0..1);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
 
-        assert!(matches!(Token::from(&lex_l, &args, &vars).unwrap(), Token::LParen(_)));
-        assert!(matches!(Token::from(&lex_r, &args, &vars).unwrap(), Token::RParen(_)));
-        assert!(matches!(Token::from(&lex_c, &args, &vars).unwrap(), Token::Comma(_)));
+        assert!(matches!(Token::from(&lex_l, &args, &vars, &users).unwrap(), Token::LParen(_)));
+        assert!(matches!(Token::from(&lex_r, &args, &vars, &users).unwrap(), Token::RParen(_)));
+        assert!(matches!(Token::from(&lex_c, &args, &vars, &users).unwrap(), Token::Comma(_)));
     }
 
     #[test]
     fn test_unknown_string() {
         let lex = Lexeme::new("unknown", 0..7);
         let vars = Variables::new();
+        let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let res = Token::from(&lex, &args, &vars);
+        let res = Token::from(&lex, &args, &vars, &users);
         assert!(res.is_err());
     }
 
     #[test]
     fn test_single_number_astnode() {
         let lexemes = lexer::from("42");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::Number(val) => assert_eq!(val, Complex::new(42.0, 0.0)),
             _ => panic!("Expected Number AST node"),
@@ -943,7 +980,7 @@ mod tests {
     #[test]
     fn test_unary_operator_negative_astnode() {
         let lexemes = lexer::from("- 3");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::UnaryOperator { kind, expr } => {
                 assert_eq!(kind, UnaryOperatorKind::Negative);
@@ -959,7 +996,7 @@ mod tests {
     #[test]
     fn test_binary_operator_precedence_astnode() {
         let lexemes = lexer::from("2 + 3 * 4");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         // expected: (2 + (3 * 4))
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -981,7 +1018,7 @@ mod tests {
     #[test]
     fn test_parentheses_override_precedence_astnode() {
         let lexemes = lexer::from("( 2 + 3 ) * 4");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         // expected: ((2 + 3) * 4)
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -999,7 +1036,7 @@ mod tests {
     #[test]
     fn test_function_single_arg_astnode() {
         let lexemes = lexer::from("sin ( 0 )");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Sin);
@@ -1013,7 +1050,7 @@ mod tests {
     #[test]
     fn test_function_multiple_args_astnode() {
         let lexemes = lexer::from("pow ( 2 , 3 )");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -1028,14 +1065,14 @@ mod tests {
     #[test]
     fn test_imaginary_number_astnode() {
         let lexemes = lexer::from("5i");
-        let ast = parse_to_ast(&lexemes, &Variables::new(), &[]).unwrap();
+        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         assert_eq!(ast, AstNode::Number(Complex::new(0.0, 5.0)));
     }
 
     #[test]
     fn test_unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
-        let res = parse_to_ast(&lexemes, &Variables::new(), &[]);
+        let res = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new());
         assert!(res.is_err());
     }
 
