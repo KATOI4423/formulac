@@ -39,7 +39,7 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
 };
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum UnaryOperatorKind {
+pub enum UnaryOperatorKind {
     Positive,   Negative,
 }
 
@@ -71,7 +71,7 @@ impl std::fmt::Display for UnaryOperatorKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct BinaryOperatorInfo {
+pub struct BinaryOperatorInfo {
     /// Operator precedence (higher value means higer precedence).
     pub precedence: u8,
 
@@ -80,7 +80,7 @@ struct BinaryOperatorInfo {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum BinaryOperatorKind {
+pub enum BinaryOperatorKind {
     Add,    Sub,    Mul,    Div,
     Pow,
 }
@@ -133,7 +133,7 @@ impl std::fmt::Display for BinaryOperatorKind {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-enum FunctionKind {
+pub enum FunctionKind {
     Sin,    Cos,    Tan,
     Asin,   Acos,   Atan,
     Sinh,   Cosh,   Tanh,
