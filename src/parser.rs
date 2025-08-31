@@ -616,7 +616,15 @@ fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNo
                     right: Box::new(AstNode::Number(k1.apply( r1_val, r))),
                 }
             } else {
-                unreachable!()
+                AstNode::BinaryOperator {
+                    kind,
+                    left: Box::new(AstNode::BinaryOperator {
+                        kind: k1,
+                        left: l1,
+                        right: r1
+                    }),
+                    right: Box::new(AstNode::Number(r)),
+                }
             }
         }
         (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
@@ -1064,6 +1072,19 @@ mod tests {
                 right: Box::new(AstNode::Number(Complex::new(24.0, 0.0))),
             }
         );
+
+        // 2 * x + 3 -> not changed
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Mul,
+                left: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+                right: Box::new(AstNode::Argument(0))
+            }),
+            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
+        };
+        let simplified = node.clone().simplify();
+        assert_astnode_eq!(simplified, node)
     }
 
     #[test]
