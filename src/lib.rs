@@ -1,24 +1,52 @@
 //! # formulac
 //!
-//! `formulac` is a Rust library for parsing and evaluating mathematical expressions
-//! with support for **complex numbers** and **extensible user-defined functions**.
+//! `formulac` is a Rust library for parsing and evaluating mathematical
+//! expressions with support for **complex numbers** and **extensible user-defined functions**.
 //!
-//! It allows you to:
+//! ## Overview
 //! - Parse and evaluate expressions containing real and imaginary numbers.
 //! - Use built-in operators, constants, and mathematical functions.
 //! - Register your own variables and functions.
-//! - Work with expressions in a compiled, callable form for repeated evaluation.
+//! - Compile expressions into callable closures for repeated evaluation without re-parsing.
 //!
-//! Internally, expressions are converted to Reverse Polish Notation (RPN),
-//! then compiled into a sequence of stack operations for fast execution.
+//! Internally, expressions are first tokenized into lexeme,
+//! then converted to an AST using the Shunting-Yard algorithm,
+//! and finally compiled into Reverse Polish Notation (RPN) stack operations
+//! for fast repeated execution.
 //!
-//! ## Feature Overview
-//! - **Complex number support** using [`num_complex::Complex`]
-//! - **Custom functions** that can be registered at runtime
-//! - **Variables and arguments** passed at evaluation time
+//! ## Feature Highlights
+//! - **Complex number support** using [`num_complex::Complex<f64>`]
+//! - **User-defined functions and constants** via [`UserDefinedTable`]
+//! - **Variables and arguments** managed by [`Variables`]
 //! - **Operator precedence** and parentheses handling
-//! - **Efficient compiled execution** avoiding repeated parsing
+//! - **Efficient compiled closures** avoiding repeated parsing
 //!
+//! ## Example
+//! ```rust
+//! use num_complex::Complex;
+//! use formulac::{compile, variable::Variables, variable::UserDefinedTable};
+//!
+//! fn main() {
+//!     let mut vars = Variables::new();
+//!     vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+//!
+//!     let users = UserDefinedTable::new();
+//!     let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
+//!         .expect("Failed to compile formula");
+//!
+//!     let result = expr(&[Complex::new(1.0, 2.0)]).unwrap();
+//!     println!("Result = {}", result);
+//! }
+//! ```
+//!
+//! ## When to Use
+//! Use `formulac` when you need:
+//! - Fast repeated evaluation of mathematical formulas
+//! - Complex number support in expressions
+//! - Runtime extensibility via custom functions or constants
+//!
+//! ## License
+//! Licensed under either **MIT** or **Apache-2.0** at your option.
 
 mod lexer;
 mod parser;
@@ -27,6 +55,58 @@ pub mod variable;
 use num_complex::Complex;
 use crate::{parser::make_function_list, variable::{UserDefinedTable, Variables}};
 
+/// Compiles a mathematical expression into an executable closure.
+///
+/// This function parses a formula string into an abstract syntax tree (AST),
+/// simplifies it, and then compiles it into a list of stack operations
+/// (in Reverse Polish Notation). The result is returned as a closure that
+/// can be called multiple times with different argument values without
+/// re-parsing the formula.
+///
+/// # Parameters
+/// - `formula`: A string slice containing the mathematical expression to compile.
+/// - `arg_names`: A slice of argument names (`&str`) that the formula depends on.
+///   The closure returned will expect argument values in the same order.
+/// - `vars`: A [`Variables`] table mapping variable names
+///   to constant values available in the formula.
+/// - `users`: A [`UserDefinedTable`] containing
+///   any user-defined functions or constants available in the formula.
+///
+/// # Returns
+/// On success, returns a closure of type:
+///
+/// ```rust,ignore
+/// Fn(&[Complex<f64>]) -> Option<Complex<f64>>
+/// ```
+///
+/// - The closure takes a slice of complex argument values corresponding to `arg_names`.
+/// - Returns `Some(result)` if evaluation succeeds.
+/// - Returns `None` if the number of arguments provided does not match `arg_names.len()`.
+///
+/// On failure, returns an error string describing the parsing or compilation error.
+///
+/// # Example
+/// ```rust
+/// use num_complex::Complex;
+/// use formulac::{compile, variable::Variables, variable::UserDefinedTable};
+///
+/// let mut vars = Variables::new();
+/// vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+///
+/// let users = UserDefinedTable::new();
+/// let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
+///     .expect("Failed to compile formula");
+///
+/// let result = expr(&[Complex::new(1.0, 2.0)]).unwrap();
+/// println!("Result = {}", result);
+/// ```
+///
+/// # Notes
+/// - The formula string must be a valid expression using supported operators,
+///   variables, and functions.
+/// - Argument names are resolved in the order provided by `arg_names`.
+/// - This function does not evaluate immediately; instead, it produces
+///   a reusable compiled closure for efficient repeated evaluation.
 pub fn compile(
     formula: &str,
     arg_names: &[&str],
