@@ -278,6 +278,7 @@ functions! {
     Abs     => { name: "abs",       arity: 1,   apply: |a| Complex::from(a[0].abs()) },
     Conj    => { name: "conj",      arity: 1,   apply: |a| a[0].conj() },
     Pow     => { name: "pow",       arity: 2,   apply: |a| a[0].powc(a[1]) },
+    Powi    => { name: "powi",      arity: 2,   apply: |a| a[0].powi(a[1].re() as i32)},
 }
 
 /// Represents a parsed token in a mathematical expression.
