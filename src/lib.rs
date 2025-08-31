@@ -34,7 +34,7 @@
 //!     let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
 //!         .expect("Failed to compile formula");
 //!
-//!     let result = expr(&[Complex::new(1.0, 2.0)]).unwrap();
+//!     let result = expr(&[Complex::new(1.0, 2.0)]);
 //!     println!("Result = {}", result);
 //! }
 //! ```
@@ -74,7 +74,7 @@ pub mod parser;
 pub mod variable;
 
 use num_complex::Complex;
-use crate::{parser::make_function_list, variable::{UserDefinedTable, Variables}};
+use crate::{parser::Token, variable::{UserDefinedTable, Variables}};
 
 /// Compiles a mathematical expression into an executable closure.
 ///
@@ -97,12 +97,13 @@ use crate::{parser::make_function_list, variable::{UserDefinedTable, Variables}}
 /// On success, returns a closure of type:
 ///
 /// ```rust,ignore
-/// Fn(&[Complex<f64>]) -> Option<Complex<f64>>
+/// Fn(&[Complex<f64>]) -> Complex<f64>
 /// ```
 ///
 /// - The closure takes a slice of complex argument values corresponding to `arg_names`.
-/// - Returns `Some(result)` if evaluation succeeds.
-/// - Returns `None` if the number of arguments provided does not match `arg_names.len()`.
+/// - Returns `Complex<f64>` if evaluation succeeds.
+/// - Panics if the number of arguments provided does not match `arg_names.len()`.
+///   So check it with debug build.
 ///
 /// On failure, returns an error string describing the parsing or compilation error.
 ///
@@ -118,7 +119,7 @@ use crate::{parser::make_function_list, variable::{UserDefinedTable, Variables}}
 /// let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
 ///     .expect("Failed to compile formula");
 ///
-/// let result = expr(&[Complex::new(1.0, 2.0)]).unwrap();
+/// let result = expr(&[Complex::new(1.0, 2.0)]);
 /// println!("Result = {}", result);
 /// ```
 ///
@@ -133,22 +134,56 @@ pub fn compile(
     arg_names: &[&str],
     vars: &Variables,
     users: &UserDefinedTable
-) -> Result<impl Fn(&[Complex<f64>]) -> Option<Complex<f64>>, String>
+) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64>, String>
 {
     let lexemes = lexer::from(formula);
     let ast = parser::AstNode::from(&lexemes, arg_names, vars, users)?;
     let tokens = ast.simplify().compile();
-    let funcs = make_function_list(tokens);
 
+    let expected_arity = arg_names.len();
     let func = move |arg_values: &[Complex<f64>]| {
-        if arg_names.len() != arg_values.len() {
-            return None;
-        }
+        // check arity only debug build
+        debug_assert_eq!(arg_values.len(), expected_arity);
+
         let mut stack: Vec<Complex<f64>> = Vec::new();
-        for func in funcs.iter() {
-            func(&mut stack, arg_values);
+        for token in tokens.iter() {
+            match token {
+                Token::Number(val) => stack.push(*val),
+                Token::Argument(idx) => stack.push(arg_values[*idx]),
+                Token::UnaryOperator(oper) => {
+                    let expr = stack.pop().unwrap();
+                    stack.push(oper.apply(expr));
+                },
+                Token::BinaryOperator(oper) => {
+                    let r = stack.pop().unwrap();
+                    let l = stack.pop().unwrap();
+                    stack.push(oper.apply(l, r));
+                },
+                Token::Function(func) => {
+                    let n = func.arity();
+                    let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                    args.resize(n, Complex::new(0.0, 0.0));
+
+                    for i in (0..n).rev() {
+                        args[i] = stack.pop().unwrap();
+                    }
+                    stack.push(func.apply(&args));
+                },
+                Token::UserFunction(func) => {
+                    let n = func.arity();
+                    let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                    args.resize(n, Complex::new(0.0, 0.0));
+
+                    for i in (0..n).rev() {
+                        args[i] = stack.pop().unwrap();
+                    }
+                    stack.push(func.apply(&args));
+                },
+                _ => unreachable!("Invalid tokens found: use compiled tokens"),
+            }
         }
-        stack.pop()
+
+        stack.pop().unwrap()
     };
 
     Ok(func)
@@ -166,7 +201,7 @@ mod compile_test {
         let users = UserDefinedTable::new();
         let f = compile("42", &[], &vars, &users).unwrap();
         let result = f(&[]);
-        assert_eq!(result, Some(Complex::new(42.0, 0.0)));
+        assert_eq!(result, Complex::new(42.0, 0.0));
     }
 
     #[test]
@@ -175,7 +210,7 @@ mod compile_test {
         let users = UserDefinedTable::new();
         let f = compile("PI", &[], &vars, &users).unwrap();
         let result = f(&[]);
-        assert_eq!(result, Some(Complex::from(std::f64::consts::PI)));
+        assert_eq!(result, Complex::from(std::f64::consts::PI));
     }
 
     #[test]
@@ -184,7 +219,7 @@ mod compile_test {
         let users = UserDefinedTable::new();
         let f = compile("x", &["x"], &vars, &users).unwrap();
         let result = f(&[Complex::new(3.0, 0.0)]);
-        assert_eq!(result, Some(Complex::new(3.0, 0.0)));
+        assert_eq!(result, Complex::new(3.0, 0.0));
     }
 
     #[test]
@@ -194,7 +229,7 @@ mod compile_test {
         let f = compile("x + y", &["x", "y"], &vars, &users).unwrap();
         let x = Complex::new(2.0, 1.0);
         let y = Complex::new(3.0, 5.0);
-        let result = f(&[x, y]).unwrap();
+        let result = f(&[x, y]);
         assert_abs_diff_eq!(result.re(), (x + y).re(), epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), (x + y).im(), epsilon=1.0e-12);
     }
@@ -204,7 +239,7 @@ mod compile_test {
         let vars = Variables::new();
         let users = UserDefinedTable::new();
         let f = compile("sin(x + 1)", &["x"], &vars, &users).unwrap();
-        let result = f(&[Complex::new(0.0, 1.0)]).unwrap();
+        let result = f(&[Complex::new(0.0, 1.0)]);
         let expected = Complex::new(1.0, 1.0).sin();
         assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
@@ -215,7 +250,7 @@ mod compile_test {
         let vars = Variables::new();
         let users = UserDefinedTable::new();
         let f = compile("2 + 3 * 4", &[], &vars, &users).unwrap();
-        let result = f(&[]).unwrap();
+        let result = f(&[]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
         assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
@@ -228,21 +263,30 @@ mod compile_test {
         let f = compile("pow(a, b)", &["a", "b"], &vars, &users).unwrap();
         let a = Complex::new(2.0, 1.0);
         let b = Complex::new(-2.0, 3.0);
-        let result = f(&[a, b]).unwrap();
+        let result = f(&[a, b]);
         let expected = a.powc(b);
         assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
     }
 
     #[test]
-    fn test_invalid_args_length() {
+    #[should_panic]
+    fn test_too_less_args_length() {
         let vars = Variables::new();
         let users = UserDefinedTable::new();
         let f = compile("x + 1", &["x"], &vars, &users).unwrap();
-        // Too less arguments
-        assert_eq!(f(&[]), None);
+        f(&[]);
         // Too much arguments
-        assert_eq!(f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]), None);
+        f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_too_much_args_length() {
+        let vars = Variables::new();
+        let users = UserDefinedTable::new();
+        let f = compile("x + 1", &["x"], &vars, &users).unwrap();
+        f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
     }
 
     #[test]
@@ -255,10 +299,9 @@ mod compile_test {
         vars.insert(&[("a", a), ("b", b),]);
 
         let f = compile("a * x + b", &["x"], &vars, &users).unwrap();
-        let result = f(&[x]).unwrap();
+        let result = f(&[x]);
         let expected = a * x + b;
         assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
     }
-
 }
