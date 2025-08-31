@@ -181,45 +181,51 @@ impl Default for UserDefinedTable {
 }
 
 #[cfg(test)]
-mod tests {
+mod variables_tests {
     use super::*;
 
     #[test]
-    fn test_insert_real() {
-        let mut vars = Variables::default();
-        vars.insert(&[("a", 1.0)]);
-        assert_eq!(*vars.get("a").unwrap(), Complex::from(1.0));
-    }
+    fn test_insert_and_get() {
+        let mut vars = Variables::new();
+        vars.insert(&[("a", Complex::new(1.0, 0.0)), ("b", Complex::new(2.0, 3.0))]);
 
-    #[test]
-    fn test_insert_complex() {
-        let mut vars = Variables::default();
-        vars.insert(&[("b", Complex::new(1.0, 2.0))]);
-        assert_eq!(*vars.get("b").unwrap(), Complex::new(1.0, 2.0));
-    }
-
-    #[test]
-    fn test_from() {
-        let vars = Variables::from(&[("1", 1.0), ("2", 2.0)]);
-        assert_eq!(*vars.get("1").unwrap(), Complex::from(1.0));
-        assert_eq!(*vars.get("2").unwrap(), Complex::from(2.0));
+        assert_eq!(vars.get("a"), Some(&Complex::new(1.0, 0.0)));
+        assert_eq!(vars.get("b"), Some(&Complex::new(2.0, 3.0)));
+        assert_eq!(vars.get("c"), None);
     }
 
     #[test]
     fn test_contains() {
-        let mut vars = Variables::default();
-        assert_eq!(vars.contains("test"), false);
+        let mut vars = Variables::new();
+        vars.insert(&[("x", Complex::new(5.0, 0.0))]);
 
-        vars.insert(&[("test", 1.0)]);
-        assert_eq!(vars.contains("test"), true);
+        assert!(vars.contains("x"));
+        assert!(!vars.contains("y"));
     }
 
     #[test]
     fn test_clear() {
-        let mut vars = Variables::from(&[("1", 1.0)]);
-        assert_eq!(*vars.get("1").unwrap(), Complex::from(1.0));
+        let mut vars = Variables::new();
+        vars.insert(&[("foo", Complex::new(1.0, 0.0))]);
+        assert!(vars.contains("foo"));
 
         vars.clear();
-        assert_eq!(vars.get("1").is_none(), true);
+        assert!(!vars.contains("foo"));
+        assert_eq!(vars.get("foo"), None);
+    }
+
+    #[test]
+    fn test_from_slice() {
+        let items = &[("p", 3.0), ("q", 4.5)];
+        let vars = Variables::from(items);
+
+        assert_eq!(vars.get("p"), Some(&Complex::new(3.0, 0.0)));
+        assert_eq!(vars.get("q"), Some(&Complex::new(4.5, 0.0)));
+    }
+
+    #[test]
+    fn test_default() {
+        let vars = Variables::default();
+        assert!(!vars.contains("anything"));
     }
 }
