@@ -1,5 +1,25 @@
-//! parser.rs
+//! # parser.rs
 //!
+//! This module provides the functionality to parse mathematical expressions into an Abstract Syntax Tree (AST)
+//! and then compile them into executable tokens.
+//!
+//! It supports:
+//! - Real and complex numbers
+//! - Variables (`Variables` from `variable.rs`)
+//! - Constants (predefined math constants like PI, E, etc.)
+//! - Unary and binary operators
+//! - Built-in functions (sin, cos, ln, sqrt, etc.)
+//! - User-defined functions (`UserDefinedFunction` and `UserDefinedTable`)
+//!
+//! The parsing process converts a sequence of lexemes (from the lexer) into an `AstNode` tree,
+//! which can then be simplified or compiled into a sequence of executable tokens.
+//!
+//! # Notes
+//! - Operator precedence and associativity are handled according to standard math rules.
+//! - Unary and binary operators sharing symbols (like "-" for negation and subtraction) are disambiguated
+//!   based on context.
+//! - AST simplification will precompute nodes if all arguments are constant numbers.
+//! - User-defined functions must be registered in `UserDefinedTable` before parsing expressions using them.
 
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
@@ -38,12 +58,30 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
 };
 
+/// Represents a unary operator in a mathematical expression.
+///
+/// Currently supports:
+/// - `Positive` (`+`): Unary plus, returns the operand unchanged.
+/// - `Negative` (`-`): Unary minus, negates the operand.
+///
+/// # Methods
+///
+/// - `from(s: &str) -> Option<Self>`: Parses a string into a `UnaryOperatorKind`.
+///   Returns `Some(Positive)` for `"+"`, `Some(Negative)` for `"-"`,
+///   or `None` for unrecognized strings.
+///
+/// - `apply(&self, x: Complex<f64>) -> Complex<f64>`: Applies the unary operator
+///   to the given `Complex<f64>` value and returns the result.
+///
+/// The `Display` implementation outputs `"+"` or `"-"` accordingly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum UnaryOperatorKind {
-    Positive,   Negative,
+    Positive,
+    Negative,
 }
 
 impl UnaryOperatorKind {
+    /// Converts a string representation to a `UnaryOperatorKind`.
     pub fn from(s: &str) -> Option<Self> {
         match s {
             "+" => Some(Self::Positive),
@@ -52,6 +90,7 @@ impl UnaryOperatorKind {
         }
     }
 
+    /// Applies the unary operator to a complex number.
     pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
         match self {
             Self::Positive => x,
@@ -70,33 +109,58 @@ impl std::fmt::Display for UnaryOperatorKind {
     }
 }
 
+/// Information about a binary operator in a mathematical expression.
+///
+/// Contains the operator's precedence and associativity, which are used
+/// when parsing expressions to determine the order of operations.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BinaryOperatorInfo {
-    /// Operator precedence (higher value means higer precedence).
+    /// Operator precedence (higher value means higher precedence).
     pub precedence: u8,
 
-    /// Wheter the operator is left associative.
+    /// Whether the operator is left-associative.
     pub is_left_assoc: bool,
 }
 
+/// Represents a binary operator in a mathematical expression.
+///
+/// Currently supported operators:
+/// - `Add` (`+`)
+/// - `Sub` (`-`)
+/// - `Mul` (`*`)
+/// - `Div` (`/`)
+/// - `Pow` (`^`)
+///
+/// # Methods
+///
+/// - `info(&self) -> BinaryOperatorInfo`
+///   Returns precedence and associativity of the operator.
+///
+/// - `from(s: &str) -> Option<Self>`
+///   Parses a string into a `BinaryOperatorKind`.
+///
+/// - `apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64>`
+///   Applies the operator to two `Complex<f64>` operands and returns the result.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BinaryOperatorKind {
-    Add,    Sub,    Mul,    Div,
+    Add,
+    Sub,
+    Mul,
+    Div,
     Pow,
 }
 
 impl BinaryOperatorKind {
+    /// Returns operator precedence and associativity information.
     pub fn info(&self) -> BinaryOperatorInfo {
         match self {
-            Self::Add | Self::Sub
-                => BinaryOperatorInfo { precedence: 0, is_left_assoc: true },
-            Self::Mul | Self::Div
-                => BinaryOperatorInfo { precedence: 1, is_left_assoc: true },
-            Self::Pow
-                => BinaryOperatorInfo { precedence: 2, is_left_assoc: false },
+            Self::Add | Self::Sub => BinaryOperatorInfo { precedence: 0, is_left_assoc: true },
+            Self::Mul | Self::Div => BinaryOperatorInfo { precedence: 1, is_left_assoc: true },
+            Self::Pow             => BinaryOperatorInfo { precedence: 2, is_left_assoc: false },
         }
     }
 
+    /// Converts a string representation to a `BinaryOperatorKind`.
     pub fn from(s: &str) -> Option<Self> {
         match s {
             "+" => Some(Self::Add),
@@ -108,6 +172,7 @@ impl BinaryOperatorKind {
         }
     }
 
+    /// Applies the binary operator to two complex numbers.
     pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
         match self {
             Self::Add => l + r,
@@ -132,6 +197,19 @@ impl std::fmt::Display for BinaryOperatorKind {
     }
 }
 
+/// Represents a mathematical function that can be applied to one or more complex numbers.
+///
+/// Supports common trigonometric, hyperbolic, logarithmic, exponential, and arithmetic functions,
+/// as well as complex-specific operations like conjugation.
+///
+/// Currently supported functions:
+/// - Trigonometric: `Sin`, `Cos`, `Tan`
+/// - Inverse Trigonometric: `Asin`, `Acos`, `Atan`
+/// - Hyperbolic: `Sinh`, `Cosh`, `Tanh`
+/// - Inverse Hyperbolic: `Asinh`, `Acosh`, `Atanh`
+/// - Exponential and logarithmic: `Exp`, `Ln`, `Log10`
+/// - Other: `Sqrt`, `Abs`, `Conj`
+/// - Power: `Pow` (takes 2 arguments)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum FunctionKind {
     Sin,    Cos,    Tan,
@@ -146,6 +224,9 @@ pub enum FunctionKind {
 }
 
 impl FunctionKind {
+    /// Converts a string representation of a function into a `FunctionKind`.
+    ///
+    /// Returns `None` if the string does not match any supported function.
     pub fn from(s: &str) -> Option<FunctionKind> {
         match s {
             "sin"       => Some(FunctionKind::Sin),
@@ -173,6 +254,9 @@ impl FunctionKind {
         }
     }
 
+    /// Returns the number of arguments that the function takes.
+    ///
+    /// Most functions take 1 argument, except `Pow`, which takes 2 arguments.
     pub fn arg_num(&self) -> usize {
         match self {
             FunctionKind::Pow => 2,
@@ -180,6 +264,9 @@ impl FunctionKind {
         }
     }
 
+    /// Applies the function to a slice of complex numbers and returns the result.
+    ///
+    /// The number of elements in `args` must match the value returned by `arg_num`.
     pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
         match self {
             Self::Sin => args[0].sin(),
@@ -207,6 +294,7 @@ impl FunctionKind {
 }
 
 impl std::fmt::Display for FunctionKind {
+    /// Returns the canonical string representation of the function (e.g., `"sin"`, `"cos"`, `"pow"`).
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             FunctionKind::Sin   => "sin",
@@ -234,51 +322,56 @@ impl std::fmt::Display for FunctionKind {
     }
 }
 
-/// Token enum representing different types of tokens.
+/// Represents a parsed token in a mathematical expression.
+///
+/// Tokens are produced by the lexer and consumed by the parser to build an AST.
+/// This enum covers all possible token types, including numbers, operators,
+/// functions, parentheses, commas, and user-defined functions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token<'a> {
-    /// Numerical value token holding the resolved value.
+    /// Numerical value token holding a resolved complex number.
     ///
-    /// - User-defined variable with external value resolved at parse time.
-    /// - Constant token for predefined mathematical constants.
-    /// - Real or Imaginary number token.
+    /// This variant can represent:
+    /// - User-defined variables with values resolved at parse time.
+    /// - Predefined mathematical constants.
+    /// - Literal real or imaginary numbers.
     Number(Complex<f64>),
 
-    /// Function argument token by position index.
-    ///
-    /// Represents an argument index in the function's parameter list.
+    /// Function argument token by its position index in the argument list.
     Argument(usize),
 
-    /// Operator token.
+    /// Generic operator token holding the original lexeme.
     Operator(Lexeme<'a>),
 
-    /// Unary Operator token.
+    /// Unary operator token (e.g., `+`, `-`).
     UnaryOperator(UnaryOperatorKind),
 
-    /// Binary Operator token.
+    /// Binary operator token (e.g., `+`, `-`, `*`, `/`, `^`).
     BinaryOperator(BinaryOperatorKind),
 
-    /// Function token.
+    /// Standard mathematical function token (e.g., `sin`, `cos`, `exp`).
     Function(FunctionKind),
 
-    /// User Defined Function token.
+    /// User-defined function token.
     UserFunction(UserDefinedFunction<'a>),
 
-    /// Left parenthesis token '('.
+    /// Left parenthesis `'('`.
     LParen(Lexeme<'a>),
 
-    /// Right parenthesis token ')'.
+    /// Right parenthesis token `')'``.
     RParen(Lexeme<'a>),
 
-    /// Comma token ',' used as argument separator.
+    /// Comma `','`` used as argument separator.
     Comma(Lexeme<'a>),
 }
 
 impl<'a> Token<'a> {
+    /// Attempts to parse a string as a real number.
     fn parse_real(s: &str) -> Option<Complex<f64>> {
         s.parse::<f64>().ok().map(|value| Complex::from(value))
     }
 
+    /// Attempts to parse a string as an imaginary number.
     fn parse_imaginary(s: &str) -> Option<Complex<f64>> {
         let num_part = s.strip_suffix(IMAGINARY_UNIT)?;
         if num_part.is_empty() {
@@ -290,6 +383,10 @@ impl<'a> Token<'a> {
         }
     }
 
+    /// Converts a lexeme into a corresponding `Token`.
+    ///
+    /// Resolves numbers, variables, constants, operators, functions, and user-defined functions.
+    /// Returns an error if the lexeme cannot be recognized.
     pub fn from(
         lexeme: &Lexeme<'a>,
         args: &[&str],
@@ -338,6 +435,35 @@ impl<'a> Token<'a> {
 
 }
 
+/// Converts a list of parsed tokens into a list of executable functions.
+///
+/// This function transforms each `Token` into a boxed closure (`Fn`) that
+/// operates on a temporary evaluation stack and an argument list. The resulting
+/// closures implement the actual computation of numbers, operators, and functions
+/// during expression evaluation.
+///
+/// # Parameters
+/// - `tokens`: A vector of `Token`s produced by the parser, representing
+///   a mathematical expression in a format suitable for evaluation.
+///
+/// # Returns
+/// A vector of boxed closures (`Box<dyn Fn(...)>`) where each closure:
+/// - Takes a mutable stack of `Complex<f64>` values representing intermediate results.
+/// - Takes a slice of `Complex<f64>` representing function arguments.
+/// - Performs the computation corresponding to the token and pushes the result
+///   onto the stack.
+///
+/// # Behavior
+/// - `Token::Number`: pushes its numeric value onto the stack.
+/// - `Token::Argument`: pushes the corresponding argument from the provided list.
+/// - `Token::UnaryOperator`: pops one value, applies the operator, and pushes the result.
+/// - `Token::BinaryOperator`: pops two values, applies the operator, and pushes the result.
+/// - `Token::Function` / `Token::UserFunction`: pops the required number of arguments,
+///   applies the function, and pushes the result.
+///
+/// # Panics
+/// - This function assumes that tokens are valid and compiled (i.e., no unprocessed
+///   parentheses or commas). If invalid tokens are encountered, the closure will panic.
 pub fn make_function_list<'a>(
     tokens: Vec<Token<'a>>,
 ) -> Vec<Box<dyn Fn(
@@ -411,19 +537,37 @@ pub fn make_function_list<'a>(
     func_list
 }
 
+/// Abstract Syntax Tree (AST) node representing a mathematical expression.
+///
+/// Each node corresponds to a part of an expression:
+/// - numeric values,
+/// - function arguments,
+/// - unary/binary operators,
+/// - function calls.
+///
+/// The AST allows for expression simplification and compilation into executable tokens.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AstNode {
+    /// Numeric literal.
     Number(Complex<f64>),
+
+    /// Function argument by index.
     Argument(usize),
+
+    /// Unary operator applied to an expression.
     UnaryOperator {
         kind: UnaryOperatorKind,
         expr: Box<AstNode>,
     },
+
+    /// Binary operator applied to left and right expressions.
     BinaryOperator {
         kind: BinaryOperatorKind,
         left: Box<AstNode>,
         right: Box<AstNode>,
     },
+
+    /// Function call with evaluated argument expressions.
     FunctionCall {
         kind: FunctionKind,
         args: Vec<AstNode>,
@@ -431,6 +575,17 @@ pub enum AstNode {
 }
 
 impl AstNode {
+    /// Parses a slice of lexemes into an AST node.
+    ///
+    /// # Parameters
+    /// - `lexemes`: Slice of lexemes representing the expression.
+    /// - `args`: List of argument names for functions.
+    /// - `vars`: Table of variable values.
+    /// - `users`: Table of user-defined functions.
+    ///
+    /// # Returns
+    /// - `Ok(AstNode)` on successful parsing.
+    /// - `Err(String)` if parsing fails.
     pub fn from<'a>(
         lexemes: &[Lexeme<'a>],
         args: &[&str],
@@ -440,6 +595,10 @@ impl AstNode {
         parse_to_ast(lexemes, args, vars, users)
     }
 
+    /// Simplifies the AST by evaluating constant sub-expressions.
+    ///
+    /// Returns a new `AstNode` where all numeric computations that can be resolved
+    /// at compile time are folded into `Number` nodes.
     pub fn simplify(self) -> Self {
         match self {
             Self::UnaryOperator { kind, expr } => {
@@ -470,6 +629,7 @@ impl AstNode {
         }
     }
 
+    /// Internal helper to create a unary operator AST node from a stack.
     fn from_unary<'a>(
         stack: &mut Vec<Self>,
         oper: UnaryOperatorKind,
@@ -480,6 +640,7 @@ impl AstNode {
         Ok(())
     }
 
+    /// Internal helper to create a binary operator AST node from a stack.
     fn from_binary<'a>(
         stack: &mut Vec<Self>,
         oper: BinaryOperatorKind,
@@ -496,6 +657,7 @@ impl AstNode {
         Ok(())
     }
 
+    /// Internal helper to create a function call AST node from a stack.
     fn from_function<'a>(
         stack: &mut Vec<Self>,
         func: FunctionKind,
@@ -512,6 +674,7 @@ impl AstNode {
         Ok(())
     }
 
+    /// Internal helper to compile the AST into a sequence of executable tokens.
     fn execute<'a>(&self, tokens: &mut Vec<Token<'a>>) {
         match self {
             Self::Number(val) => tokens.push(Token::Number(*val)),
@@ -534,6 +697,10 @@ impl AstNode {
         }
     }
 
+    /// Compiles the AST into a vector of `Token`s for evaluation.
+    ///
+    /// The resulting tokens can be used with a function list generated
+    /// by `make_function_list` to evaluate the expression.
     pub fn compile<'a>(&self) -> Vec<Token<'a>> {
         let mut tokens: Vec<Token<'a>> = Vec::new();
         self.execute(&mut tokens);
@@ -541,6 +708,19 @@ impl AstNode {
     }
 }
 
+/// Parses tokens in a subexpression until a right parenthesis `)` is encountered.
+///
+/// Pops tokens from `token_stack` and constructs AST nodes into `ast_nodes`.
+/// Handles unary operators, binary operators, and function calls.
+///
+/// # Parameters
+/// - `ast_nodes`: Vector to accumulate AST nodes.
+/// - `token_stack`: Stack of tokens to process.
+/// - `lexeme`: Lexeme representing the right parenthesis.
+///
+/// # Returns
+/// - `Ok(())` on success.
+/// - `Err(String)` if an unexpected token is found.
 fn parse_in_right_paren<'a>(
     ast_nodes: &mut Vec<AstNode>,
     token_stack: &mut Vec<Token<'a>>,
@@ -563,6 +743,19 @@ fn parse_in_right_paren<'a>(
     Ok(())
 }
 
+/// Parses tokens in a subexpression until a comma `,` is encountered.
+///
+/// Pops tokens from `token_stack` (without removing the left parenthesis) and constructs
+/// AST nodes into `ast_nodes`. Handles unary and binary operators.
+///
+/// # Parameters
+/// - `ast_nodes`: Vector to accumulate AST nodes.
+/// - `token_stack`: Stack of tokens to process.
+/// - `lexeme`: Lexeme representing the comma.
+///
+/// # Returns
+/// - `Ok(())` on success.
+/// - `Err(String)` if an unexpected token is found.
 fn parse_in_comma<'a>(
     ast_nodes: &mut Vec<AstNode>,
     token_stack: &mut Vec<Token<'a>>,
@@ -585,6 +778,15 @@ fn parse_in_comma<'a>(
     Ok(())
 }
 
+/// Parses a unary operator token and pushes it onto the token stack.
+///
+/// # Parameters
+/// - `token_stack`: Stack of tokens to process.
+/// - `lexeme`: Lexeme representing the unary operator.
+///
+/// # Returns
+/// - `Ok(())` on success.
+/// - `Err(String)` if the lexeme does not represent a valid unary operator.
 fn parse_in_unary_operator<'a>(
     token_stack: &mut Vec<Token<'a>>,
     lexeme: Lexeme<'a>,
@@ -597,6 +799,18 @@ fn parse_in_unary_operator<'a>(
     }
 }
 
+/// Parses a binary operator token, resolves operator precedence, and pushes it onto the token stack.
+///
+/// Implements the shunting-yard precedence rules for left- and right-associative operators.
+///
+/// # Parameters
+/// - `ast_nodes`: Vector of AST nodes built so far.
+/// - `token_stack`: Stack of tokens to process.
+/// - `lexeme`: Lexeme representing the binary operator.
+///
+/// # Returns
+/// - `Ok(())` on success.
+/// - `Err(String)` if the lexeme does not represent a valid binary operator.
 fn parse_in_binary_operator<'a>(
     ast_nodes: &mut Vec<AstNode>,
     token_stack: &mut Vec<Token<'a>>,
@@ -620,6 +834,20 @@ fn parse_in_binary_operator<'a>(
     }
 }
 
+/// Converts a slice of lexemes into an abstract syntax tree (AST).
+///
+/// Implements a full shunting-yard-like parser handling numbers, arguments, unary/binary operators,
+/// function calls, parentheses, and commas.
+///
+/// # Parameters
+/// - `lexemes`: Slice of lexemes representing the input expression.
+/// - `args`: List of argument names for the expression.
+/// - `vars`: Table of variable values.
+/// - `users`: Table of user-defined functions.
+///
+/// # Returns
+/// - `Ok(AstNode)` representing the root of the parsed AST.
+/// - `Err(String)` if parsing fails due to invalid syntax or unknown tokens.
 fn parse_to_ast<'a>(
     lexemes: &[Lexeme<'a>],
     args: &[&str],
@@ -688,6 +916,18 @@ fn parse_to_ast<'a>(
     Ok(ret)
 }
 
+/// Folds a binary operator with two AST nodes if possible.
+///
+/// Performs constant folding when both operands are numbers. Also applies simple
+/// arithmetic optimizations for associative operators like `+` and `*`.
+///
+/// # Parameters
+/// - `kind`: The binary operator kind.
+/// - `left`: Left-hand AST node.
+/// - `right`: Right-hand AST node.
+///
+/// # Returns
+/// - `AstNode`: Simplified AST node after folding if applicable.
 fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
     match (left, right) {
         (AstNode::Number(l), AstNode::Number(r))
