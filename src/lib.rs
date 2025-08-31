@@ -54,7 +54,7 @@ pub fn compile(
 }
 
 #[cfg(test)]
-mod tests {
+mod compile_test {
     use super::*;
     use num_complex::{Complex, ComplexFloat};
     use approx::assert_abs_diff_eq;

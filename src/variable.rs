@@ -524,7 +524,7 @@ mod variables_tests {
 }
 
 #[cfg(test)]
-mod userdefinedfunction_tests {
+mod user_defined_function_tests {
     use super::*;
     use num_complex::{Complex};
 
@@ -579,7 +579,7 @@ mod userdefinedfunction_tests {
 }
 
 #[cfg(test)]
-mod userdefinedtable_tests {
+mod user_defined_table_tests {
     use super::*;
     use approx::assert_abs_diff_eq;
     use num_complex::{Complex, ComplexFloat};

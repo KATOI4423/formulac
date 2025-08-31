@@ -958,49 +958,8 @@ fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNo
 }
 
 #[cfg(test)]
-mod tests {
+mod unary_operator_kind_tests {
     use super::*;
-    use num_complex::Complex;
-    use crate::lexer;
-    use approx::assert_abs_diff_eq;
-
-    macro_rules! assert_astnode_eq {
-        ($left:expr, $right:expr) => {{
-            fn inner(left: &AstNode, right: &AstNode) {
-                let epsilon = 1.0e-12;
-                match (left, right) {
-                    (AstNode::Number(l), AstNode::Number(r)) => {
-                        assert_abs_diff_eq!(l.re(), r.re(), epsilon = epsilon);
-                        assert_abs_diff_eq!(l.im(), r.im(), epsilon = epsilon);
-                    }
-                    (AstNode::Argument(l), AstNode::Argument(r)) => {
-                        assert_eq!(l, r);
-                    }
-                    (AstNode::UnaryOperator { kind: lk, expr: le }, AstNode::UnaryOperator { kind: rk, expr: re }) => {
-                        assert_eq!(lk, rk);
-                        inner(le, re);
-                    }
-                    (AstNode::BinaryOperator { kind: lk, left: ll, right: lr },
-                    AstNode::BinaryOperator { kind: rk, left: rl, right: rr }) => {
-                        assert_eq!(lk, rk);
-                        inner(ll, rl);
-                        inner(lr, rr);
-                    }
-                    (AstNode::FunctionCall { kind: lk, args: la },
-                    AstNode::FunctionCall { kind: rk, args: ra }) => {
-                        assert_eq!(lk, rk);
-                        assert_eq!(la.len(), ra.len());
-                        for (a, b) in la.iter().zip(ra.iter()) {
-                            inner(a, b);
-                        }
-                    }
-                    (l, r) => panic!("AST nodes differ: left = {:?}, right = {:?}", l, r),
-                }
-            }
-            inner(&$left, &$right);
-        }};
-    }
-
     #[test]
     fn test_unary_operator_kind_from() {
         assert_eq!(UnaryOperatorKind::from("+"), Some(UnaryOperatorKind::Positive));
@@ -1009,6 +968,11 @@ mod tests {
         assert_eq!(UnaryOperatorKind::from(""), None);
         assert_eq!(UnaryOperatorKind::from("x"), None);
     }
+}
+
+#[cfg(test)]
+mod binary_operator_kind_tests {
+    use super::*;
 
     #[test]
     fn test_binary_operator_kind_info() {
@@ -1045,6 +1009,11 @@ mod tests {
         assert_eq!(BinaryOperatorKind::from("x"), None);
         assert_eq!(BinaryOperatorKind::from("%"), None);
     }
+}
+
+#[cfg(test)]
+mod function_kind_tests {
+    use super::*;
 
     #[test]
     fn test_function_kind_from() {
@@ -1104,6 +1073,11 @@ mod tests {
             assert_eq!(func.arg_num(), 2, "{:?} should have 2 argument", func);
         }
     }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::*;
 
     #[test]
     fn test_number_token() {
@@ -1205,6 +1179,50 @@ mod tests {
         let args: [&str; 0] = [];
         let res = Token::from(&lex, &args, &vars, &users);
         assert!(res.is_err());
+    }
+}
+
+#[cfg(test)]
+mod astnode_tests {
+    use super::*;
+    use crate::lexer;
+    use approx::assert_abs_diff_eq;
+
+    macro_rules! assert_astnode_eq {
+        ($left:expr, $right:expr) => {{
+            fn inner(left: &AstNode, right: &AstNode) {
+                let epsilon = 1.0e-12;
+                match (left, right) {
+                    (AstNode::Number(l), AstNode::Number(r)) => {
+                        assert_abs_diff_eq!(l.re(), r.re(), epsilon = epsilon);
+                        assert_abs_diff_eq!(l.im(), r.im(), epsilon = epsilon);
+                    }
+                    (AstNode::Argument(l), AstNode::Argument(r)) => {
+                        assert_eq!(l, r);
+                    }
+                    (AstNode::UnaryOperator { kind: lk, expr: le }, AstNode::UnaryOperator { kind: rk, expr: re }) => {
+                        assert_eq!(lk, rk);
+                        inner(le, re);
+                    }
+                    (AstNode::BinaryOperator { kind: lk, left: ll, right: lr },
+                    AstNode::BinaryOperator { kind: rk, left: rl, right: rr }) => {
+                        assert_eq!(lk, rk);
+                        inner(ll, rl);
+                        inner(lr, rr);
+                    }
+                    (AstNode::FunctionCall { kind: lk, args: la },
+                    AstNode::FunctionCall { kind: rk, args: ra }) => {
+                        assert_eq!(lk, rk);
+                        assert_eq!(la.len(), ra.len());
+                        for (a, b) in la.iter().zip(ra.iter()) {
+                            inner(a, b);
+                        }
+                    }
+                    (l, r) => panic!("AST nodes differ: left = {:?}, right = {:?}", l, r),
+                }
+            }
+            inner(&$left, &$right);
+        }};
     }
 
     #[test]
