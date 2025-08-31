@@ -7,7 +7,7 @@ A Rust crate for parsing and evaluating mathematical expressions with full compl
 - **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
 - **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
 - **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
-  See `src/parser.rs` for available functions, constants, and other operator symbols.
+  See `src/parser.rs` for the list of available functions, constants, and operator symbols.
 - **Unary & Binary operators** — Unary operators (`+`, `-`) and binary operators (`+`, `-`, `*`, `/`, `^`) are represented as `UnaryOperatorKind` and `BinaryOperatorKind`.
 - **Abstract Syntax Tree (AST)** — Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures.
 - **User-defined functions** — Easily register custom functions or constants at runtime using a simple API (`UserDefinedTable`).
@@ -46,7 +46,7 @@ fn main() {
     let expr = compile(formula, &["z"], &vars, &users)
         .expect("Failed to compile formula");
 
-    let result = expr(&[Complex::new(1.0, 2.0)]); // calc 'sin(1+2i) + (3+2i) * cos(1+2i)'
+    let result = expr(&[Complex::new(1.0, 2.0)]); // evaluates 'sin(1+2i) + (3+2i) * cos(1+2i)'
     println!("Result = {}", result);
 }
 ```
@@ -61,8 +61,8 @@ use formulac::{compile, variable::Variables, UserDefinedTable, UserDefinedFuncti
 let mut users = UserDefinedTable::new();
 
 // Define a function f(x) = x^2 + 1
-let func = UserDefinedFuncion::new(
-    "my_func",
+let func = UserDefinedFunction::new(
+    "f",
     |args: &[Complex<f64>]| args[0] * args[0] + Complex::new(1.0, 0.0),
     1,
 );
