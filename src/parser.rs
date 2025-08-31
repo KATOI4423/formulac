@@ -58,6 +58,15 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
 };
 
+pub mod constant {
+    use crate::parser::CONSTANTS;
+
+    /// Returns a list of supported mathematical constant names.
+    pub fn names() -> Vec<&'static str> {
+        CONSTANTS.keys().cloned().collect()
+    }
+}
+
 #[doc(hidden)]
 /// Internal macro to define all unary operators.
 ///
@@ -85,6 +94,11 @@ macro_rules! unary_operator_kind {
                 match self {
                     $( Self::$name => $apply(x), )*
                 }
+            }
+
+            /// Returns a list of all supported unary operator symbols.
+            pub fn names() -> Vec<&'static str> {
+                vec![$($symbol),*]
             }
         }
 
@@ -157,6 +171,11 @@ macro_rules! binary_operators {
                 match self {
                     $(Self::$name => $apply(l, r),)*
                 }
+            }
+
+            /// Returns a list of all supported binary operator symbols.
+            pub fn names() -> Vec<&'static str> {
+                vec![$($symbol),*]
             }
         }
 
@@ -244,6 +263,11 @@ macro_rules! functions {
                         $body
                     }, )*
                 }
+            }
+
+            /// Returns a list of all supported function names.
+            pub fn names() -> Vec<&'static str> {
+                vec![$($name),*]
             }
         }
 

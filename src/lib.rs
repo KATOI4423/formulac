@@ -39,6 +39,27 @@
 //! }
 //! ```
 //!
+//! ## Example: Retrieving All Names
+//! ```rust
+//! use formulac::parser::{constant, UnaryOperatorKind, BinaryOperatorKind, FunctionKind};
+//!
+//! // Constants
+//! let constant_names: Vec<&'static str> = constant::names();
+//! println!("Constants: {:?}", constant_names);
+//!
+//! // Unary operators
+//! let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
+//! println!("Unary Operators: {:?}", unary_names);
+//!
+//! // Binary operators
+//! let binary_names: Vec<&'static str> = BinaryOperatorKind::names();
+//! println!("Binary Operators: {:?}", binary_names);
+//!
+//! // Functions
+//! let function_names: Vec<&'static str> = FunctionKind::names();
+//! println!("Functions: {:?}", function_names);
+//! ```
+//!
 //! ## When to Use
 //! Use `formulac` when you need:
 //! - Fast repeated evaluation of mathematical formulas
@@ -49,7 +70,7 @@
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
 mod lexer;
-mod parser;
+pub mod parser;
 pub mod variable;
 
 use num_complex::Complex;
