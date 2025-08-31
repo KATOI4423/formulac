@@ -272,6 +272,21 @@ pub enum Token<'a> {
 }
 
 impl<'a> Token<'a> {
+    fn parse_real(s: &str) -> Option<Complex<f64>> {
+        s.parse::<f64>().ok().map(|value| Complex::from(value))
+    }
+
+    fn parse_imaginary(s: &str) -> Option<Complex<f64>> {
+        let num_part = s.strip_suffix(IMAGINARY_UNIT)?;
+        if num_part.is_empty() {
+            return Some(Complex::I);
+        }
+        match num_part.parse::<f64>() {
+            Ok(val) => Some(Complex::new(0.0, val)),
+            Err(_) => None,
+        }
+    }
+
     pub fn from(
         lexeme: &Lexeme<'a>,
         args: &[&str],
@@ -279,8 +294,8 @@ impl<'a> Token<'a> {
     ) -> Result<Self, String> {
         let text = lexeme.text();
 
-        if let Some(val) = parse_real(text)
-            .or_else(|| parse_imaginary(text))
+        if let Some(val) = Self::parse_real(text)
+            .or_else(|| Self::parse_imaginary(text))
             .or_else(|| CONSTANTS.get(text).cloned())
             .or_else(|| vars.get(text).copied())
         {
