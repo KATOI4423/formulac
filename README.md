@@ -88,6 +88,48 @@ assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
 
 ---
 
+## Benchmarking
+
+The `formulac` crate provides benchmarks using the Criterion crate to measure both compilation and execution performance.
+
+**Note**:
+
+- Criterion is a dev-dependency, so benchmarks are only available in development builds.
+- :warning: Some benchmarks (e.g., 1000 nested operations) may take longer to run.
+
+### Benchmark Source
+
+The benchmarks are located in `benches/benches.rs` and cover:
+
+- Linear expressions (many operands like polynomials)
+- Nested expressions (e.g., sin(sin(...)))
+- Numeric literals
+- Expressions with and without parentheses
+- Many variable references (up to 100 variables)
+- Invalid expressions (error cases)
+- Practical expressions (polynomials, wave functions, exponential decay)
+- Comparison of direct calls vs. parsed calls for standard functions (sin, cos, pow, etc.)
+
+### Run Benchmarks
+
+Run the benchmarks with:
+
+``` bash
+cargo bench
+```
+
+Both `compile` and `exec` times are measured. Criterion generates detailed statistics and plots in `target/criterion`.
+
+### Viewing Results
+
+Open the generated HTML report in a browser to view benchmark results and comparisons:
+
+``` bash
+open target/criterion/report/index.html
+```
+
+---
+
 ## License
 
 Licensed under **MIT OR Apache-2.0** — choose the license that best suits your project.
