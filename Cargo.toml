@@ -1,6 +1,6 @@
 [package]
 name = "formulac"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 authors = ["KATOI4423 <katoi4423@gmail.com>"]
 description = "A complex-number and extensible function supported math expression parser for Rust"
@@ -12,8 +12,14 @@ categories = ["parsing", "science", "mathematics"]
 
 [dependencies]
 num-complex = "0.4.6"
-phf = "0.12.1"
-phf_macros = "0.12.1"
+phf = "0.13.1"
+phf_macros = "0.13.1"
 
 [dev-dependencies]
 approx = "0.5.1"
+criterion = "0.7.0"
+paste = "1.0.15"
+
+[[bench]]
+name = "benches"
+harness = false
