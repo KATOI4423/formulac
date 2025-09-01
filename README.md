@@ -35,7 +35,7 @@ num-complex = "0.4"
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, variable::Variables, variable::UserDefinedTable};
+use formulac::{compile, Variables, UserDefinedTable};
 
 fn main() {
     let mut vars = Variables::new();
@@ -55,7 +55,7 @@ fn main() {
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, variable::Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
 
 // Create user-defined function table
 let mut users = UserDefinedTable::new();

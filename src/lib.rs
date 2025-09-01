@@ -24,7 +24,7 @@
 //! ## Example
 //! ```rust
 //! use num_complex::Complex;
-//! use formulac::{compile, variable::Variables, variable::UserDefinedTable};
+//! use formulac::{compile, Variables, UserDefinedTable};
 //!
 //! fn main() {
 //!     let mut vars = Variables::new();
@@ -74,7 +74,11 @@ pub mod parser;
 pub mod variable;
 
 use num_complex::Complex;
-use crate::{parser::Token, variable::{UserDefinedTable, Variables}};
+use crate::{parser::Token};
+
+pub type UserDefinedFunction<'a> = variable::UserDefinedFunction<'a>;
+pub type UserDefinedTable<'a> = variable::UserDefinedTable<'a>;
+pub type Variables = variable::Variables;
 
 /// Compiles a mathematical expression into an executable closure.
 ///
@@ -110,7 +114,7 @@ use crate::{parser::Token, variable::{UserDefinedTable, Variables}};
 /// # Example
 /// ```rust
 /// use num_complex::Complex;
-/// use formulac::{compile, variable::Variables, variable::UserDefinedTable};
+/// use formulac::{compile, Variables, UserDefinedTable};
 ///
 /// let mut vars = Variables::new();
 /// vars.insert(&[("a", Complex::new(3.0, 2.0))]);

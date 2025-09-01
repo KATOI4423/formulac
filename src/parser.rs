@@ -23,7 +23,7 @@
 
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
-use crate::variable::{Variables, UserDefinedFunction, UserDefinedTable};
+use crate::{Variables, UserDefinedFunction, UserDefinedTable};
 use num_complex::Complex;
 use num_complex::ComplexFloat;
 use phf::Map;

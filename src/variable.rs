@@ -12,7 +12,7 @@
 //! # Examples
 //!
 //! ```rust
-//! use formulac::variable::Variables;
+//! use formulac::Variables;
 //! use num_complex::Complex;
 //!
 //! let mut vars = Variables::default();
@@ -40,7 +40,7 @@
 //!
 //! ```rust
 //! use num_complex::Complex;
-//! use formulac::variable::{UserDefinedTable, UserDefinedFunction};
+//! use formulac::{UserDefinedTable, UserDefinedFunction};
 //!
 //! // Create a new user-defined table
 //! let mut table = UserDefinedTable::default();
@@ -72,7 +72,7 @@ use std::sync::Arc;
 /// # Examples
 ///
 /// ```rust
-/// use formulac::variable::Variables;
+/// use formulac::Variables;
 /// use num_complex::Complex;
 ///
 /// let mut vars = Variables::default();
@@ -92,7 +92,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     ///
     /// let vars = Variables::new();
     /// assert!(vars.get("x").is_none());
@@ -110,7 +110,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     ///
     /// let vars = Variables::from(&[("a", 1.0), ("b", 2.0)]);
     /// assert!(vars.contains("a"));
@@ -132,7 +132,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     /// use num_complex::Complex;
     ///
     /// let mut vars = Variables::default();
@@ -155,7 +155,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     ///
     /// let mut vars = Variables::default();
     /// vars.insert(&[("x", 1.0)]);
@@ -173,7 +173,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     /// use num_complex::Complex;
     ///
     /// let mut vars = Variables::default();
@@ -189,7 +189,7 @@ impl Variables {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::Variables;
+    /// use formulac::Variables;
     ///
     /// let mut vars = Variables::default();
     /// vars.insert(&[("x", 1.0)]);
@@ -217,7 +217,7 @@ impl Default for Variables {
 ///
 /// ```rust
 /// use num_complex::Complex;
-/// use formulac::variable::UserDefinedFunction;
+/// use formulac::UserDefinedFunction;
 ///
 /// // Define a function that adds 1 to the argument
 /// let f = UserDefinedFunction::new(
@@ -253,7 +253,7 @@ impl<'a> UserDefinedFunction<'a> {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::variable::UserDefinedFunction;
+    /// use formulac::UserDefinedFunction;
     ///
     /// let func = UserDefinedFunction::new(
     ///     "my_func",
@@ -286,7 +286,7 @@ impl<'a> UserDefinedFunction<'a> {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::variable::UserDefinedFunction;
+    /// use formulac::UserDefinedFunction;
     ///
     /// let func = UserDefinedFunction::new(
     ///     "double",
@@ -306,7 +306,7 @@ impl<'a> UserDefinedFunction<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::UserDefinedFunction;
+    /// use formulac::UserDefinedFunction;
     /// use num_complex::Complex;
     ///
     /// let func = UserDefinedFunction::new("add", |args| args[0] + args[1], 2);
@@ -332,7 +332,7 @@ impl<'a> PartialEq for UserDefinedFunction<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::UserDefinedFunction;
+    /// use formulac::UserDefinedFunction;
     /// use num_complex::Complex;
     ///
     /// let func1 = UserDefinedFunction::new("f", |args| args[0], 1);
@@ -356,7 +356,7 @@ impl<'a> PartialEq for UserDefinedFunction<'a> {
 ///
 /// ```rust
 /// use num_complex::Complex;
-/// use formulac::variable::{UserDefinedTable, UserDefinedFunction};
+/// use formulac::{UserDefinedTable, UserDefinedFunction};
 ///
 /// // Create a new user-defined table
 /// let mut users = UserDefinedTable::default();
@@ -391,7 +391,7 @@ impl<'a> UserDefinedTable<'a> {
     /// # Examples
     ///
     /// ```rust
-    /// use formulac::variable::UserDefinedTable;
+    /// use formulac::UserDefinedTable;
     ///
     /// let table: UserDefinedTable = UserDefinedTable::new();
     /// assert!(table.get("any_func").is_none());
@@ -408,7 +408,7 @@ impl<'a> UserDefinedTable<'a> {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::variable::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new(
@@ -432,7 +432,7 @@ impl<'a> UserDefinedTable<'a> {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::variable::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
@@ -453,7 +453,7 @@ impl<'a> UserDefinedTable<'a> {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::variable::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("identity", |args| args[0], 1);
