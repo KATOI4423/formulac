@@ -402,10 +402,10 @@ impl<'a> Token<'a> {
         /* We can't know whether the text is unary operator or binary operator
          * because some operator's strings are the same.
          * So we register only its lexeme. */
-        if let Some(_) = UnaryOperatorKind::from(text) {
+        if UnaryOperatorKind::from(text).is_some() {
             return Ok(Token::Operator(lexeme.clone()));
         }
-        if let Some(_) = BinaryOperatorKind::from(text) {
+        if BinaryOperatorKind::from(text).is_some() {
             return Ok(Token::Operator(lexeme.clone()));
         }
 
