@@ -207,6 +207,8 @@ impl Default for Variables {
     }
 }
 
+/// The function type for user-defined functions.
+type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 
 /// Represents a user-defined function with a fixed arity.
 ///
@@ -235,7 +237,7 @@ impl Default for Variables {
 /// ```
 #[derive(Clone)]
 pub struct UserDefinedFunction<'a> {
-    func: Arc<dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync>,
+    func: Arc<FuncType>,
     arity: usize,
     name: &'a str,
 }
