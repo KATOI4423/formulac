@@ -520,7 +520,7 @@ impl AstNode {
     }
 
     /// Internal helper to create a unary operator AST node from a stack.
-    fn from_unary<'a>(
+    fn from_unary(
         stack: &mut Vec<Self>,
         oper: UnaryOperatorKind,
     ) -> Result<(), String> {
@@ -531,7 +531,7 @@ impl AstNode {
     }
 
     /// Internal helper to create a binary operator AST node from a stack.
-    fn from_binary<'a>(
+    fn from_binary(
         stack: &mut Vec<Self>,
         oper: BinaryOperatorKind,
     ) -> Result<(), String> {
@@ -548,7 +548,7 @@ impl AstNode {
     }
 
     /// Internal helper to create a function call AST node from a stack.
-    fn from_function<'a>(
+    fn from_function(
         stack: &mut Vec<Self>,
         func: FunctionKind,
     ) -> Result<(), String> {
