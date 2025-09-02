@@ -360,7 +360,7 @@ pub enum Token<'a> {
 impl<'a> Token<'a> {
     /// Attempts to parse a string as a real number.
     fn parse_real(s: &str) -> Option<Complex<f64>> {
-        s.parse::<f64>().ok().map(|value| Complex::from(value))
+        s.parse::<f64>().ok().map(Complex::from)
     }
 
     /// Attempts to parse a string as an imaginary number.
