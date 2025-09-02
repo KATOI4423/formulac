@@ -26,17 +26,15 @@
 //! use num_complex::Complex;
 //! use formulac::{compile, Variables, UserDefinedTable};
 //!
-//! fn main() {
-//!     let mut vars = Variables::new();
-//!     vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+//! let mut vars = Variables::new();
+//! vars.insert(&[("a", Complex::new(3.0, 2.0))]);
 //!
-//!     let users = UserDefinedTable::new();
-//!     let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
-//!         .expect("Failed to compile formula");
+//! let users = UserDefinedTable::new();
+//! let expr = compile("sin(z) + a * cos(z)", &["z"], &vars, &users)
+//!     .expect("Failed to compile formula");
 //!
-//!     let result = expr(&[Complex::new(1.0, 2.0)]);
-//!     println!("Result = {}", result);
-//! }
+//! let result = expr(&[Complex::new(1.0, 2.0)]);
+//! println!("Result = {}", result);
 //! ```
 //!
 //! ## Example: Retrieving All Names
