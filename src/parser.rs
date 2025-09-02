@@ -748,9 +748,9 @@ fn parse_to_ast<'a>(
     let mut token_stack: Vec<Token> = Vec::new();
     // record whether the previous token is finished by value or not to evaluate the token is unary operator or binary operator.
     let mut prev_is_value = false;
-    let mut lexemes = lexemes.iter().peekable();
+    let lexemes = lexemes.iter().peekable();
 
-    while let Some(lexeme) = lexemes.next() {
+    for lexeme in lexemes {
         let token = Token::from(lexeme, args, vars, users)?;
         match token {
             Token::Number(val) => {
