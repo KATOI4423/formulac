@@ -403,10 +403,10 @@ impl<'a> Token<'a> {
          * because some operator's strings are the same.
          * So we register only its lexeme. */
         if UnaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(lexeme.clone()));
+            return Ok(Token::Operator(*lexeme));
         }
         if BinaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(lexeme.clone()));
+            return Ok(Token::Operator(*lexeme));
         }
 
         if let Some(func_kind) = FunctionKind::from(text) {
@@ -418,9 +418,9 @@ impl<'a> Token<'a> {
         }
 
         match text {
-            "(" => Ok(Token::LParen(lexeme.clone())),
-            ")" => Ok(Token::RParen(lexeme.clone())),
-            "," => Ok(Token::Comma(lexeme.clone())),
+            "(" => Ok(Token::LParen(*lexeme)),
+            ")" => Ok(Token::RParen(*lexeme)),
+            "," => Ok(Token::Comma(*lexeme)),
             _ =>Err(format!("Unknown string {}", lexeme_name_with_range!(lexeme))),
         }
     }
@@ -655,8 +655,8 @@ fn parse_in_comma<'a>(
     while let Some(token) = token_stack.last() {
         match token {
             Token::LParen(_) => break,
-            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper.clone())?,
-            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper.clone())?,
+            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, *oper)?,
+            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, *oper)?,
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in Comma at {s}..{e}",
