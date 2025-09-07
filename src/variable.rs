@@ -236,13 +236,13 @@ type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 /// assert_eq!(f.arity(), 1);
 /// ```
 #[derive(Clone)]
-pub struct UserDefinedFunction<'a> {
+pub struct UserDefinedFunction {
     func: Arc<FuncType>,
     arity: usize,
-    name: &'a str,
+    name: String,
 }
 
-impl<'a> UserDefinedFunction<'a> {
+impl UserDefinedFunction {
     /// Creates a new `UserDefinedFunction`.
     ///
     /// # Arguments
@@ -263,14 +263,14 @@ impl<'a> UserDefinedFunction<'a> {
     ///     2,
     /// );
     /// ```
-    pub fn new<F>(name: &'a str, func: F, arity: usize) -> Self
+    pub fn new<F>(name: & str, func: F, arity: usize) -> Self
     where
         F: Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static,
     {
         Self {
             func: Arc::new(func),
             arity,
-            name,
+            name: name.to_string(),
         }
     }
 
@@ -319,7 +319,7 @@ impl<'a> UserDefinedFunction<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for UserDefinedFunction<'a> {
+impl std::fmt::Debug for UserDefinedFunction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UserDefinedFunction")
             .field("name", &self.name)
@@ -328,7 +328,7 @@ impl<'a> std::fmt::Debug for UserDefinedFunction<'a> {
     }
 }
 
-impl<'a> PartialEq for UserDefinedFunction<'a> {
+impl PartialEq for UserDefinedFunction {
     /// Checks equality based on `name` and `arity`.
     ///
     /// # Examples
@@ -383,11 +383,11 @@ impl<'a> PartialEq for UserDefinedFunction<'a> {
 /// - It is the caller's responsibility to ensure that user-defined functions
 ///   do not conflict with built-in names.
 #[derive(Clone)]
-pub struct UserDefinedTable<'a> {
-    table: HashMap<String, UserDefinedFunction<'a>>,
+pub struct UserDefinedTable {
+    table: HashMap<String, UserDefinedFunction>,
 }
 
-impl<'a> UserDefinedTable<'a> {
+impl UserDefinedTable {
     /// Creates an empty `UserDefinedTable`.
     ///
     /// # Examples
@@ -421,7 +421,7 @@ impl<'a> UserDefinedTable<'a> {
     /// table.register("double", func);
     /// assert!(table.get("double").is_some());
     /// ```
-    pub fn register(&mut self, name: &str, func: UserDefinedFunction<'a>) {
+    pub fn register(&mut self, name: &str, func: UserDefinedFunction) {
         self.table.insert(name.to_string(), func);
     }
 
@@ -445,7 +445,7 @@ impl<'a> UserDefinedTable<'a> {
     ///     assert_eq!(result, Complex::new(9.0, 0.0));
     /// }
     /// ```
-    pub fn get(&self, name: &str) -> Option<&UserDefinedFunction<'a>> {
+    pub fn get(&self, name: &str) -> Option<&UserDefinedFunction> {
         self.table.get(name)
     }
 
@@ -469,7 +469,7 @@ impl<'a> UserDefinedTable<'a> {
     }
 }
 
-impl<'a> Default for UserDefinedTable<'a> {
+impl Default for UserDefinedTable {
     fn default() -> Self {
         Self::new()
     }

@@ -74,8 +74,8 @@ pub mod variable;
 use num_complex::Complex;
 use crate::{parser::Token};
 
-pub type UserDefinedFunction<'a> = variable::UserDefinedFunction<'a>;
-pub type UserDefinedTable<'a> = variable::UserDefinedTable<'a>;
+pub type UserDefinedFunction = variable::UserDefinedFunction;
+pub type UserDefinedTable = variable::UserDefinedTable;
 pub type Variables = variable::Variables;
 
 /// Compiles a mathematical expression into an executable closure.

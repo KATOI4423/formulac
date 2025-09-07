@@ -345,7 +345,7 @@ pub enum Token<'a> {
     Function(FunctionKind),
 
     /// User-defined function token.
-    UserFunction(UserDefinedFunction<'a>),
+    UserFunction(UserDefinedFunction),
 
     /// Left parenthesis `'('`.
     LParen(Lexeme<'a>),
