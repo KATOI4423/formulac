@@ -59,6 +59,33 @@
 //!     assert_eq!(result, Complex::new(3.0, 0.0));
 //! }
 //! ```
+//!
+//! ## Derivatives of User-defined Functions
+//!
+//! A `UserDefinedFunction` can optionally be associated with a derivative function
+//! by using [`with_derivative`](UserDefinedFunction::with_derivative).
+//! The derivative must have the same arity as the original function
+//! and will be returned by [`derivative`](UserDefinedFunction::derivative) if defined.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use num_complex::Complex;
+//! use formulac::UserDefinedFunction;
+//!
+//! // Define f(x) = x^2 with derivative f'(x) = 2x
+//! let func = UserDefinedFunction::new(
+//!     "square",
+//!     |args| args[0] * args[0],
+//!     1,
+//! ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+//!
+//! // Apply its derivateive if available
+//! if let Some(deriv) = func.derivative() {
+//!     let dresult = deriv.apply(&[Complex::new(3.0, 0.0)]);
+//!     assert_eq!(dresult, Complex::new(6.0, 0.0));
+//! }
+//! ```
 
 use num_complex::Complex;
 use std::collections::HashMap;
@@ -238,6 +265,7 @@ type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 #[derive(Clone)]
 pub struct UserDefinedFunction {
     func: Arc<FuncType>,
+    deriv: Option<Arc<FuncType>>,
     arity: usize,
     name: String,
 }
@@ -269,9 +297,35 @@ impl UserDefinedFunction {
     {
         Self {
             func: Arc::new(func),
+            deriv: None,
             arity,
             name: name.to_string(),
         }
+    }
+
+    /// Sets the derivative function for this user-defined function.
+    /// The derivative function should have the same signature as the main function.
+    ///
+    /// # Arguments
+    /// * `diff` - A closure or function pointer that takes a slice of `Complex<f64>` and returns a `Complex<f64>`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::UserDefinedFunction;
+    ///
+    /// let func = UserDefinedFunction::new(
+    ///     "square",
+    ///     |args| args[0] * args[0],
+    ///     1,
+    /// ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+    /// ```
+    pub fn with_derivative<F>(mut self, diff: F) -> Self
+    where
+        F: Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static,
+    {
+        self.deriv = Some(Arc::new(diff));
+        self
     }
 
     /// Applies the function to the given arguments.
@@ -301,6 +355,36 @@ impl UserDefinedFunction {
     /// ```
     pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
         (self.func)(args)
+    }
+
+    /// Returns a new `UserDefinedFunction` representing the derivative of this function, if defined.
+    /// If no derivative function was set, returns `None`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::UserDefinedFunction;
+    ///
+    /// let func = UserDefinedFunction::new(
+    ///     "square",
+    ///     |args| args[0] * args[0],
+    ///     1,
+    /// ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+    ///
+    /// if let Some(deriv) = func.derivative() {
+    ///     let result = deriv.apply(&[Complex::new(3.0, 0.0)]);
+    ///     assert_eq!(result, Complex::new(6.0, 0.0));
+    /// }
+    /// ```
+    pub fn derivative(&self) -> Option<Self> {
+        self.deriv.as_ref().map(|d| {
+            UserDefinedFunction {
+                func: d.clone(),
+                deriv: None,
+                arity: self.arity,
+                name: format!("{}.diff'", self.name),
+            }
+        })
     }
 
     /// Returns the arity (number of arguments) of the function.
@@ -528,6 +612,7 @@ mod variables_tests {
 #[cfg(test)]
 mod user_defined_function_tests {
     use super::*;
+    use approx::assert_abs_diff_eq;
     use num_complex::{Complex};
 
     #[test]
@@ -577,6 +662,25 @@ mod user_defined_function_tests {
         assert_eq!(f1, f2);
         assert_ne!(f1, f3);
         assert_ne!(f1, f4);
+    }
+
+    #[test]
+    fn test_without_derivative() {
+        let f = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
+        assert!(f.derivative().is_none());
+    }
+
+    #[test]
+    fn test_with_derivative() {
+        let f = UserDefinedFunction::new("square", |args| args[0] * args[0], 1)
+            .with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+
+        let deriv = f.derivative().expect("derivative should exist");
+        let deriv_result = deriv.apply(&[Complex::new(4.0, 0.0)]);
+        assert_abs_diff_eq!(deriv_result.re, 8.0, epsilon=1.0e-12);
+        assert_abs_diff_eq!(deriv_result.im, 0.0, epsilon=1.0e-12);
+
+        assert!(format!("{:?}", deriv).contains("square.diff"));
     }
 }
 
