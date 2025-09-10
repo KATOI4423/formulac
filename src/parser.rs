@@ -798,7 +798,7 @@ fn parse_to_ast<'a>(
     }
 
     let ret = ast_nodes.pop()
-        .expect("Fail to parse to AST. There are NO AST node remaining.");
+        .ok_or("Fail to parse to AST. There are NO AST node remaining.")?;
 
     if !ast_nodes.is_empty() {
         return Err("Fail to parse to AST. There are too AST node remaining.".into());
