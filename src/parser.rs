@@ -537,6 +537,17 @@ impl AstNode {
                     AstNode::FunctionCall { kind, args }
                 }
             },
+            Self::UserFunctionCall { func, args } => {
+                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
+                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
+                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
+                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
+                    }).collect();
+                    AstNode::Number(func.apply(&nums))
+                } else {
+                    AstNode::UserFunctionCall { func, args }
+                }
+            }
             _ => self,
         }
     }
@@ -1619,7 +1630,7 @@ mod token_tests {
 #[cfg(test)]
 mod astnode_tests {
     use super::*;
-    use crate::lexer;
+    use crate::{lexer, variable::UserDefinedFunction};
     use approx::assert_abs_diff_eq;
 
     macro_rules! assert_astnode_eq {
@@ -1930,6 +1941,55 @@ mod astnode_tests {
                 ],
             }
         );
+    }
+
+
+    // Dummy user-defined function
+    fn sum_func(args: &[Complex<f64>]) -> Complex<f64> {
+        args.iter().copied().sum()
+    }
+
+    #[test]
+    fn test_simplify_user_function_call_with_numbers() {
+        let func = UserDefinedFunction::new(
+            "sum",
+            sum_func,
+            2,
+        );
+
+        let node = AstNode::UserFunctionCall {
+            func,
+            args: vec![
+                AstNode::Number(Complex::from(1.0)),
+                AstNode::Number(Complex::from(2.0)),
+            ],
+        }.simplify();
+
+        match node {
+            AstNode::Number(val) => assert_abs_diff_eq!(val.re, 3.0, epsilon=1e-12),
+            _ => panic!("Expected simplified to Number"),
+        }
+    }
+
+    #[test]
+    fn test_simplify_user_function_call_with_no_numbers() {
+        let func = UserDefinedFunction::new(
+            "sum",
+            sum_func,
+            2,
+        );
+
+        let node = AstNode::UserFunctionCall {
+            func,
+            args: vec![
+                AstNode::Number(Complex::ONE),
+                AstNode::Argument(0),
+            ],
+        };
+
+        let simplified = node.clone().simplify();
+
+        assert_eq!(simplified, node);
     }
 
     #[test]
