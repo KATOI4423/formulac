@@ -78,10 +78,10 @@
 //!     "square",
 //!     |args| args[0] * args[0],
 //!     1,
-//! ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+//! ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
 //!
 //! // Apply its derivateive if available
-//! if let Some(deriv) = func.derivative() {
+//! if let Some(deriv) = func.derivative(0) {
 //!     let dresult = deriv.apply(&[Complex::new(3.0, 0.0)]);
 //!     assert_eq!(dresult, Complex::new(6.0, 0.0));
 //! }
@@ -265,7 +265,7 @@ type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 #[derive(Clone)]
 pub struct UserDefinedFunction {
     func: Arc<FuncType>,
-    deriv: Option<Arc<FuncType>>,
+    deriv: Vec<Option<Arc<FuncType>>>,
     arity: usize,
     name: String,
 }
@@ -297,7 +297,11 @@ impl UserDefinedFunction {
     {
         Self {
             func: Arc::new(func),
-            deriv: None,
+            deriv: {
+                let mut deriv = Vec::new();
+                deriv.resize(arity, None);
+                deriv
+            },
             arity,
             name: name.to_string(),
         }
@@ -318,13 +322,16 @@ impl UserDefinedFunction {
     ///     "square",
     ///     |args| args[0] * args[0],
     ///     1,
-    /// ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+    /// ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
     /// ```
-    pub fn with_derivative<F>(mut self, diff: F) -> Self
+    pub fn with_derivative<F>(mut self, diffs: Vec<F>) -> Self
     where
-        F: Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static,
+        F: Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + Clone + 'static,
     {
-        self.deriv = Some(Arc::new(diff));
+        debug_assert_eq!(diffs.len(), self.arity);
+        for (i, diff) in diffs.iter().enumerate() {
+            self.deriv[i] = Some(Arc::new(diff.clone()))
+        }
         self
     }
 
@@ -357,6 +364,11 @@ impl UserDefinedFunction {
         (self.func)(args)
     }
 
+    /// Returns User-defined function name
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Returns a new `UserDefinedFunction` representing the derivative of this function, if defined.
     /// If no derivative function was set, returns `None`.
     ///
@@ -369,18 +381,23 @@ impl UserDefinedFunction {
     ///     "square",
     ///     |args| args[0] * args[0],
     ///     1,
-    /// ).with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+    /// ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
     ///
-    /// if let Some(deriv) = func.derivative() {
+    /// if let Some(deriv) = func.derivative(0) {
     ///     let result = deriv.apply(&[Complex::new(3.0, 0.0)]);
     ///     assert_eq!(result, Complex::new(6.0, 0.0));
     /// }
     /// ```
-    pub fn derivative(&self) -> Option<Self> {
-        self.deriv.as_ref().map(|d| {
+    pub fn derivative(&self, var: usize) -> Option<Self> {
+        debug_assert!(var < self.arity, "var must be smaller than self.arity");
+        self.deriv[var].as_ref().map(|d| {
             UserDefinedFunction {
                 func: d.clone(),
-                deriv: None,
+                deriv: {
+                    let mut deriv = Vec::new();
+                    deriv.resize(self.arity, None);
+                    deriv
+                },
                 arity: self.arity,
                 name: format!("{}.diff'", self.name),
             }
@@ -667,15 +684,15 @@ mod user_defined_function_tests {
     #[test]
     fn test_without_derivative() {
         let f = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
-        assert!(f.derivative().is_none());
+        assert!(f.derivative(0).is_none());
     }
 
     #[test]
     fn test_with_derivative() {
         let f = UserDefinedFunction::new("square", |args| args[0] * args[0], 1)
-            .with_derivative(|args| Complex::new(2.0, 0.0) * args[0]);
+            .with_derivative(vec![|args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0]]);
 
-        let deriv = f.derivative().expect("derivative should exist");
+        let deriv = f.derivative(0).expect("derivative should exist");
         let deriv_result = deriv.apply(&[Complex::new(4.0, 0.0)]);
         assert_abs_diff_eq!(deriv_result.re, 8.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(deriv_result.im, 0.0, epsilon=1.0e-12);

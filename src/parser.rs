@@ -35,6 +35,8 @@ macro_rules! lexeme_name_with_range {
     };
 }
 
+const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
+
 /// Map of mathematical constants by their string representation.
 static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
     "E" => Complex::new(std::f64::consts::E, 0.0),
@@ -341,6 +343,9 @@ pub enum Token<'a> {
     /// Binary operator token (e.g., `+`, `-`, `*`, `/`, `^`).
     BinaryOperator(BinaryOperatorKind),
 
+    /// Differential operator token.
+    DiffOperator(Lexeme<'a>),
+
     /// Standard mathematical function token (e.g., `sin`, `cos`, `exp`).
     Function(FunctionKind),
 
@@ -393,6 +398,10 @@ impl<'a> Token<'a> {
             .or_else(|| vars.get(text).copied())
         {
             return Ok(Token::Number(val));
+        }
+
+        if text == DIFFELENCIAL_OPERATOR_STR {
+            return Ok(Token::DiffOperator(*lexeme));
         }
 
         if let Some(position) = args.iter().position(|&arg| arg == text) {
@@ -457,9 +466,22 @@ pub enum AstNode {
         right: Box<AstNode>,
     },
 
+    /// Differential operator
+    Differentive {
+        expr: Box<AstNode>,
+        var: usize, // this is equal to the usize of AstNode::Argument
+        order: usize,
+    },
+
     /// Function call with evaluated argument expressions.
     FunctionCall {
         kind: FunctionKind,
+        args: Vec<AstNode>,
+    },
+
+    /// User-defined Function call with evaluated argmuent expressions.
+    UserFunctionCall {
+        func: UserDefinedFunction,
         args: Vec<AstNode>,
     },
 }
@@ -519,7 +541,92 @@ impl AstNode {
         }
     }
 
+    /// Compute the derivative of an AST node with respect to a given variable.
+    ///
+    /// This function recursively differentiates an `AstNode` representing a mathematical
+    /// expression. It supports:
+    /// - Numbers and arguments (variables),
+    /// - Unary and binary operators,
+    /// - Built-in functions,
+    /// - User-defined functions,
+    /// - Nested differential operators (`Differentive`) to handle higher-order derivatives.
+    ///
+    /// # Arguments
+    ///
+    /// * `var` - The index of the variable with respect to which the derivative is taken.
+    ///
+    /// # Returns
+    ///
+    /// A new `AstNode` representing the derivative of `self` with respect to the specified variable.
+    ///
+    /// # Panics
+    ///
+    /// - If a user-defined function does not have a derivative defined for the specified variable.
+    ///
+    /// # Notes
+    ///
+    /// - `BinaryOperator` nodes delegate to `diff_binary`.
+    /// - `FunctionCall` nodes delegate to `diff_function`.
+    /// - `UserFunctionCall` nodes require the user-defined function to provide a derivative.
+    /// - Nested `Differentive` nodes increment the order if differentiating with respect to the same variable.
+    pub fn differentiate(&self, var: usize) -> Result<Self, String> {
+        match self {
+            Self::Number(_) => Ok(Self::zero()),
+            Self::Argument(idx)
+                => if *idx == var {
+                    Ok(Self::one())
+                } else {
+                    Ok(Self::zero())
+                },
+            Self::UnaryOperator { kind, expr }
+                => Ok(Self::UnaryOperator { kind: *kind, expr: Box::new(expr.differentiate(var)?) }),
+            Self::BinaryOperator { kind, left, right } => {
+                Self::diff_binary(*kind, *left.clone(), *right.clone(), var)
+            },
+            Self::FunctionCall { kind, args } => {
+                Self::diff_function(*kind, args, var)
+            },
+            Self::UserFunctionCall { func, args } => {
+                match func.derivative(var) {
+                    Some(deriv) => Ok(AstNode::UserFunctionCall { func: deriv, args: args.clone() }),
+                    None => Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var)),
+                }
+            },
+            Self::Differentive { expr, var: inner_var, order } => {
+                if *inner_var == var {
+                    // d/dx (d/dx f(x)) = d^2/dx^2 f(x)
+                    Ok(AstNode::Differentive { expr: expr.clone(), var, order: order + 1 })
+                } else {
+                    Ok(AstNode::Differentive {
+                        expr: Box::new(expr.differentiate(var)?),
+                        var: *inner_var,
+                        order: *order,
+                    })
+                }
+            }
+        }
+    }
+
     /// Internal helper to create a unary operator AST node from a stack.
+    ///
+    /// This function pops the top operand from the stack and constructs a
+    /// `UnaryOperator` AST node representing the specified unary operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `stack` - A mutable reference to a stack of `AstNode`s. The operand for the unary
+    ///   operator is expected at the top of the stack.
+    /// * `oper` - The `UnaryOperatorKind` specifying which unary operation to create
+    ///   (e.g., `Neg`, `Pos`, `Abs`).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the `UnaryOperator` node was successfully created and pushed onto the stack.
+    /// * `Err(String)` if the stack does not contain an operand for the unary operator.
+    ///
+    /// # Notes
+    ///
+    /// - This is an internal helper used during parsing to construct AST nodes for unary operations.
     fn from_unary(
         stack: &mut Vec<Self>,
         oper: UnaryOperatorKind,
@@ -531,6 +638,25 @@ impl AstNode {
     }
 
     /// Internal helper to create a binary operator AST node from a stack.
+    ///
+    /// This function pops the top two operands from the stack and constructs a
+    /// `BinaryOperator` AST node representing the specified binary operation.
+    ///
+    /// # Arguments
+    ///
+    /// * `stack` - A mutable reference to a stack of `AstNode`s. The right-hand operand
+    ///   is expected at the top of the stack, followed by the left-hand operand.
+    /// * `oper` - The `BinaryOperatorKind` specifying which binary operation to create
+    ///   (e.g., `Add`, `Sub`, `Mul`, `Div`, `Pow`).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the `BinaryOperator` node was successfully created and pushed onto the stack.
+    /// * `Err(String)` if the stack does not contain enough operands for the binary operator.
+    ///
+    /// # Notes
+    ///
+    /// - This is an internal helper used during parsing to construct AST nodes for binary operations.
     fn from_binary(
         stack: &mut Vec<Self>,
         oper: BinaryOperatorKind,
@@ -548,6 +674,27 @@ impl AstNode {
     }
 
     /// Internal helper to create a function call AST node from a stack.
+    ///
+    /// This function pops the required number of arguments from the stack and constructs a
+    /// `FunctionCall` AST node representing a call to the specified built-in function.
+    ///
+    /// # Arguments
+    ///
+    /// * `stack` - A mutable reference to a stack of `AstNode`s. The function arguments are
+    ///   popped from this stack in reverse order (last argument first).
+    /// * `func` - The `FunctionKind` representing the built-in function to call.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the `FunctionCall` node was successfully created and pushed onto the stack.
+    /// * `Err(String)` if the stack does not contain enough arguments for the function.
+    ///
+    /// # Notes
+    ///
+    /// - The function assumes that the arguments on the stack are correctly ordered according to
+    ///   the parser's rules (last argument at the top of the stack).
+    /// - This is an internal helper used during parsing to construct AST nodes for built-in
+    ///   function calls.
     fn from_function(
         stack: &mut Vec<Self>,
         func: FunctionKind,
@@ -562,6 +709,382 @@ impl AstNode {
         }
         stack.push(Self::FunctionCall { kind: func, args });
         Ok(())
+    }
+
+    /// Internal helper to create a user-defined function call AST node from a stack.
+    ///
+    /// This function pops the required number of arguments from the stack and constructs a
+    /// `UserFunctionCall` AST node representing a call to the specified user-defined function.
+    ///
+    /// # Arguments
+    ///
+    /// * `stack` - A mutable reference to a stack of `AstNode`s. The function arguments are
+    ///   popped from this stack in reverse order (last argument first).
+    /// * `func` - The `UserDefinedFunction` to call, including its name and arity.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the `UserFunctionCall` node was successfully created and pushed onto the stack.
+    /// * `Err(String)` if the stack does not contain enough arguments for the function.
+    ///
+    /// # Notes
+    ///
+    /// - The function assumes that the arguments on the stack are correctly ordered according to
+    ///   the parser's rules (last argument at the top of the stack).
+    /// - This is an internal helper used during parsing to construct AST nodes for user-defined
+    ///   function calls.
+    fn from_userfunction(
+        stack: &mut Vec<Self>,
+        func: UserDefinedFunction,
+    ) -> Result<(), String> {
+        let n = func.arity();
+        let mut args = Vec::new();
+        args.resize(n, Self::Argument(0)); // Dummy Self for initializing
+        for i in (0..n).rev() {
+            let arg = stack.pop()
+                .ok_or(format!("Missing function argument for {}", func.name()))?;
+            args[i] = arg;
+        }
+        stack.push(Self::UserFunctionCall { func, args });
+        Ok(())
+    }
+
+    /// Internal helper to create a differential operator AST node from a stack.
+    ///
+    /// This function pops the necessary operands from the stack to construct a `Differentive`
+    /// AST node, representing the derivative of an expression. It supports both:
+    /// - `diff(f(x), x)` for first-order derivatives, and
+    /// - `diff(f(x), x, n)` for higher-order derivatives (integer `n` only).
+    ///
+    /// # Arguments
+    ///
+    /// * `stack` - A mutable reference to a stack of `AstNode`s. Operands are popped from this
+    ///   stack to build the differential node.
+    /// * `lexeme` - The lexeme corresponding to the differential operator, used for error messages.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` if the differential node was successfully created and pushed onto the stack.
+    /// * `Err(String)` if the stack does not contain sufficient operands, the differential
+    ///   variable is invalid, or the order of differentiation is invalid (non-integer or negative).
+    ///
+    /// # Notes
+    ///
+    /// - Fractional calculus (non-integer order) is not supported.
+    /// - The order of differentiation must be between 0 and `i8::MAX`.
+    /// - This function assumes that the expression and variable nodes are correctly ordered
+    ///   on the stack according to the parser's rules.
+    fn from_diff(
+        stack: &mut Vec<Self>,
+        lexeme: Lexeme,
+    ) -> Result<(), String> {
+        let top = stack.pop()
+            .ok_or(format!("Missing arguments for {}", lexeme_name_with_range!(lexeme)))?;
+
+        if let Self::Number(z) = top {
+            // the case of `diff(f(x), x, n)`
+            if (z.im != 0.0) || (z.re.fract() != 0.0) {
+                return Err(format!("Not supported fractional calculus, order {}, in {}", z, lexeme_name_with_range!(lexeme)));
+            }
+            let x = z.re();
+            if (x < 0.0) || ((i8::MAX as f64) < x) {
+                return Err(format!("Invalid differential order {} for {}", x, lexeme_name_with_range!(lexeme)));
+            }
+            let order = x as usize;
+            let var = if let Self::Argument(idx) = stack.pop()
+                .ok_or(format!("Missing differential variable for {}", lexeme_name_with_range!(lexeme)))?
+            {
+                idx
+            } else {
+                return Err(format!("Invalid differential variable for {}", lexeme_name_with_range!(lexeme)));
+            };
+            let expr = stack.pop()
+                .ok_or(format!("Missing expr for differential operator {}", lexeme_name_with_range!(lexeme)))?;
+            stack.push(Self::Differentive { expr: Box::new(expr), var, order });
+        } else {
+            // the case of `diff(f(x), x)`, which means `n = 1`
+            let var = if let Self::Argument(idx) = stack.pop()
+                .ok_or(format!("Missing differential variable for {}", lexeme_name_with_range!(lexeme)))?
+            {
+                idx
+            } else {
+                return Err(format!("Invalid differential variable for {}", lexeme_name_with_range!(lexeme)));
+            };
+            let expr = stack.pop()
+                .ok_or(format!("Missing expr for differential operator {}", lexeme_name_with_range!(lexeme)))?;
+            stack.push(Self::Differentive { expr: Box::new(expr), var, order: 1 });
+        };
+        Ok(())
+    }
+
+    /// Create a number 0.0 Ast node.
+    pub fn zero() -> Self {
+        AstNode::Number(Complex::ZERO)
+    }
+
+    /// Create a number 1.0 Ast node.
+    pub fn one() -> Self {
+        AstNode::Number(Complex::ONE)
+    }
+
+    /// Internal helper to create an additional operator AST node `self + other`.
+    fn add(&self, other: &Self) -> Self {
+        Self::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(self.clone()),
+            right: Box::new(other.clone()),
+        }
+    }
+
+    /// internal helper to create a subtracted operator AST node `self - other`.
+    fn sub(&self, other: &Self) -> Self {
+        Self::BinaryOperator {
+            kind: BinaryOperatorKind::Sub,
+            left: Box::new(self.clone()),
+            right: Box::new(other.clone()),
+        }
+    }
+
+    /// Internal helper to create a multiplied operator AST node `self * other`.
+    fn mul(&self, other: &Self) -> Self {
+        Self::BinaryOperator {
+            kind: BinaryOperatorKind::Mul,
+            left: Box::new(self.clone()),
+            right: Box::new(other.clone()),
+        }
+    }
+
+    /// Internal helper to create a divided operator AST node `self / right`.
+    fn div(&self, right: &Self) -> Self {
+        Self::BinaryOperator {
+            kind: BinaryOperatorKind::Div,
+            left: Box::new(self.clone()),
+            right: Box::new(right.clone()),
+        }
+    }
+
+    /// Internal helper to create a negative AST node `-self`.
+    fn negative(&self) -> Self {
+        Self::UnaryOperator {
+            kind: UnaryOperatorKind::Negative,
+            expr: Box::new(self.clone()),
+        }
+    }
+
+    /// Internal helper to create a sin AST node `sin(x)`.
+    fn sin(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sin, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create a cos AST node `cos(x)`.
+    fn cos(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Cos, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create a sinh AST node `sinh(x)`.
+    fn sinh(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sinh, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create a cosh AST node `cosh(x)`.
+    fn cosh(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Cosh, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create an exp AST node `exp(x)`.
+    fn exp(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Exp, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create a sqrt AST node `sqrt(x)`.
+    fn sqrt(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create an abs AST node `abs(x)`.
+    fn abs(&self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![self.clone()] }
+    }
+
+    /// Internal helper to create `pow(self, expr)` AST node.
+    fn pow(&self, expr: &Self) -> Self {
+        Self::FunctionCall {
+            kind: FunctionKind::Pow,
+            args: vec![self.clone(), expr.clone()],
+        }
+    }
+
+    /// Internal helper to create `powi(self, expr)` AST node.
+    fn powi(&self, expr: i32) -> Self {
+        Self::FunctionCall {
+            kind: FunctionKind::Powi,
+            args: vec![self.clone(), AstNode::Number(Complex::from(expr as f64))],
+        }
+    }
+
+    /// Differentiate a power expression with respect to a variable.
+    ///
+    /// Computes the derivative of the expression:
+    ///
+    /// ```text
+    /// d/dx [ u(x) ^ v(x) ] = u(x) ^ v(x) * ( v'(x) * ln(u(x)) + v(x) * u'(x) / u(x) )
+    /// ```
+    ///
+    /// This rule applies to the general case where both the base `u(x)` and the exponent
+    /// `v(x)` are functions of `x`.
+    ///
+    /// # Arguments
+    /// * `left` - The base expression `u(x)`.
+    /// * `right` - The exponent expression `v(x)`.
+    /// * `var` - The index of the variable with respect to which differentiation is performed.
+    ///
+    /// # Errors
+    /// Returns an error if differentiation of the subexpressions fails.
+    fn diff_pow(left: &Self, right: &Self, var: usize) -> Result<Self, String> {
+        // d/dx [u(x) ^ v(x)] = u^v * (v' * ln(u) + v * u' / u)
+        let u = left.clone();
+        let v = right.clone();
+        let du = u.differentiate(var)?;
+        let dv = v.differentiate(var)?;
+        let ln_u = Self::FunctionCall {
+            kind: FunctionKind::Ln,
+            args: vec![u.clone()],
+        };
+        Ok(u.pow(&v).mul(&(dv.mul(&ln_u)).add(&v.mul(&du).div(&u))))
+    }
+
+    /// Differentiate an integer power expression with respect to a variable.
+    ///
+    /// Computes the derivative of the expression:
+    ///
+    /// ```text
+    /// d/dx [ u(x) ^ n ] = n * u(x) ^ (n - 1) * u'(x)
+    /// ```
+    ///
+    /// where `n` is an integer constant (i.e., `powi` form).
+    ///
+    /// # Arguments
+    /// * `left` - The base expression `u(x)`.
+    /// * `right` - The integer exponent `n`.
+    /// * `var` - The index of the variable with respect to which differentiation is performed.
+    ///
+    /// # Errors
+    /// Returns an error if differentiation of the base fails.
+    fn diff_powi(left: &Self, right: &Self, var: usize) -> Result<Self, String> {
+        // d/dx [u(x) ^ n] = n * u(x) ^ (n-1) * u'(x)
+        let u = left.clone();
+        let n = right.clone();
+        let du = u.differentiate(var)?;
+        Ok(AstNode::FunctionCall {
+            kind: FunctionKind::Powi,
+            args: vec![u, n.sub(&Self::one())],
+        }.mul(&n).mul(&du))
+    }
+
+    /// Differentiate a binary operator expression with respect to a variable.
+    ///
+    /// Supports the following binary operators:
+    ///
+    /// - **Addition** and **Subtraction**:
+    ///   ```text
+    ///   d/dx [ u ± v ] = u' ± v'
+    ///   ```
+    /// - **Multiplication**:
+    ///   ```text
+    ///   d/dx [ u * v ] = u' * v + u * v'
+    ///   ```
+    /// - **Division**:
+    ///   ```text
+    ///   d/dx [ u / v ] = (u' * v - u * v') / v^2
+    ///   ```
+    /// - **Power**:
+    ///   Falls back to [`diff_pow`] for the general differentiation rule.
+    ///
+    /// # Arguments
+    /// * `kind` - The binary operator kind.
+    /// * `left` - The left-hand side expression `u(x)`.
+    /// * `right` - The right-hand side expression `v(x)`.
+    /// * `var` - The index of the variable with respect to which differentiation is performed.
+    ///
+    /// # Errors
+    /// Returns an error if differentiation of the subexpressions fails.
+    fn diff_binary(kind: BinaryOperatorKind, left: Self, right: Self, var:usize) -> Result<Self, String> {
+        let dl = left.differentiate(var)?;
+        let dr = right.differentiate(var)?;
+        match kind {
+            BinaryOperatorKind::Add | BinaryOperatorKind::Sub
+                => Ok(Self::BinaryOperator { kind, left: Box::new(dl), right: Box::new(dr) }),
+            BinaryOperatorKind::Mul
+                => Ok(dl.mul(&right).add(&left.mul(&dr))),
+            BinaryOperatorKind::Div
+                => Ok(dl.mul(&right).sub(&left.mul(&dr)).div(&right.powi(2))),
+            BinaryOperatorKind::Pow
+                => Self::diff_pow(&left, &right, var),
+        }
+    }
+
+    /// Differentiate a function call with respect to a variable.
+    ///
+    /// Implements the standard differentiation rules for elementary functions:
+    ///
+    /// - `sin(x)` → `cos(x) * x'`
+    /// - `cos(x)` → `-sin(x) * x'`
+    /// - `tan(x)` → `x' / cos(x)^2`
+    /// - `asin(x)` → `x' / sqrt(1 - x^2)`
+    /// - `acos(x)` → `-x' / sqrt(1 - x^2)`
+    /// - `atan(x)` → `x' / (1 + x^2)`
+    /// - `sinh(x)` → `cosh(x) * x'`
+    /// - `cosh(x)` → `sinh(x) * x'`
+    /// - `tanh(x)` → `x' / cosh(x)^2`
+    /// - `asinh(x)` → `x' / sqrt(x^2 + 1)`
+    /// - `acosh(x)` → `x' / sqrt(x^2 - 1)`
+    /// - `atanh(x)` → `x' / (1 - x^2)`
+    /// - `exp(x)` → `exp(x) * x'`
+    /// - `ln(x)` → `x' / x`
+    /// - `log10(x)` → `x' / (x * ln(10))`
+    /// - `sqrt(x)` → `x' / (2 * sqrt(x))`
+    /// - `abs(x)` → `(x / |x|) * x'` (undefined at `x = 0`)
+    ///
+    /// Special cases:
+    /// - `conj(z)` → Not differentiable in the complex domain; returns an error.
+    /// - `pow(u, v)` → Delegates to [`diff_pow`].
+    /// - `powi(u, n)` → Delegates to [`diff_powi`].
+    ///
+    /// # Arguments
+    /// * `kind` - The function kind.
+    /// * `args` - The argument expressions.
+    /// * `var` - The index of the variable with respect to which differentiation is performed.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The function is not differentiable (`conj`).
+    /// - Differentiation of the argument fails.
+    fn diff_function(kind: FunctionKind, args: &[Self], var: usize) -> Result<Self, String> {
+        let x = &args[0];
+        let dx = args[0].differentiate(var)?;
+        match kind {
+            FunctionKind::Sin   => Ok(x.cos().mul(&dx)),
+            FunctionKind::Cos   => Ok(x.sin().negative().mul(&dx)),
+            FunctionKind::Tan   => Ok(dx.div(&x.cos().powi(2))),
+            FunctionKind::Asin  => Ok(dx.div(&(Self::one().sub(&x.powi(2))))),
+            FunctionKind::Acos  => Ok(dx.negative().div(&Self::one().sub(&x.powi(2)))),
+            FunctionKind::Atan  => Ok(dx.div(&Self::one().add(&x.powi(2)))),
+            FunctionKind::Sinh  => Ok(dx.mul(&x.cosh())),
+            FunctionKind::Cosh  => Ok(dx.mul(&x.sinh())),
+            FunctionKind::Tanh  => Ok(dx.div(&x.cosh().powi(2))),
+            FunctionKind::Asinh => Ok(dx.div(&x.powi(2).add(&Self::one()).sqrt())),
+            FunctionKind::Acosh => Ok(dx.div(&x.powi(2).sub(&Self::one()).sqrt())),
+            FunctionKind::Atanh => Ok(dx.div(&Self::one().sub(&x.powi(2)))),
+            FunctionKind::Exp   => Ok(dx.mul(&x.exp())),
+            FunctionKind::Ln    => Ok(dx.div(x)),
+            FunctionKind::Log10 => Ok(dx.mul(&AstNode::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
+            FunctionKind::Sqrt  => Ok(dx.mul(&AstNode::Number(Complex::from(0.5))).div(&x.sqrt())),
+            // TODO: d/dx |f(x)| should return NaN if f(x) = 0, but we have NOT been able to express yet.
+            FunctionKind::Abs   => Ok(x.div(&x.abs()).mul(&dx)),
+            FunctionKind::Conj  => Err("The function `conj(z)` doesn't have any derivative functions at any coordinates.".into()),
+            FunctionKind::Pow   => Self::diff_pow(&args[0], &args[1], var),
+            FunctionKind::Powi  => Self::diff_powi(&args[0], &args[1], var),
+        }
     }
 
     /// Internal helper to compile the AST into a sequence of executable tokens.
@@ -584,6 +1107,13 @@ impl AstNode {
                 }
                 tokens.push(Token::Function(*kind));
             },
+            Self::UserFunctionCall { func, args } => {
+                for arg in args {
+                    Self::execute(arg, tokens);
+                }
+                tokens.push(Token::UserFunction(func.clone()));
+            },
+            Self::Differentive {..} => unreachable!("AstNode should not include Differentive"),
         }
     }
 
@@ -621,7 +1151,9 @@ fn parse_in_right_paren<'a>(
             Token::LParen(_) => break,
             Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper)?,
             Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper)?,
+            Token::DiffOperator(lexeme) => AstNode::from_diff(ast_nodes, lexeme)?,
             Token::Function(func) => AstNode::from_function(ast_nodes, func)?,
+            Token::UserFunction(func) => AstNode::from_userfunction(ast_nodes, func)?,
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in RParen at {s}..{e}",
@@ -652,11 +1184,17 @@ fn parse_in_comma<'a>(
     lexeme: &Lexeme<'a>,
 ) -> Result<(), String> {
     // use Vec::last() to avoid removing Left Paren from the stack
-    while let Some(token) = token_stack.last() {
+    while let Some(token) = token_stack.pop() {
         match token {
-            Token::LParen(_) => break,
-            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, *oper)?,
-            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, *oper)?,
+            Token::LParen(_) => {
+                token_stack.push(token);
+                break;
+            },
+            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper)?,
+            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper)?,
+            Token::DiffOperator(lexeme) => AstNode::from_diff(ast_nodes, lexeme)?,
+            Token::Function(func) => AstNode::from_function(ast_nodes, func)?,
+            Token::UserFunction(func) => AstNode::from_userfunction(ast_nodes, func)?,
             _ => {
                 return Err(format!(
                     "Unexpected token in stack when parsing in Comma at {s}..{e}",
@@ -768,6 +1306,10 @@ fn parse_to_ast<'a>(
                 };
                 prev_is_value = false;
             },
+            Token::DiffOperator(_) => {
+                token_stack.push(token);
+                prev_is_value = false;
+            },
             Token::Function(_) | Token::UserFunction(_) => {
                 token_stack.push(token);
                 prev_is_value = false;
@@ -792,7 +1334,9 @@ fn parse_to_ast<'a>(
         match token {
             Token::UnaryOperator(oper) => AstNode::from_unary(&mut ast_nodes, oper)?,
             Token::BinaryOperator(oper) => AstNode::from_binary(&mut ast_nodes, oper)?,
+            Token::DiffOperator(lexeme) => AstNode::from_diff(&mut ast_nodes, lexeme)?,
             Token::Function(func) => AstNode::from_function(&mut ast_nodes, func)?,
+            Token::UserFunction(func) => AstNode::from_userfunction(&mut ast_nodes, func)?,
             _ => return Err("Unexpected token at the end".into()),
         }
     }
@@ -1208,6 +1752,21 @@ mod astnode_tests {
             }
             _ => panic!("Expected Function node"),
         }
+
+        let lexemes = lexer::from("pow ( sin(x) , 3 )");
+        let ast = parse_to_ast(&lexemes, &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        match ast {
+            AstNode::FunctionCall { kind, args } => {
+                assert_eq!(kind, FunctionKind::Pow);
+                assert_eq!(args.len(), 2);
+                assert_eq!(args[0], AstNode::FunctionCall {
+                    kind: FunctionKind::Sin,
+                    args: vec![AstNode::Argument(0)]
+                });
+                assert_eq!(args[1], AstNode::Number(Complex::new(3.0, 0.0)));
+            }
+            _ => panic!("Expected Function node"),
+        }
     }
 
     #[test]
@@ -1465,6 +2024,103 @@ mod astnode_tests {
                 Token::BinaryOperator(BinaryOperatorKind::Add),
                 Token::Function(FunctionKind::Cos),
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod differentiate_tests {
+    use super::*;
+    use num_complex::Complex;
+
+    #[test]
+    fn test_differentiate_number() {
+        let node = AstNode::Number(Complex::new(5.0, 0.0));
+        let diff = node.differentiate(0).unwrap();
+        assert_eq!(diff, AstNode::Number(Complex::ZERO));
+    }
+
+    #[test]
+    fn test_differentiate_argument() {
+        let node = AstNode::Argument(1);
+        let diff = node.differentiate(1).unwrap();
+        assert_eq!(diff, AstNode::Number(Complex::ONE));
+        let diff_other = node.differentiate(0).unwrap();
+        assert_eq!(diff_other, AstNode::Number(Complex::ZERO));
+    }
+
+    #[test]
+    fn test_differentiate_unary_operator() {
+        let node = AstNode::UnaryOperator {
+            kind: UnaryOperatorKind::Negative,
+            expr: Box::new(AstNode::Argument(0)),
+        };
+        let diff = node.differentiate(0).unwrap();
+        assert_eq!(
+            diff,
+            AstNode::UnaryOperator {
+                kind: UnaryOperatorKind::Negative,
+                expr: Box::new(AstNode::Number(Complex::ONE)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_differentiate_binary_add() {
+        let node = AstNode::BinaryOperator {
+            kind: BinaryOperatorKind::Add,
+            left: Box::new(AstNode::Argument(0)),
+            right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
+        };
+        let diff = node.differentiate(0).unwrap();
+        // d/dx (x + 2) = 1 + 0
+        assert_eq!(
+            diff,
+            AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Add,
+                left: Box::new(AstNode::Number(Complex::ONE)),
+                right: Box::new(AstNode::Number(Complex::ZERO)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_differentiate_function_sin() {
+        let node = AstNode::FunctionCall {
+            kind: FunctionKind::Sin,
+            args: vec![AstNode::Argument(0)],
+        };
+        let diff = node.differentiate(0).unwrap();
+        // d/dx sin(x) = cos(x) * 1
+        assert_eq!(
+            diff,
+            AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Mul,
+                left: Box::new(AstNode::FunctionCall {
+                    kind: FunctionKind::Cos,
+                    args: vec![AstNode::Argument(0)],
+                }),
+                right: Box::new(AstNode::Number(Complex::ONE)),
+            }
+        );
+    }
+
+    #[test]
+    fn test_differentiate_differentive_order() {
+        let node = AstNode::Differentive {
+            expr: Box::new(AstNode::Argument(0)),
+            var: 0,
+            order: 1,
+        };
+        let diff = node.differentiate(0).unwrap();
+        // d/dx (d/dx x) = d^2/dx^2 x
+        assert_eq!(
+            diff,
+            AstNode::Differentive {
+                expr: Box::new(AstNode::Argument(0)),
+                var: 0,
+                order: 2,
+            }
         );
     }
 }
