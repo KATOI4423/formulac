@@ -73,6 +73,7 @@ pub mod variable;
 
 use num_complex::Complex;
 use crate::{parser::Token};
+use crate::{variable::FunctionCall};
 
 pub type UserDefinedFunction = variable::UserDefinedFunction;
 pub type UserDefinedTable = variable::UserDefinedTable;

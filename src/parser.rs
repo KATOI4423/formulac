@@ -23,7 +23,7 @@
 
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
-use crate::{Variables, UserDefinedFunction, UserDefinedTable};
+use crate::{variable::FunctionCall, Variables, UserDefinedFunction, UserDefinedTable};
 use num_complex::Complex;
 use num_complex::ComplexFloat;
 use phf::Map;
@@ -248,8 +248,15 @@ macro_rules! functions {
                 }
             }
 
+            /// Returns a list of all supported function names.
+            pub fn names() -> Vec<&'static str> {
+                vec![$($name),*]
+            }
+        }
+
+        impl FunctionCall for FunctionKind {
             /// Returns arity, the number of arguments that the function takes.
-            pub fn arity(&self) -> usize {
+            fn arity(&self) -> usize {
                 match self {
                     $( Self::$variant => $arity, )*
                 }
@@ -258,18 +265,13 @@ macro_rules! functions {
             /// Applies the function to a slice of complex numbers and returns the result.
             ///
             /// The number of elements in `args` must match the value returned by `arity`.
-            pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
+            fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
                 match self {
                     $( Self::$variant => {
                         let $a = args;
                         $body
                     }, )*
                 }
-            }
-
-            /// Returns a list of all supported function names.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($name),*]
             }
         }
 
@@ -933,31 +935,31 @@ impl AstNode {
                 let right = right.simplify();
                 Self::fold_binary(kind, left, right)
             },
-            Self::FunctionCall { kind, args } => {
-                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
-                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
-                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
-                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
-                    }).collect();
-                    AstNode::Number(kind.apply(&nums))
-                } else {
-                    AstNode::FunctionCall { kind, args }
-                }
-            },
-            Self::UserFunctionCall { func, args } => {
-                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
-                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
-                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
-                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
-                    }).collect();
-                    AstNode::Number(func.apply(&nums))
-                } else {
-                    AstNode::UserFunctionCall { func, args }
-                }
-            }
+            Self::FunctionCall { kind, args }
+                => Self::fold_function(kind, args, |k, a| AstNode::FunctionCall { kind: k, args: a }),
+            Self::UserFunctionCall { func, args }
+                => Self::fold_function(func, args, |f, a| AstNode::UserFunctionCall { func: f, args: a }),
             _ => self,
         }
     }
+
+    /// Internal helper to fold a function with arguments AST nodes if possible.
+    fn fold_function<T, F>(func: T, args: Vec<Self>, make_node: F) -> Self
+    where
+        T: FunctionCall,
+        F: Fn(T, Vec<Self>) -> Self,
+    {
+        let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
+        if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
+            let nums: Vec<Complex<f64>> = args.iter().map(|a| {
+                if let AstNode::Number(v) = a { *v } else { unreachable!() }
+            }).collect();
+            AstNode::Number(func.apply(&nums))
+        } else {
+            make_node(func, args)
+        }
+    }
+
 
     /// Internal helper to fold a binary operator with two AST nodes if possible.
     ///

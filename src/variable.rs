@@ -40,6 +40,7 @@
 //!
 //! ```rust
 //! use num_complex::Complex;
+//! use formulac::variable::FunctionCall;
 //! use formulac::{UserDefinedTable, UserDefinedFunction};
 //!
 //! // Create a new user-defined table
@@ -71,6 +72,7 @@
 //!
 //! ```rust
 //! use num_complex::Complex;
+//! use formulac::variable::FunctionCall;
 //! use formulac::UserDefinedFunction;
 //!
 //! // Define f(x) = x^2 with derivative f'(x) = 2x
@@ -246,6 +248,7 @@ type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 ///
 /// ```rust
 /// use num_complex::Complex;
+/// use formulac::variable::FunctionCall;
 /// use formulac::UserDefinedFunction;
 ///
 /// // Define a function that adds 1 to the argument
@@ -268,6 +271,29 @@ pub struct UserDefinedFunction {
     deriv: Vec<Option<Arc<FuncType>>>,
     arity: usize,
     name: String,
+}
+
+/// A trait representing a callable mathematical function.
+///
+/// This trait is implemented by types that can be called with a fixed number
+/// of arguments and return a `Complex<f64>` result. It is used in the AST
+/// for evaluating both built-in functions (like `sin`, `cos`, `pow`) and
+/// user-defined functions.
+///
+/// # Methods
+///
+/// - `apply(&self, args: &[Complex<f64>]) -> Complex<f64>`
+///   Evaluates the function with the given arguments. The length of `args`
+///   must match the function's arity.
+///
+/// - `arity(&self) -> usize`
+///   Returns the number of arguments the function expects.
+pub trait FunctionCall {
+    /// Evaluates the function with the given arguments.
+    fn apply(&self, args: &[Complex<f64>]) -> Complex<f64>;
+
+    /// Returns the number of arguments this function expects.
+    fn arity(&self) -> usize;
 }
 
 impl UserDefinedFunction {
@@ -335,35 +361,6 @@ impl UserDefinedFunction {
         self
     }
 
-    /// Applies the function to the given arguments.
-    ///
-    /// # Arguments
-    ///
-    /// * `args` - A slice of `Complex<f64>` representing the function's arguments.
-    ///
-    /// # Returns
-    ///
-    /// The result of the function as a `Complex<f64>`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use num_complex::Complex;
-    /// use formulac::UserDefinedFunction;
-    ///
-    /// let func = UserDefinedFunction::new(
-    ///     "double",
-    ///     |args| args[0] * Complex::new(2.0, 0.0),
-    ///     1,
-    /// );
-    ///
-    /// let result = func.apply(&[Complex::new(3.0, 0.0)]);
-    /// assert_eq!(result, Complex::new(6.0, 0.0));
-    /// ```
-    pub fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
-        (self.func)(args)
-    }
-
     /// Returns User-defined function name
     pub fn name(&self) -> &str {
         &self.name
@@ -375,6 +372,7 @@ impl UserDefinedFunction {
     /// # Examples
     /// ```rust
     /// use num_complex::Complex;
+    /// use formulac::variable::FunctionCall;
     /// use formulac::UserDefinedFunction;
     ///
     /// let func = UserDefinedFunction::new(
@@ -403,19 +401,52 @@ impl UserDefinedFunction {
             }
         })
     }
+}
+
+impl FunctionCall for UserDefinedFunction {
+    /// Applies the function to the given arguments.
+    ///
+    /// # Arguments
+    ///
+    /// * `args` - A slice of `Complex<f64>` representing the function's arguments.
+    ///
+    /// # Returns
+    ///
+    /// The result of the function as a `Complex<f64>`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::variable::FunctionCall;
+    /// use formulac::UserDefinedFunction;
+    ///
+    /// let func = UserDefinedFunction::new(
+    ///     "double",
+    ///     |args| args[0] * Complex::new(2.0, 0.0),
+    ///     1,
+    /// );
+    ///
+    /// let result = func.apply(&[Complex::new(3.0, 0.0)]);
+    /// assert_eq!(result, Complex::new(6.0, 0.0));
+    /// ```
+    fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
+        (self.func)(args)
+    }
 
     /// Returns the arity (number of arguments) of the function.
     ///
     /// # Examples
     ///
     /// ```rust
+    /// use formulac::variable::FunctionCall;
     /// use formulac::UserDefinedFunction;
     /// use num_complex::Complex;
     ///
     /// let func = UserDefinedFunction::new("add", |args| args[0] + args[1], 2);
     /// assert_eq!(func.arity(), 2);
     /// ```
-    pub fn arity(&self) -> usize {
+    fn arity(&self) -> usize {
         self.arity
     }
 }
@@ -536,6 +567,7 @@ impl UserDefinedTable {
     /// ```rust
     /// use num_complex::Complex;
     /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::variable::FunctionCall;
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
