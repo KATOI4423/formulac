@@ -489,6 +489,9 @@ pub enum AstNode {
 impl AstNode {
     /// Parses a slice of lexemes into an AST node.
     ///
+    ///  Implements a full shunting-yard-like parser handling numbers, arguments, unary/binary operators,
+    /// function calls, parentheses, and commas.
+    ///
     /// # Parameters
     /// - `lexemes`: Slice of lexemes representing the expression.
     /// - `args`: List of argument names for functions.
@@ -496,15 +499,214 @@ impl AstNode {
     /// - `users`: Table of user-defined functions.
     ///
     /// # Returns
-    /// - `Ok(AstNode)` on successful parsing.
-    /// - `Err(String)` if parsing fails.
+    /// - `Ok(AstNode)` representing the root of the parsed AST.
+    /// - `Err(String)` if parsing fails due to invalid syntax or unknown tokens.
     pub fn from<'a>(
         lexemes: &[Lexeme<'a>],
         args: &[&str],
         vars: &Variables,
         users: &UserDefinedTable,
     ) -> Result<Self, String> {
-        parse_to_ast(lexemes, args, vars, users)
+        let mut ast_nodes: Vec<Self> = Vec::new();
+        let mut token_stack: Vec<Token> = Vec::new();
+        // record whether the previous token is finished by value or not to evaluate the token is unary operator or binary operator.
+        let mut prev_is_value = false;
+        let lexemes = lexemes.iter().peekable();
+
+        for lexeme in lexemes {
+            let token = Token::from(lexeme, args, vars, users)?;
+            match token {
+                Token::Number(val) => {
+                    ast_nodes.push(Self::Number(val));
+                    prev_is_value = true;
+                },
+                Token::Argument(pos) => {
+                    ast_nodes.push(Self::Argument(pos));
+                    prev_is_value = true;
+                },
+                Token::Operator(lexeme) => {
+                    match prev_is_value {
+                        true => Self::parse_in_binary_operator(&mut ast_nodes, &mut token_stack, lexeme)?,
+                        false => Self::parse_in_unary_operator(&mut token_stack, lexeme)?,
+                    };
+                    prev_is_value = false;
+                },
+                Token::DiffOperator(_) => {
+                    token_stack.push(token);
+                    prev_is_value = false;
+                },
+                Token::Function(_) | Token::UserFunction(_) => {
+                    token_stack.push(token);
+                    prev_is_value = false;
+                },
+                Token::LParen(_) => {
+                    token_stack.push(token);
+                    prev_is_value = false; // The operator next to LParen is unary operator; ex) cos(-x), 3 * (-2)
+                },
+                Token::RParen(_) => {
+                    Self::parse_in_right_paren(&mut ast_nodes, &mut token_stack, lexeme)?;
+                    prev_is_value = true; // The operator next to RParen is binary operator; ex) sin(x) + 2, (x+2)/(x-3)
+                },
+                Token::Comma(_) => {
+                    Self::parse_in_comma(&mut ast_nodes, &mut token_stack, lexeme)?;
+                    prev_is_value = false; // The operator next to Comma is unary operator; ex) pow(x, -3)
+                },
+                _ => return Err(format!("Invalid token kind made from {}", lexeme_name_with_range!(lexeme))),
+            }
+        }
+
+        while let Some(token) = token_stack.pop() {
+            match token {
+                Token::UnaryOperator(oper) => Self::from_unary(&mut ast_nodes, oper)?,
+                Token::BinaryOperator(oper) => Self::from_binary(&mut ast_nodes, oper)?,
+                Token::DiffOperator(lexeme) => Self::from_diff(&mut ast_nodes, lexeme)?,
+                Token::Function(func) => Self::from_function(&mut ast_nodes, func)?,
+                Token::UserFunction(func) => Self::from_userfunction(&mut ast_nodes, func)?,
+                _ => return Err("Unexpected token at the end".into()),
+            }
+        }
+
+        let ret = ast_nodes.pop()
+            .ok_or("Fail to parse to AST. There are NO AST node remaining.")?;
+
+        if !ast_nodes.is_empty() {
+            return Err("Fail to parse to AST. There are too AST node remaining.".into());
+        }
+        Ok(ret)
+    }
+
+    /// Parses tokens in a subexpression until a right parenthesis `)` is encountered.
+    ///
+    /// Pops tokens from `token_stack` and constructs AST nodes into `ast_nodes`.
+    /// Handles unary operators, binary operators, and function calls.
+    ///
+    /// # Parameters
+    /// - `ast_nodes`: Vector to accumulate AST nodes.
+    /// - `token_stack`: Stack of tokens to process.
+    /// - `lexeme`: Lexeme representing the right parenthesis.
+    ///
+    /// # Returns
+    /// - `Ok(())` on success.
+    /// - `Err(String)` if an unexpected token is found.
+    fn parse_in_right_paren<'a>(
+        ast_nodes: &mut Vec<Self>,
+        token_stack: &mut Vec<Token<'a>>,
+        lexeme: &Lexeme<'a>,
+    ) -> Result<(), String> {
+        while let Some(token) = token_stack.pop() {
+            match token {
+                Token::LParen(_) => break,
+                Token::UnaryOperator(oper) => Self::from_unary(ast_nodes, oper)?,
+                Token::BinaryOperator(oper) => Self::from_binary(ast_nodes, oper)?,
+                Token::DiffOperator(lexeme) => Self::from_diff(ast_nodes, lexeme)?,
+                Token::Function(func) => Self::from_function(ast_nodes, func)?,
+                Token::UserFunction(func) => Self::from_userfunction(ast_nodes, func)?,
+                _ => {
+                    return Err(format!(
+                        "Unexpected token in stack when parsing in RParen at {s}..{e}",
+                        s=lexeme.start(), e=lexeme.end(),
+                    ))
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// Parses tokens in a subexpression until a comma `,` is encountered.
+    ///
+    /// Pops tokens from `token_stack` (without removing the left parenthesis) and constructs
+    /// AST nodes into `ast_nodes`. Handles unary and binary operators.
+    ///
+    /// # Parameters
+    /// - `ast_nodes`: Vector to accumulate AST nodes.
+    /// - `token_stack`: Stack of tokens to process.
+    /// - `lexeme`: Lexeme representing the comma.
+    ///
+    /// # Returns
+    /// - `Ok(())` on success.
+    /// - `Err(String)` if an unexpected token is found.
+    fn parse_in_comma<'a>(
+        ast_nodes: &mut Vec<Self>,
+        token_stack: &mut Vec<Token<'a>>,
+        lexeme: &Lexeme<'a>,
+    ) -> Result<(), String> {
+        // use Vec::last() to avoid removing Left Paren from the stack
+        while let Some(token) = token_stack.pop() {
+            match token {
+                Token::LParen(_) => {
+                    token_stack.push(token);
+                    break;
+                },
+                Token::UnaryOperator(oper) => Self::from_unary(ast_nodes, oper)?,
+                Token::BinaryOperator(oper) => Self::from_binary(ast_nodes, oper)?,
+                Token::DiffOperator(lexeme) => Self::from_diff(ast_nodes, lexeme)?,
+                Token::Function(func) => Self::from_function(ast_nodes, func)?,
+                Token::UserFunction(func) => Self::from_userfunction(ast_nodes, func)?,
+                _ => {
+                    return Err(format!(
+                        "Unexpected token in stack when parsing in Comma at {s}..{e}",
+                        s=lexeme.start(), e=lexeme.end(),
+                    ))
+                },
+            }
+        }
+        Ok(())
+    }
+
+    /// Parses a unary operator token and pushes it onto the token stack.
+    ///
+    /// # Parameters
+    /// - `token_stack`: Stack of tokens to process.
+    /// - `lexeme`: Lexeme representing the unary operator.
+    ///
+    /// # Returns
+    /// - `Ok(())` on success.
+    /// - `Err(String)` if the lexeme does not represent a valid unary operator.
+    fn parse_in_unary_operator<'a>(
+        token_stack: &mut Vec<Token<'a>>,
+        lexeme: Lexeme<'a>,
+    ) -> Result<(), String> {
+        if let Some(oper_kind) = UnaryOperatorKind::from(lexeme.text()) {
+            token_stack.push(Token::UnaryOperator(oper_kind));
+            Ok(())
+        } else {
+            Err(format!("Unknown unary operator {}", lexeme_name_with_range!(lexeme)))
+        }
+    }
+
+    /// Parses a binary operator token, resolves operator precedence, and pushes it onto the token stack.
+    ///
+    /// Implements the shunting-yard precedence rules for left- and right-associative operators.
+    ///
+    /// # Parameters
+    /// - `ast_nodes`: Vector of AST nodes built so far.
+    /// - `token_stack`: Stack of tokens to process.
+    /// - `lexeme`: Lexeme representing the binary operator.
+    ///
+    /// # Returns
+    /// - `Ok(())` on success.
+    /// - `Err(String)` if the lexeme does not represent a valid binary operator.
+    fn parse_in_binary_operator<'a>(
+        ast_nodes: &mut Vec<Self>,
+        token_stack: &mut Vec<Token<'a>>,
+        lexeme: Lexeme<'a>,
+    ) -> Result<(), String> {
+        if let Some(oper_kind) = BinaryOperatorKind::from(lexeme.text()) {
+            let oper_info = oper_kind.info();
+            while let Some(Token::BinaryOperator(top_oper)) = token_stack.last().cloned() {
+                if (oper_info.is_left_assoc && (top_oper.info().precedence < oper_info.precedence))
+                    || (!oper_info.is_left_assoc && (top_oper.info().precedence <= oper_info.precedence))
+                {
+                    break;
+                }
+                token_stack.pop();
+                Self::from_binary(ast_nodes, top_oper)?;
+            }
+            token_stack.push(Token::BinaryOperator(oper_kind));
+            Ok(())
+        } else {
+            Err(format!("Unknown binary operator {}", lexeme_name_with_range!(lexeme)))
+        }
     }
 
     /// Simplifies the AST by evaluating constant sub-expressions.
@@ -1139,228 +1341,6 @@ impl AstNode {
     }
 }
 
-/// Parses tokens in a subexpression until a right parenthesis `)` is encountered.
-///
-/// Pops tokens from `token_stack` and constructs AST nodes into `ast_nodes`.
-/// Handles unary operators, binary operators, and function calls.
-///
-/// # Parameters
-/// - `ast_nodes`: Vector to accumulate AST nodes.
-/// - `token_stack`: Stack of tokens to process.
-/// - `lexeme`: Lexeme representing the right parenthesis.
-///
-/// # Returns
-/// - `Ok(())` on success.
-/// - `Err(String)` if an unexpected token is found.
-fn parse_in_right_paren<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    token_stack: &mut Vec<Token<'a>>,
-    lexeme: &Lexeme<'a>,
-) -> Result<(), String> {
-    while let Some(token) = token_stack.pop() {
-        match token {
-            Token::LParen(_) => break,
-            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper)?,
-            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper)?,
-            Token::DiffOperator(lexeme) => AstNode::from_diff(ast_nodes, lexeme)?,
-            Token::Function(func) => AstNode::from_function(ast_nodes, func)?,
-            Token::UserFunction(func) => AstNode::from_userfunction(ast_nodes, func)?,
-            _ => {
-                return Err(format!(
-                    "Unexpected token in stack when parsing in RParen at {s}..{e}",
-                    s=lexeme.start(), e=lexeme.end(),
-                ))
-            },
-        }
-    }
-    Ok(())
-}
-
-/// Parses tokens in a subexpression until a comma `,` is encountered.
-///
-/// Pops tokens from `token_stack` (without removing the left parenthesis) and constructs
-/// AST nodes into `ast_nodes`. Handles unary and binary operators.
-///
-/// # Parameters
-/// - `ast_nodes`: Vector to accumulate AST nodes.
-/// - `token_stack`: Stack of tokens to process.
-/// - `lexeme`: Lexeme representing the comma.
-///
-/// # Returns
-/// - `Ok(())` on success.
-/// - `Err(String)` if an unexpected token is found.
-fn parse_in_comma<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    token_stack: &mut Vec<Token<'a>>,
-    lexeme: &Lexeme<'a>,
-) -> Result<(), String> {
-    // use Vec::last() to avoid removing Left Paren from the stack
-    while let Some(token) = token_stack.pop() {
-        match token {
-            Token::LParen(_) => {
-                token_stack.push(token);
-                break;
-            },
-            Token::UnaryOperator(oper) => AstNode::from_unary(ast_nodes, oper)?,
-            Token::BinaryOperator(oper) => AstNode::from_binary(ast_nodes, oper)?,
-            Token::DiffOperator(lexeme) => AstNode::from_diff(ast_nodes, lexeme)?,
-            Token::Function(func) => AstNode::from_function(ast_nodes, func)?,
-            Token::UserFunction(func) => AstNode::from_userfunction(ast_nodes, func)?,
-            _ => {
-                return Err(format!(
-                    "Unexpected token in stack when parsing in Comma at {s}..{e}",
-                    s=lexeme.start(), e=lexeme.end(),
-                ))
-            },
-        }
-    }
-    Ok(())
-}
-
-/// Parses a unary operator token and pushes it onto the token stack.
-///
-/// # Parameters
-/// - `token_stack`: Stack of tokens to process.
-/// - `lexeme`: Lexeme representing the unary operator.
-///
-/// # Returns
-/// - `Ok(())` on success.
-/// - `Err(String)` if the lexeme does not represent a valid unary operator.
-fn parse_in_unary_operator<'a>(
-    token_stack: &mut Vec<Token<'a>>,
-    lexeme: Lexeme<'a>,
-) -> Result<(), String> {
-    if let Some(oper_kind) = UnaryOperatorKind::from(lexeme.text()) {
-        token_stack.push(Token::UnaryOperator(oper_kind));
-        Ok(())
-    } else {
-        Err(format!("Unknown unary operator {}", lexeme_name_with_range!(lexeme)))
-    }
-}
-
-/// Parses a binary operator token, resolves operator precedence, and pushes it onto the token stack.
-///
-/// Implements the shunting-yard precedence rules for left- and right-associative operators.
-///
-/// # Parameters
-/// - `ast_nodes`: Vector of AST nodes built so far.
-/// - `token_stack`: Stack of tokens to process.
-/// - `lexeme`: Lexeme representing the binary operator.
-///
-/// # Returns
-/// - `Ok(())` on success.
-/// - `Err(String)` if the lexeme does not represent a valid binary operator.
-fn parse_in_binary_operator<'a>(
-    ast_nodes: &mut Vec<AstNode>,
-    token_stack: &mut Vec<Token<'a>>,
-    lexeme: Lexeme<'a>,
-) -> Result<(), String> {
-    if let Some(oper_kind) = BinaryOperatorKind::from(lexeme.text()) {
-        let oper_info = oper_kind.info();
-        while let Some(Token::BinaryOperator(top_oper)) = token_stack.last().cloned() {
-            if (oper_info.is_left_assoc && (top_oper.info().precedence < oper_info.precedence))
-                || (!oper_info.is_left_assoc && (top_oper.info().precedence <= oper_info.precedence))
-            {
-                break;
-            }
-            token_stack.pop();
-            AstNode::from_binary(ast_nodes, top_oper)?;
-        }
-        token_stack.push(Token::BinaryOperator(oper_kind));
-        Ok(())
-    } else {
-        Err(format!("Unknown binary operator {}", lexeme_name_with_range!(lexeme)))
-    }
-}
-
-/// Converts a slice of lexemes into an abstract syntax tree (AST).
-///
-/// Implements a full shunting-yard-like parser handling numbers, arguments, unary/binary operators,
-/// function calls, parentheses, and commas.
-///
-/// # Parameters
-/// - `lexemes`: Slice of lexemes representing the input expression.
-/// - `args`: List of argument names for the expression.
-/// - `vars`: Table of variable values.
-/// - `users`: Table of user-defined functions.
-///
-/// # Returns
-/// - `Ok(AstNode)` representing the root of the parsed AST.
-/// - `Err(String)` if parsing fails due to invalid syntax or unknown tokens.
-fn parse_to_ast<'a>(
-    lexemes: &[Lexeme<'a>],
-    args: &[&str],
-    vars: &Variables,
-    users: &UserDefinedTable,
-) -> Result<AstNode, String>{
-    let mut ast_nodes: Vec<AstNode> = Vec::new();
-    let mut token_stack: Vec<Token> = Vec::new();
-    // record whether the previous token is finished by value or not to evaluate the token is unary operator or binary operator.
-    let mut prev_is_value = false;
-    let lexemes = lexemes.iter().peekable();
-
-    for lexeme in lexemes {
-        let token = Token::from(lexeme, args, vars, users)?;
-        match token {
-            Token::Number(val) => {
-                ast_nodes.push(AstNode::Number(val));
-                prev_is_value = true;
-            },
-            Token::Argument(pos) => {
-                ast_nodes.push(AstNode::Argument(pos));
-                prev_is_value = true;
-            },
-            Token::Operator(lexeme) => {
-                match prev_is_value {
-                    true => parse_in_binary_operator(&mut ast_nodes, &mut token_stack, lexeme)?,
-                    false => parse_in_unary_operator(&mut token_stack, lexeme)?,
-                };
-                prev_is_value = false;
-            },
-            Token::DiffOperator(_) => {
-                token_stack.push(token);
-                prev_is_value = false;
-            },
-            Token::Function(_) | Token::UserFunction(_) => {
-                token_stack.push(token);
-                prev_is_value = false;
-            },
-            Token::LParen(_) => {
-                token_stack.push(token);
-                prev_is_value = false; // The operator next to LParen is unary operator; ex) cos(-x), 3 * (-2)
-            },
-            Token::RParen(_) => {
-                parse_in_right_paren(&mut ast_nodes, &mut token_stack, lexeme)?;
-                prev_is_value = true; // The operator next to RParen is binary operator; ex) sin(x) + 2, (x+2)/(x-3)
-            },
-            Token::Comma(_) => {
-                parse_in_comma(&mut ast_nodes, &mut token_stack, lexeme)?;
-                prev_is_value = false; // The operator next to Comma is unary operator; ex) pow(x, -3)
-            },
-            _ => return Err(format!("Invalid token kind made from {}", lexeme_name_with_range!(lexeme))),
-        }
-    }
-
-    while let Some(token) = token_stack.pop() {
-        match token {
-            Token::UnaryOperator(oper) => AstNode::from_unary(&mut ast_nodes, oper)?,
-            Token::BinaryOperator(oper) => AstNode::from_binary(&mut ast_nodes, oper)?,
-            Token::DiffOperator(lexeme) => AstNode::from_diff(&mut ast_nodes, lexeme)?,
-            Token::Function(func) => AstNode::from_function(&mut ast_nodes, func)?,
-            Token::UserFunction(func) => AstNode::from_userfunction(&mut ast_nodes, func)?,
-            _ => return Err("Unexpected token at the end".into()),
-        }
-    }
-
-    let ret = ast_nodes.pop()
-        .ok_or("Fail to parse to AST. There are NO AST node remaining.")?;
-
-    if !ast_nodes.is_empty() {
-        return Err("Fail to parse to AST. There are too AST node remaining.".into());
-    }
-    Ok(ret)
-}
-
 /// Folds a binary operator with two AST nodes if possible.
 ///
 /// Performs constant folding when both operands are numbers. Also applies simple
@@ -1673,7 +1653,7 @@ mod astnode_tests {
     #[test]
     fn test_single_number_astnode() {
         let lexemes = lexer::from("42");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::Number(val) => assert_eq!(val, Complex::new(42.0, 0.0)),
             _ => panic!("Expected Number AST node"),
@@ -1683,7 +1663,7 @@ mod astnode_tests {
     #[test]
     fn test_unary_operator_negative_astnode() {
         let lexemes = lexer::from("- 3");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::UnaryOperator { kind, expr } => {
                 assert_eq!(kind, UnaryOperatorKind::Negative);
@@ -1699,7 +1679,7 @@ mod astnode_tests {
     #[test]
     fn test_binary_operator_precedence_astnode() {
         let lexemes = lexer::from("2 + 3 * 4");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         // expected: (2 + (3 * 4))
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -1721,7 +1701,7 @@ mod astnode_tests {
     #[test]
     fn test_parentheses_override_precedence_astnode() {
         let lexemes = lexer::from("( 2 + 3 ) * 4");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         // expected: ((2 + 3) * 4)
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -1739,7 +1719,7 @@ mod astnode_tests {
     #[test]
     fn test_function_single_arg_astnode() {
         let lexemes = lexer::from("sin ( 0 )");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Sin);
@@ -1753,7 +1733,7 @@ mod astnode_tests {
     #[test]
     fn test_function_multiple_args_astnode() {
         let lexemes = lexer::from("pow ( 2 , 3 )");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -1765,7 +1745,7 @@ mod astnode_tests {
         }
 
         let lexemes = lexer::from("pow ( sin(x) , 3 )");
-        let ast = parse_to_ast(&lexemes, &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -1783,14 +1763,14 @@ mod astnode_tests {
     #[test]
     fn test_imaginary_number_astnode() {
         let lexemes = lexer::from("5i");
-        let ast = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
         assert_eq!(ast, AstNode::Number(Complex::new(0.0, 5.0)));
     }
 
     #[test]
     fn test_unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
-        let res = parse_to_ast(&lexemes, &[], &Variables::new(), &UserDefinedTable::new());
+        let res = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new());
         assert!(res.is_err());
     }
 
