@@ -1151,7 +1151,7 @@ impl AstNode {
                     Ok(Self::zero())
                 },
             Self::UnaryOperator { kind, expr }
-                => Ok(Self::UnaryOperator { kind: kind, expr: Box::new(expr.differentiate(var)?) }),
+                => Ok(Self::UnaryOperator { kind, expr: Box::new(expr.differentiate(var)?) }),
             Self::BinaryOperator { kind, left, right } => {
                 Self::diff_binary(kind, *left.clone(), *right.clone(), var)
             },
@@ -1172,7 +1172,7 @@ impl AstNode {
                     Ok(AstNode::Differentive {
                         expr: Box::new(expr.differentiate(var)?),
                         var: inner_var,
-                        order: order,
+                        order,
                     })
                 }
             }
