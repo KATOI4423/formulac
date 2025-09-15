@@ -931,7 +931,7 @@ impl AstNode {
             Self::BinaryOperator { kind, left, right } => {
                 let left = left.simplify();
                 let right = right.simplify();
-                fold_binary(kind, left, right)
+                Self::fold_binary(kind, left, right)
             },
             Self::FunctionCall { kind, args } => {
                 let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
@@ -956,6 +956,47 @@ impl AstNode {
                 }
             }
             _ => self,
+        }
+    }
+
+    /// Internal helper to fold a binary operator with two AST nodes if possible.
+    ///
+    /// Performs constant folding when both operands are numbers. Also applies simple
+    /// arithmetic optimizations for associative operators like `+` and `*`.
+    ///
+    /// # Parameters
+    /// - `kind`: The binary operator kind.
+    /// - `left`: Left-hand AST node.
+    /// - `right`: Right-hand AST node.
+    ///
+    /// # Returns
+    /// - `AstNode`: Simplified AST node after folding if applicable.
+    fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
+        match (left, right) {
+            (AstNode::Number(l), AstNode::Number(r))
+                => AstNode::Number(kind.apply(l, r)),
+            (AstNode::BinaryOperator { kind: k1, left: l1, right: r1 }, AstNode::Number(r))
+                if matches!(k1, BinaryOperatorKind::Add | BinaryOperatorKind::Mul) =>
+            {
+                if let AstNode::Number(r1_val) = *r1 {
+                    AstNode::BinaryOperator {
+                        kind,
+                        left: l1,
+                        right: Box::new(AstNode::Number(k1.apply( r1_val, r))),
+                    }
+                } else {
+                    AstNode::BinaryOperator {
+                        kind,
+                        left: Box::new(AstNode::BinaryOperator {
+                            kind: k1,
+                            left: l1,
+                            right: r1
+                        }),
+                        right: Box::new(AstNode::Number(r)),
+                    }
+                }
+            }
+            (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
         }
     }
 }
@@ -1342,47 +1383,6 @@ impl AstNode {
         let mut tokens: Vec<Token<'a>> = Vec::new();
         self.execute(&mut tokens);
         tokens
-    }
-}
-
-/// Folds a binary operator with two AST nodes if possible.
-///
-/// Performs constant folding when both operands are numbers. Also applies simple
-/// arithmetic optimizations for associative operators like `+` and `*`.
-///
-/// # Parameters
-/// - `kind`: The binary operator kind.
-/// - `left`: Left-hand AST node.
-/// - `right`: Right-hand AST node.
-///
-/// # Returns
-/// - `AstNode`: Simplified AST node after folding if applicable.
-fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
-    match (left, right) {
-        (AstNode::Number(l), AstNode::Number(r))
-            => AstNode::Number(kind.apply(l, r)),
-        (AstNode::BinaryOperator { kind: k1, left: l1, right: r1 }, AstNode::Number(r))
-            if matches!(k1, BinaryOperatorKind::Add | BinaryOperatorKind::Mul) =>
-        {
-            if let AstNode::Number(r1_val) = *r1 {
-                AstNode::BinaryOperator {
-                    kind,
-                    left: l1,
-                    right: Box::new(AstNode::Number(k1.apply( r1_val, r))),
-                }
-            } else {
-                AstNode::BinaryOperator {
-                    kind,
-                    left: Box::new(AstNode::BinaryOperator {
-                        kind: k1,
-                        left: l1,
-                        right: r1
-                    }),
-                    right: Box::new(AstNode::Number(r)),
-                }
-            }
-        }
-        (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
     }
 }
 
