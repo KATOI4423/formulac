@@ -1016,97 +1016,97 @@ impl AstNode {
     }
 
     /// Internal helper to create an additional operator AST node `self + other`.
-    fn add(&self, other: &Self) -> Self {
+    fn add(self, other: Self) -> Self {
         Self::BinaryOperator {
             kind: BinaryOperatorKind::Add,
-            left: Box::new(self.clone()),
-            right: Box::new(other.clone()),
+            left: Box::new(self),
+            right: Box::new(other),
         }
     }
 
     /// internal helper to create a subtracted operator AST node `self - other`.
-    fn sub(&self, other: &Self) -> Self {
+    fn sub(self, other: Self) -> Self {
         Self::BinaryOperator {
             kind: BinaryOperatorKind::Sub,
-            left: Box::new(self.clone()),
-            right: Box::new(other.clone()),
+            left: Box::new(self),
+            right: Box::new(other),
         }
     }
 
     /// Internal helper to create a multiplied operator AST node `self * other`.
-    fn mul(&self, other: &Self) -> Self {
+    fn mul(self, other: Self) -> Self {
         Self::BinaryOperator {
             kind: BinaryOperatorKind::Mul,
-            left: Box::new(self.clone()),
-            right: Box::new(other.clone()),
+            left: Box::new(self),
+            right: Box::new(other),
         }
     }
 
     /// Internal helper to create a divided operator AST node `self / right`.
-    fn div(&self, right: &Self) -> Self {
+    fn div(self, right: Self) -> Self {
         Self::BinaryOperator {
             kind: BinaryOperatorKind::Div,
-            left: Box::new(self.clone()),
-            right: Box::new(right.clone()),
+            left: Box::new(self),
+            right: Box::new(right),
         }
     }
 
     /// Internal helper to create a negative AST node `-self`.
-    fn negative(&self) -> Self {
+    fn negative(self) -> Self {
         Self::UnaryOperator {
             kind: UnaryOperatorKind::Negative,
-            expr: Box::new(self.clone()),
+            expr: Box::new(self),
         }
     }
 
     /// Internal helper to create a sin AST node `sin(x)`.
-    fn sin(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sin, args: vec![self.clone()] }
+    fn sin(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sin, args: vec![self] }
     }
 
     /// Internal helper to create a cos AST node `cos(x)`.
-    fn cos(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Cos, args: vec![self.clone()] }
+    fn cos(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Cos, args: vec![self] }
     }
 
     /// Internal helper to create a sinh AST node `sinh(x)`.
-    fn sinh(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sinh, args: vec![self.clone()] }
+    fn sinh(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sinh, args: vec![self] }
     }
 
     /// Internal helper to create a cosh AST node `cosh(x)`.
-    fn cosh(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Cosh, args: vec![self.clone()] }
+    fn cosh(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Cosh, args: vec![self] }
     }
 
     /// Internal helper to create an exp AST node `exp(x)`.
-    fn exp(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Exp, args: vec![self.clone()] }
+    fn exp(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Exp, args: vec![self] }
     }
 
     /// Internal helper to create a sqrt AST node `sqrt(x)`.
-    fn sqrt(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self.clone()] }
+    fn sqrt(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self] }
     }
 
     /// Internal helper to create an abs AST node `abs(x)`.
-    fn abs(&self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![self.clone()] }
+    fn abs(self) -> Self {
+        AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![self] }
     }
 
     /// Internal helper to create `pow(self, expr)` AST node.
-    fn pow(&self, expr: &Self) -> Self {
+    fn pow(self, expr: Self) -> Self {
         Self::FunctionCall {
             kind: FunctionKind::Pow,
-            args: vec![self.clone(), expr.clone()],
+            args: vec![self, expr],
         }
     }
 
     /// Internal helper to create `powi(self, expr)` AST node.
-    fn powi(&self, expr: i32) -> Self {
+    fn powi(self, expr: i32) -> Self {
         Self::FunctionCall {
             kind: FunctionKind::Powi,
-            args: vec![self.clone(), AstNode::Number(Complex::from(expr as f64))],
+            args: vec![self, AstNode::Number(Complex::from(expr as f64))],
         }
     }
 }
@@ -1141,22 +1141,22 @@ impl AstNode {
     /// - `FunctionCall` nodes delegate to `diff_function`.
     /// - `UserFunctionCall` nodes require the user-defined function to provide a derivative.
     /// - Nested `Differentive` nodes increment the order if differentiating with respect to the same variable.
-    pub fn differentiate(&self, var: usize) -> Result<Self, String> {
+    pub fn differentiate(self, var: usize) -> Result<Self, String> {
         match self {
             Self::Number(_) => Ok(Self::zero()),
             Self::Argument(idx)
-                => if *idx == var {
+                => if idx == var {
                     Ok(Self::one())
                 } else {
                     Ok(Self::zero())
                 },
             Self::UnaryOperator { kind, expr }
-                => Ok(Self::UnaryOperator { kind: *kind, expr: Box::new(expr.differentiate(var)?) }),
+                => Ok(Self::UnaryOperator { kind: kind, expr: Box::new(expr.differentiate(var)?) }),
             Self::BinaryOperator { kind, left, right } => {
-                Self::diff_binary(*kind, *left.clone(), *right.clone(), var)
+                Self::diff_binary(kind, *left.clone(), *right.clone(), var)
             },
             Self::FunctionCall { kind, args } => {
-                Self::diff_function(*kind, args, var)
+                Self::diff_function(kind, args, var)
             },
             Self::UserFunctionCall { func, args } => {
                 match func.derivative(var) {
@@ -1165,14 +1165,14 @@ impl AstNode {
                 }
             },
             Self::Differentive { expr, var: inner_var, order } => {
-                if *inner_var == var {
+                if inner_var == var {
                     // d/dx (d/dx f(x)) = d^2/dx^2 f(x)
                     Ok(AstNode::Differentive { expr: expr.clone(), var, order: order + 1 })
                 } else {
                     Ok(AstNode::Differentive {
                         expr: Box::new(expr.differentiate(var)?),
-                        var: *inner_var,
-                        order: *order,
+                        var: inner_var,
+                        order: order,
                     })
                 }
             }
@@ -1197,17 +1197,17 @@ impl AstNode {
     ///
     /// # Errors
     /// Returns an error if differentiation of the subexpressions fails.
-    fn diff_pow(left: &Self, right: &Self, var: usize) -> Result<Self, String> {
+    fn diff_pow(left: Self, right: Self, var: usize) -> Result<Self, String> {
         // d/dx [u(x) ^ v(x)] = u^v * (v' * ln(u) + v * u' / u)
-        let u = left.clone();
-        let v = right.clone();
-        let du = u.differentiate(var)?;
-        let dv = v.differentiate(var)?;
+        let u = left;
+        let v = right;
+        let du = u.clone().differentiate(var)?;
+        let dv = v.clone().differentiate(var)?;
         let ln_u = Self::FunctionCall {
             kind: FunctionKind::Ln,
             args: vec![u.clone()],
         };
-        Ok(u.pow(&v).mul(&(dv.mul(&ln_u)).add(&v.mul(&du).div(&u))))
+        Ok(u.clone().pow(v.clone()).mul((dv.mul(ln_u)).add(v.mul(du).div(u))))
     }
 
     /// Differentiate an integer power expression with respect to a variable.
@@ -1227,15 +1227,15 @@ impl AstNode {
     ///
     /// # Errors
     /// Returns an error if differentiation of the base fails.
-    fn diff_powi(left: &Self, right: &Self, var: usize) -> Result<Self, String> {
+    fn diff_powi(left: Self, right: Self, var: usize) -> Result<Self, String> {
         // d/dx [u(x) ^ n] = n * u(x) ^ (n-1) * u'(x)
-        let u = left.clone();
-        let n = right.clone();
-        let du = u.differentiate(var)?;
+        let u = left;
+        let n = right;
+        let du = u.clone().differentiate(var)?;
         Ok(AstNode::FunctionCall {
             kind: FunctionKind::Powi,
-            args: vec![u, n.sub(&Self::one())],
-        }.mul(&n).mul(&du))
+            args: vec![u, n.clone().sub(Self::one())],
+        }.mul(n).mul(du))
     }
 
     /// Differentiate a binary operator expression with respect to a variable.
@@ -1266,17 +1266,17 @@ impl AstNode {
     /// # Errors
     /// Returns an error if differentiation of the subexpressions fails.
     fn diff_binary(kind: BinaryOperatorKind, left: Self, right: Self, var:usize) -> Result<Self, String> {
-        let dl = left.differentiate(var)?;
-        let dr = right.differentiate(var)?;
+        let dl = left.clone().differentiate(var)?;
+        let dr = right.clone().differentiate(var)?;
         match kind {
             BinaryOperatorKind::Add | BinaryOperatorKind::Sub
                 => Ok(Self::BinaryOperator { kind, left: Box::new(dl), right: Box::new(dr) }),
             BinaryOperatorKind::Mul
-                => Ok(dl.mul(&right).add(&left.mul(&dr))),
+                => Ok(dl.mul(right).add(left.mul(dr))),
             BinaryOperatorKind::Div
-                => Ok(dl.mul(&right).sub(&left.mul(&dr)).div(&right.powi(2))),
+                => Ok(dl.mul(right.clone()).sub(left.mul(dr)).div(right.powi(2))),
             BinaryOperatorKind::Pow
-                => Self::diff_pow(&left, &right, var),
+                => Self::diff_pow(left, right, var),
         }
     }
 
@@ -1316,31 +1316,31 @@ impl AstNode {
     /// Returns an error if:
     /// - The function is not differentiable (`conj`).
     /// - Differentiation of the argument fails.
-    fn diff_function(kind: FunctionKind, args: &[Self], var: usize) -> Result<Self, String> {
-        let x = &args[0];
-        let dx = args[0].differentiate(var)?;
+    fn diff_function(kind: FunctionKind, mut args: Vec<Self>, var: usize) -> Result<Self, String> {
+        let x = args.remove(0);
+        let dx = x.clone().differentiate(var)?;
         match kind {
-            FunctionKind::Sin   => Ok(x.cos().mul(&dx)),
-            FunctionKind::Cos   => Ok(x.sin().negative().mul(&dx)),
-            FunctionKind::Tan   => Ok(dx.div(&x.cos().powi(2))),
-            FunctionKind::Asin  => Ok(dx.div(&(Self::one().sub(&x.powi(2))))),
-            FunctionKind::Acos  => Ok(dx.negative().div(&Self::one().sub(&x.powi(2)))),
-            FunctionKind::Atan  => Ok(dx.div(&Self::one().add(&x.powi(2)))),
-            FunctionKind::Sinh  => Ok(dx.mul(&x.cosh())),
-            FunctionKind::Cosh  => Ok(dx.mul(&x.sinh())),
-            FunctionKind::Tanh  => Ok(dx.div(&x.cosh().powi(2))),
-            FunctionKind::Asinh => Ok(dx.div(&x.powi(2).add(&Self::one()).sqrt())),
-            FunctionKind::Acosh => Ok(dx.div(&x.powi(2).sub(&Self::one()).sqrt())),
-            FunctionKind::Atanh => Ok(dx.div(&Self::one().sub(&x.powi(2)))),
-            FunctionKind::Exp   => Ok(dx.mul(&x.exp())),
+            FunctionKind::Sin   => Ok(x.cos().mul(dx)),
+            FunctionKind::Cos   => Ok(x.sin().negative().mul(dx)),
+            FunctionKind::Tan   => Ok(dx.div(x.cos().powi(2))),
+            FunctionKind::Asin  => Ok(dx.div(Self::one().sub(x.powi(2)))),
+            FunctionKind::Acos  => Ok(dx.negative().div(Self::one().sub(x.powi(2)))),
+            FunctionKind::Atan  => Ok(dx.div(Self::one().add(x.powi(2)))),
+            FunctionKind::Sinh  => Ok(dx.mul(x.cosh())),
+            FunctionKind::Cosh  => Ok(dx.mul(x.sinh())),
+            FunctionKind::Tanh  => Ok(dx.div(x.cosh().powi(2))),
+            FunctionKind::Asinh => Ok(dx.div(x.powi(2).add(Self::one()).sqrt())),
+            FunctionKind::Acosh => Ok(dx.div(x.powi(2).sub(Self::one()).sqrt())),
+            FunctionKind::Atanh => Ok(dx.div(Self::one().sub(x.powi(2)))),
+            FunctionKind::Exp   => Ok(dx.mul(x.exp())),
             FunctionKind::Ln    => Ok(dx.div(x)),
-            FunctionKind::Log10 => Ok(dx.mul(&AstNode::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
-            FunctionKind::Sqrt  => Ok(dx.mul(&AstNode::Number(Complex::from(0.5))).div(&x.sqrt())),
+            FunctionKind::Log10 => Ok(dx.mul(AstNode::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
+            FunctionKind::Sqrt  => Ok(dx.mul(AstNode::Number(Complex::from(0.5))).div(x.sqrt())),
             // TODO: d/dx |f(x)| should return NaN if f(x) = 0, but we have NOT been able to express yet.
-            FunctionKind::Abs   => Ok(x.div(&x.abs()).mul(&dx)),
+            FunctionKind::Abs   => Ok(x.clone().div(x.abs()).mul(dx)),
             FunctionKind::Conj  => Err("The function `conj(z)` doesn't have any derivative functions at any coordinates.".into()),
-            FunctionKind::Pow   => Self::diff_pow(&args[0], &args[1], var),
-            FunctionKind::Powi  => Self::diff_powi(&args[0], &args[1], var),
+            FunctionKind::Pow   => Self::diff_pow(x, args.remove(1), var),
+            FunctionKind::Powi  => Self::diff_powi(x, args.remove(1), var),
         }
     }
 }
@@ -2089,7 +2089,7 @@ mod differentiate_tests {
     #[test]
     fn test_differentiate_argument() {
         let node = AstNode::Argument(1);
-        let diff = node.differentiate(1).unwrap();
+        let diff = node.clone().differentiate(1).unwrap();
         assert_eq!(diff, AstNode::Number(Complex::ONE));
         let diff_other = node.differentiate(0).unwrap();
         assert_eq!(diff_other, AstNode::Number(Complex::ZERO));
