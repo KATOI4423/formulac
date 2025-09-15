@@ -477,6 +477,7 @@ pub enum AstNode {
     },
 }
 
+/// AstNode impl `from` and its helper impls
 impl AstNode {
     /// Parses a slice of lexemes into an AST node.
     ///
@@ -700,117 +701,6 @@ impl AstNode {
         }
     }
 
-    /// Simplifies the AST by evaluating constant sub-expressions.
-    ///
-    /// Returns a new `AstNode` where all numeric computations that can be resolved
-    /// at compile time are folded into `Number` nodes.
-    pub fn simplify(self) -> Self {
-        match self {
-            Self::UnaryOperator { kind, expr } => {
-                let expr = expr.simplify();
-                if let AstNode::Number(val ) = expr {
-                    AstNode::Number(kind.apply(val))
-                } else {
-                    AstNode::UnaryOperator { kind, expr: Box::new(expr) }
-                }
-            },
-            Self::BinaryOperator { kind, left, right } => {
-                let left = left.simplify();
-                let right = right.simplify();
-                fold_binary(kind, left, right)
-            },
-            Self::FunctionCall { kind, args } => {
-                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
-                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
-                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
-                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
-                    }).collect();
-                    AstNode::Number(kind.apply(&nums))
-                } else {
-                    AstNode::FunctionCall { kind, args }
-                }
-            },
-            Self::UserFunctionCall { func, args } => {
-                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
-                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
-                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
-                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
-                    }).collect();
-                    AstNode::Number(func.apply(&nums))
-                } else {
-                    AstNode::UserFunctionCall { func, args }
-                }
-            }
-            _ => self,
-        }
-    }
-
-    /// Compute the derivative of an AST node with respect to a given variable.
-    ///
-    /// This function recursively differentiates an `AstNode` representing a mathematical
-    /// expression. It supports:
-    /// - Numbers and arguments (variables),
-    /// - Unary and binary operators,
-    /// - Built-in functions,
-    /// - User-defined functions,
-    /// - Nested differential operators (`Differentive`) to handle higher-order derivatives.
-    ///
-    /// # Arguments
-    ///
-    /// * `var` - The index of the variable with respect to which the derivative is taken.
-    ///
-    /// # Returns
-    ///
-    /// A new `AstNode` representing the derivative of `self` with respect to the specified variable.
-    ///
-    /// # Panics
-    ///
-    /// - If a user-defined function does not have a derivative defined for the specified variable.
-    ///
-    /// # Notes
-    ///
-    /// - `BinaryOperator` nodes delegate to `diff_binary`.
-    /// - `FunctionCall` nodes delegate to `diff_function`.
-    /// - `UserFunctionCall` nodes require the user-defined function to provide a derivative.
-    /// - Nested `Differentive` nodes increment the order if differentiating with respect to the same variable.
-    pub fn differentiate(&self, var: usize) -> Result<Self, String> {
-        match self {
-            Self::Number(_) => Ok(Self::zero()),
-            Self::Argument(idx)
-                => if *idx == var {
-                    Ok(Self::one())
-                } else {
-                    Ok(Self::zero())
-                },
-            Self::UnaryOperator { kind, expr }
-                => Ok(Self::UnaryOperator { kind: *kind, expr: Box::new(expr.differentiate(var)?) }),
-            Self::BinaryOperator { kind, left, right } => {
-                Self::diff_binary(*kind, *left.clone(), *right.clone(), var)
-            },
-            Self::FunctionCall { kind, args } => {
-                Self::diff_function(*kind, args, var)
-            },
-            Self::UserFunctionCall { func, args } => {
-                match func.derivative(var) {
-                    Some(deriv) => Ok(AstNode::UserFunctionCall { func: deriv, args: args.clone() }),
-                    None => Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var)),
-                }
-            },
-            Self::Differentive { expr, var: inner_var, order } => {
-                if *inner_var == var {
-                    // d/dx (d/dx f(x)) = d^2/dx^2 f(x)
-                    Ok(AstNode::Differentive { expr: expr.clone(), var, order: order + 1 })
-                } else {
-                    Ok(AstNode::Differentive {
-                        expr: Box::new(expr.differentiate(var)?),
-                        var: *inner_var,
-                        order: *order,
-                    })
-                }
-            }
-        }
-    }
-
     /// Internal helper to create a unary operator AST node from a stack.
     ///
     /// This function pops the top operand from the stack and constructs a
@@ -1020,14 +910,65 @@ impl AstNode {
         };
         Ok(())
     }
+}
 
+/// AstNode impl `simplify` and its helper impls
+impl AstNode {
+    /// Simplifies the AST by evaluating constant sub-expressions.
+    ///
+    /// Returns a new `AstNode` where all numeric computations that can be resolved
+    /// at compile time are folded into `Number` nodes.
+    pub fn simplify(self) -> Self {
+        match self {
+            Self::UnaryOperator { kind, expr } => {
+                let expr = expr.simplify();
+                if let AstNode::Number(val ) = expr {
+                    AstNode::Number(kind.apply(val))
+                } else {
+                    AstNode::UnaryOperator { kind, expr: Box::new(expr) }
+                }
+            },
+            Self::BinaryOperator { kind, left, right } => {
+                let left = left.simplify();
+                let right = right.simplify();
+                fold_binary(kind, left, right)
+            },
+            Self::FunctionCall { kind, args } => {
+                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
+                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
+                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
+                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
+                    }).collect();
+                    AstNode::Number(kind.apply(&nums))
+                } else {
+                    AstNode::FunctionCall { kind, args }
+                }
+            },
+            Self::UserFunctionCall { func, args } => {
+                let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
+                if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
+                    let nums: Vec<Complex<f64>> = args.iter().map(|a| {
+                        if let AstNode::Number(v) = a { *v } else { unreachable!() }
+                    }).collect();
+                    AstNode::Number(func.apply(&nums))
+                } else {
+                    AstNode::UserFunctionCall { func, args }
+                }
+            }
+            _ => self,
+        }
+    }
+}
+
+/// AstNode helper impl to create new AstNode
+impl AstNode {
     /// Create a number 0.0 Ast node.
-    pub fn zero() -> Self {
+    fn zero() -> Self {
         AstNode::Number(Complex::ZERO)
     }
 
     /// Create a number 1.0 Ast node.
-    pub fn one() -> Self {
+    fn one() -> Self {
         AstNode::Number(Complex::ONE)
     }
 
@@ -1123,6 +1064,75 @@ impl AstNode {
         Self::FunctionCall {
             kind: FunctionKind::Powi,
             args: vec![self.clone(), AstNode::Number(Complex::from(expr as f64))],
+        }
+    }
+}
+
+/// AstNode impl `differentiate` and its helpers
+impl AstNode {
+    /// Compute the derivative of an AST node with respect to a given variable.
+    ///
+    /// This function recursively differentiates an `AstNode` representing a mathematical
+    /// expression. It supports:
+    /// - Numbers and arguments (variables),
+    /// - Unary and binary operators,
+    /// - Built-in functions,
+    /// - User-defined functions,
+    /// - Nested differential operators (`Differentive`) to handle higher-order derivatives.
+    ///
+    /// # Arguments
+    ///
+    /// * `var` - The index of the variable with respect to which the derivative is taken.
+    ///
+    /// # Returns
+    ///
+    /// A new `AstNode` representing the derivative of `self` with respect to the specified variable.
+    ///
+    /// # Panics
+    ///
+    /// - If a user-defined function does not have a derivative defined for the specified variable.
+    ///
+    /// # Notes
+    ///
+    /// - `BinaryOperator` nodes delegate to `diff_binary`.
+    /// - `FunctionCall` nodes delegate to `diff_function`.
+    /// - `UserFunctionCall` nodes require the user-defined function to provide a derivative.
+    /// - Nested `Differentive` nodes increment the order if differentiating with respect to the same variable.
+    pub fn differentiate(&self, var: usize) -> Result<Self, String> {
+        match self {
+            Self::Number(_) => Ok(Self::zero()),
+            Self::Argument(idx)
+                => if *idx == var {
+                    Ok(Self::one())
+                } else {
+                    Ok(Self::zero())
+                },
+            Self::UnaryOperator { kind, expr }
+                => Ok(Self::UnaryOperator { kind: *kind, expr: Box::new(expr.differentiate(var)?) }),
+            Self::BinaryOperator { kind, left, right } => {
+                Self::diff_binary(*kind, *left.clone(), *right.clone(), var)
+            },
+            Self::FunctionCall { kind, args } => {
+                Self::diff_function(*kind, args, var)
+            },
+            Self::UserFunctionCall { func, args } => {
+                match func.derivative(var) {
+                    Some(deriv) => Ok(AstNode::UserFunctionCall { func: deriv, args: args.clone() }),
+                    None => Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var)),
+                }
+            },
+            Self::Differentive { expr, var: inner_var, order } => {
+                if *inner_var == var {
+                    // d/dx (d/dx f(x)) = d^2/dx^2 f(x)
+                    Ok(AstNode::Differentive { expr: expr.clone(), var, order: order + 1 })
+                } else {
+                    Ok(AstNode::Differentive {
+                        expr: Box::new(expr.differentiate(var)?),
+                        var: *inner_var,
+                        order: *order,
+                    })
+                }
+            }
         }
     }
 
@@ -1290,7 +1300,10 @@ impl AstNode {
             FunctionKind::Powi  => Self::diff_powi(&args[0], &args[1], var),
         }
     }
+}
 
+/// AstNode impl `compile` and its helper impls
+impl AstNode {
     /// Internal helper to compile the AST into a sequence of executable tokens.
     fn execute<'a>(&self, tokens: &mut Vec<Token<'a>>) {
         match self {
