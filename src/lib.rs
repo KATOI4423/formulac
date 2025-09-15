@@ -139,8 +139,8 @@ pub fn compile(
 ) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64>, String>
 {
     let lexemes = lexer::from(formula);
-    let ast = parser::AstNode::from(&lexemes, arg_names, vars, users)?;
-    let tokens = ast.simplify().compile();
+    let tokens = parser::AstNode::from(&lexemes, arg_names, vars, users)?
+        .simplify().compile();
 
     let expected_arity = arg_names.len();
     let func = move |arg_values: &[Complex<f64>]| {
