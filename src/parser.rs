@@ -69,6 +69,12 @@ pub mod constant {
     }
 }
 
+/// Judge the exp is compatible with i32 or not
+fn is_exp_compatible_with_i32(exp: &Complex<f64>) -> bool {
+    (exp.im == 0.0) && (exp.re.fract() == 0.0)
+        && (i32::MIN as f64 <= exp.re) && (exp.re <= i32::MAX as f64)
+}
+
 #[doc(hidden)]
 /// Internal macro to define all unary operators.
 ///
@@ -930,10 +936,13 @@ impl AstNode {
                     AstNode::UnaryOperator { kind, expr: Box::new(expr) }
                 }
             },
-            Self::BinaryOperator { kind, left, right } => {
-                let left = left.simplify();
-                let right = right.simplify();
-                Self::fold_binary(kind, left, right)
+            Self::BinaryOperator { kind, left, right }
+                => Self::fold_binary(kind, *left, *right),
+            Self::FunctionCall { kind: FunctionKind::Pow, mut args } |
+            Self::FunctionCall { kind: FunctionKind::Powi, mut args } => {
+                let base = args.remove(0);
+                let exp = args.remove(0);
+                Self::fold_pow(base, exp)
             },
             Self::FunctionCall { kind, args }
                 => Self::fold_function(kind, args, |k, a| AstNode::FunctionCall { kind: k, args: a }),
@@ -972,33 +981,368 @@ impl AstNode {
     /// - `right`: Right-hand AST node.
     ///
     /// # Returns
-    /// - `AstNode`: Simplified AST node after folding if applicable.
-    fn fold_binary(kind: BinaryOperatorKind, left: AstNode, right: AstNode) -> AstNode {
-        match (left, right) {
-            (AstNode::Number(l), AstNode::Number(r))
-                => AstNode::Number(kind.apply(l, r)),
-            (AstNode::BinaryOperator { kind: k1, left: l1, right: r1 }, AstNode::Number(r))
-                if matches!(k1, BinaryOperatorKind::Add | BinaryOperatorKind::Mul) =>
-            {
-                if let AstNode::Number(r1_val) = *r1 {
-                    AstNode::BinaryOperator {
-                        kind,
-                        left: l1,
-                        right: Box::new(AstNode::Number(k1.apply( r1_val, r))),
-                    }
-                } else {
-                    AstNode::BinaryOperator {
-                        kind,
-                        left: Box::new(AstNode::BinaryOperator {
-                            kind: k1,
-                            left: l1,
-                            right: r1
-                        }),
-                        right: Box::new(AstNode::Number(r)),
-                    }
-                }
+    /// - Simplified AST node after folding if applicable.
+    fn fold_binary(kind: BinaryOperatorKind, left: Self, right: Self) -> Self {
+        let left = left.simplify();
+        let right = right.simplify();
+
+        if let (AstNode::Number(l), AstNode::Number(r)) = (&left, &right) {
+            return Self::Number(kind.apply(*l, *r));
+        }
+
+        match kind {
+            BinaryOperatorKind::Add => Self::fold_add(left, right),
+            BinaryOperatorKind::Sub => Self::fold_sub(left, right),
+            BinaryOperatorKind::Mul => Self::fold_mul(left, right),
+            BinaryOperatorKind::Div => Self::fold_div(left, right),
+            BinaryOperatorKind::Pow => Self::fold_pow(left, right),
+        }
+    }
+
+    /// Simplifies and folds addition expressions by normalizing terms.
+    ///
+    /// This function applies a series of algebraic optimizations to
+    /// binary addition nodes:
+    ///
+    /// - **Flatten nested additions**:
+    ///   - `((a + b) + c)` → `a + b + c`
+    /// - **Constant folding**:
+    ///   - `2 + 3 + x` → `5 + x`
+    /// - **Combine like terms**:
+    ///   - `x + x` → `2 * x`
+    ///   - `a * x + b * x` → `(a + b) * x`
+    /// - **Remove zero terms**:
+    ///   - `x + 0` → `x`
+    ///
+    /// # Parameters
+    /// - `left`: Left-hand operand of the addition.
+    /// - `right`: Right-hand operand of the addition.
+    ///
+    /// # Returns
+    /// A simplified [`AstNode`] representing the optimized addition.
+    fn fold_add(left: Self, right: Self) -> Self {
+        let mut terms = Vec::new();
+        Self::collect_add_terms(left, &mut terms);
+        Self::collect_add_terms(right, &mut terms);
+
+        let mut const_sum = Complex::ZERO;
+        let mut new_terms = Vec::new();
+        for term in terms {
+            match term {
+                Self::Number(z) => const_sum += z,
+                other => new_terms.push(other),
             }
-            (l, r) => AstNode::BinaryOperator { kind, left: Box::new(l), right: Box::new(r) }
+        }
+
+        if const_sum != Complex::ZERO {
+            new_terms.push(Self::Number(const_sum));
+        }
+
+        terms = Self::combine_same_terms(new_terms);
+        match terms.len() {
+            0 => Self::zero(),
+            1 => terms.into_iter().next().unwrap(), // use `into_iter().next().unwrap()` to avoid `clone()`
+            _ => {
+                let mut iter = terms.into_iter();
+                let mut node = iter.next().unwrap();
+                for term in iter {
+                    node = node.add(term);
+                }
+                node
+            }
+        }
+    }
+
+    /// Recursively collects terms from a nested addition expression into a flat list.
+    ///
+    /// This function traverses an `AstNode` and flattens any nested
+    /// addition nodes (`BinaryOperatorKind::Add`) into individual terms.
+    /// Non-addition nodes are added directly to the `terms` vector.
+    ///
+    /// # Parameters
+    /// - `node`: The AST node to traverse and collect from.
+    /// - `terms`: A mutable vector where the flattened terms are appended.
+    fn collect_add_terms(node: Self, terms: &mut Vec<Self>) {
+        match node {
+            AstNode::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
+                Self::collect_add_terms(*left, terms);
+                Self::collect_add_terms(*right, terms);
+            },
+            _ => terms.push(node),
+        }
+    }
+
+    /// Combines like terms in a list of addition terms.
+    ///
+    /// This function detects terms that are the same variable or a constant
+    /// multiplied by the same variable and sums their coefficients.
+    /// It also removes any terms with zero coefficient.
+    ///
+    /// - `x + x` → `2 * x`
+    /// - `a * x + b * x` → `(a + b) * x`
+    /// - `x + 0` → `x`
+    ///
+    /// # Parameters
+    /// - `terms`: A vector of AST nodes representing individual terms.
+    ///
+    /// # Returns
+    /// A new vector of AST nodes where like terms have been combined.
+    ///
+    /// # Note
+    /// The function preserves ownership of nodes and uses `mul` to construct
+    /// coefficient multiplications.
+    fn combine_same_terms(terms: Vec<Self>) -> Vec<Self> {
+        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
+
+        for term in terms {
+            match term {
+                // the case of `a * x`
+                Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
+                    match (&*left, &*right) {
+                        (Self::Number(z), v)
+                            => Self::insert_term(&mut map, v.clone(), *z),
+                        (v, Self::Number(z))
+                            => Self::insert_term(&mut map, v.clone(), *z),
+                        _ => Self::insert_term(&mut map, left.mul(*right), Complex::ONE),
+                    }
+                },
+                 _ => Self::insert_term(&mut map, term, Complex::ONE),
+            }
+        }
+
+        let mut result = Vec::new();
+        for (var, coeff) in map {
+            if coeff == Complex::ZERO {
+                // remove this term
+                continue;
+            }
+            if coeff == Complex::ONE {
+                result.push(var);
+            } else {
+                result.push(Self::Number(coeff).mul(var));
+            }
+        }
+
+        result
+    }
+
+    /// Inserts a term with its coefficient into the list of combined terms.
+    ///
+    /// If a term with the same variable node already exists in `map`, its
+    /// coefficient is incremented by `coeff`. Otherwise, the `(var, coeff)`
+    /// pair is appended to the list.
+    ///
+    /// # Parameters
+    /// - `map`: A mutable vector of `(AstNode, Complex<f64>)` representing
+    ///   the accumulated variable nodes and their coefficients.
+    /// - `var`: The AST node representing the variable part of the term.
+    /// - `coeff`: The coefficient for this term.
+    ///
+    /// # Note
+    /// This function assumes that `var` equality can be checked with `==`
+    /// for combining like terms. Coefficients with value zero are not removed
+    /// here; that is handled later in `combine_same_terms`.
+    fn insert_term(map: &mut Vec<(Self, Complex<f64>)>, var: Self, coeff: Complex<f64>) {
+        for (v, c) in map.iter_mut() {
+            if *v == var {
+                *c += coeff;
+                return;
+            }
+        }
+        map.push((var, coeff))
+    }
+
+    /// Converts a subtraction expression into an addition with a negated right-hand side.
+    ///
+    /// This function recursively rewrites `left - right` as `left + (-1) * right`,
+    /// so that all subsequent optimizations (like constant folding and combining
+    /// like terms) can be applied uniformly using addition logic.
+    ///
+    /// # Parameters
+    /// - `left`: The left-hand operand of the subtraction.
+    /// - `right`: The right-hand operand of the subtraction.
+    ///
+    /// # Returns
+    /// A simplified [`AstNode`] representing the equivalent addition expressi
+    fn fold_sub(left: Self, right: Self) -> Self {
+        Self::fold_binary(BinaryOperatorKind::Add, left, Self::Number(-Complex::ONE).mul(right))
+    }
+
+    /// Simplifies and folds multiplication expressions by normalizing factors.
+    ///
+    /// This function applies several optimizations:
+    /// - **Constant folding**: multiply numeric constants together.
+    /// - **Identity elimination**: remove factors equal to 1.
+    /// - **Zero elimination**: if any factor is 0, the whole product is 0.
+    /// - **Combine powers with same base**: x^a * x^b → x^(a+b)
+    ///
+    /// # Parameters
+    /// - `left`: Left-hand operand of the multiplication.
+    /// - `right`: Right-hand operand of the multiplication.
+    ///
+    /// # Returns
+    /// A simplified [`AstNode`] representing the optimized multiplication.
+    fn fold_mul(left: Self, right: Self) -> Self {
+        let mut factors = Vec::new();
+
+        Self::collect_mul_terms(left, &mut factors);
+        Self::collect_mul_terms(right, &mut factors);
+
+        let mut const_product = Complex::ONE;
+        let mut new_factors = Vec::new();
+        for factor in factors {
+            match factor {
+                Self::Number(z) => const_product *= z,
+                other => new_factors.push(other),
+            }
+        }
+
+        if const_product == Complex::ZERO {
+            return Self::Number(Complex::ZERO);
+        }
+        if const_product != Complex::ONE {
+            // constant factor always comes first
+            new_factors.insert(0,  Self::Number(const_product));
+        }
+
+        factors =Self::combine_same_base_powers(new_factors);
+        match factors.len() {
+            0 => Self::Number(Complex::ONE),
+            1 => factors.into_iter().next().unwrap().simplify(), // use `into_iter().next().unwrap()` to avoid `clone()`
+            _ => {
+                let mut node = factors.remove(0);
+                for factor in factors.drain(..) {
+                    node = node.mul(factor);
+                }
+                node
+            }
+        }
+    }
+
+    /// Recursively collects terms from a nested multiplication expression into a flat list.
+    ///
+    /// This function traverses an `AstNode` and flattens any nested
+    /// multiplication nodes (`BinaryOperatorKind::Mul`) into individual terms.
+    /// Non-multiplication nodes are added directly to the `terms` vector.
+    ///
+    /// # Parameters
+    /// - `node`: The AST node to traverse and collect from.
+    /// - `terms`: A mutable vector where the flattened terms are appended.
+    fn collect_mul_terms(node: Self, terms: &mut Vec<Self>) {
+        match node {
+            AstNode::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
+                Self::collect_mul_terms(*left, terms);
+                Self::collect_mul_terms(*right, terms);
+            },
+            _ => terms.push(node),
+        }
+    }
+
+    /// Combines powers with the same base: x^a * x^b → x^(a+b)
+    fn combine_same_base_powers(terms: Vec<Self>) -> Vec<Self> {
+        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
+
+        for term in terms {
+            match term {
+                AstNode::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right } => {
+                    match (&*left, &*right) {
+                        (base, Self::Number(exp))
+                            => Self::insert_term(&mut map, base.clone(), *exp),
+                        _ => Self::insert_term(&mut map, left.pow(*right), Complex::ONE),
+                    }
+                },
+                AstNode::FunctionCall { kind, args }
+                    if (kind == FunctionKind::Pow) || (kind == FunctionKind::Powi) =>
+                {
+                    match (&args[0], &args[1]) {
+                        (base, Self::Number(exp))
+                            => Self::insert_term(&mut map, base.clone(), *exp),
+                        _ => Self::insert_term(
+                            &mut map,
+                            AstNode::FunctionCall { kind, args },
+                            Complex::ONE
+                        ),
+                    }
+                },
+                _ => Self::insert_term(&mut map, term, Complex::ONE),
+            }
+        }
+
+        let mut result = Vec::new();
+        for (base, exp) in map {
+            match exp {
+                Complex::ZERO => continue,
+                Complex::ONE => result.push(base),
+                _ => {
+                    if is_exp_compatible_with_i32(&exp) {
+                        result.push(base.powi(exp.re as i32))
+                    } else {
+                        result.push(base.pow(AstNode::Number(exp)))
+                    }
+                },
+            }
+        }
+
+        result
+    }
+
+    /// Converts a division expression into multiplication with a negative exponent.
+    ///
+    /// This function rewrites `left / right` as `left * right^-1`
+    /// so that all multiplication-related optimizations (like constant folding
+    /// and same-base exponent combination) can be applied uniformly.
+    ///
+    /// # Parameters
+    /// - `left`: The numerator AST node.
+    /// - `right`: The denominator AST node.
+    ///
+    /// # Returns
+    /// A simplified [`AstNode`] representing the equivalent multiplication.
+    fn fold_div(left: Self, right: Self) -> Self {
+        Self::fold_mul(left, right.powi(-1).simplify())
+    }
+
+    fn fold_pow(base: Self, exp: Self) -> Self {
+        let mut base = base.simplify();
+        let mut exp = exp.simplify();
+
+        while let Self::FunctionCall { kind: FunctionKind::Pow, mut args } |
+            Self::FunctionCall { kind: FunctionKind::Powi, mut args } = base
+        {
+            let inner_base = args.remove(0);
+            let inner_exp = args.remove(0);
+
+            exp = inner_exp.mul(exp).simplify();
+            base = inner_base.simplify();
+        }
+
+        if let Self::Number(z) = &exp {
+            if *z == Complex::ONE {
+                // x^1 -> x
+                return base;
+            }
+            if *z == Complex::ZERO {
+                // x^0 -> 1
+                return Self::one();
+            }
+        }
+
+        match (base, exp) {
+            (Self::Number(z), _) if z == Complex::ONE // 1^x -> 1
+                => Self::one(),
+            (Self::Number(z), Self::Number(e)) if (z == Complex::ZERO) && (e.re > 0.0) // 0^x -> 0 (x > 0)
+                => Self::zero(),
+            (Self::Number(b), Self::Number(e))
+                => Self::Number(b.powc(e)),
+            (b, e) => {
+                if let Self::Number(c) = &e
+                    && is_exp_compatible_with_i32(c)
+                {
+                    b.powi(c.re as i32)
+                } else {
+                    b.pow(e)
+                }
+            },
         }
     }
 }
@@ -1232,7 +1576,8 @@ impl AstNode {
         let u = left;
         let n = right;
         let du = u.clone().differentiate(var)?;
-        Ok(AstNode::FunctionCall {
+        Ok(
+            AstNode::FunctionCall {
             kind: FunctionKind::Powi,
             args: vec![u, n.clone().sub(Self::one())],
         }.mul(n).mul(du))
@@ -1339,8 +1684,8 @@ impl AstNode {
             // TODO: d/dx |f(x)| should return NaN if f(x) = 0, but we have NOT been able to express yet.
             FunctionKind::Abs   => Ok(x.clone().div(x.abs()).mul(dx)),
             FunctionKind::Conj  => Err("The function `conj(z)` doesn't have any derivative functions at any coordinates.".into()),
-            FunctionKind::Pow   => Self::diff_pow(x, args.remove(1), var),
-            FunctionKind::Powi  => Self::diff_powi(x, args.remove(1), var),
+            FunctionKind::Pow   => Self::diff_pow(x, args.remove(0), var),
+            FunctionKind::Powi  => Self::diff_powi(x, args.remove(0), var),
         }
     }
 }
@@ -1781,6 +2126,141 @@ mod astnode_tests {
     }
 
     #[test]
+    fn test_fold_add_constants() {
+        let left = AstNode::Number(Complex::from(2.0));
+        let right = AstNode::Number(Complex::from(3.0));
+        let result = AstNode::fold_add(left, right);
+        assert_astnode_eq!(result, AstNode::Number(Complex::from(5.0)));
+    }
+
+    #[test]
+    fn test_fold_add_like_terms() {
+        let x = AstNode::Argument(0);
+        let result = AstNode::fold_add(x.clone(), x.clone());
+        assert_eq!(result, AstNode::Number(Complex::new(2.0, 0.0)).mul(x));
+    }
+
+    #[test]
+    fn test_fold_add_mixed_terms() {
+        // 3*x + 4*x + y → 7*x + y
+        let x = AstNode::Argument(0);
+        let y = AstNode::Argument(1);
+        let term1 = AstNode::Number(Complex::new(3.0, 0.0)).mul(x.clone());
+        let term2 = AstNode::Number(Complex::new(4.0, 0.0)).mul(x.clone());
+        let left = AstNode::fold_add(term1, term2); // 3x + 4x → 7x
+        let result = AstNode::fold_add(left, y.clone());
+        let expected = AstNode::fold_add(AstNode::Number(Complex::new(7.0, 0.0)).mul(x), y);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_fold_add_removed_same_terms() {
+        // x + 2 - x → x
+        let x = AstNode::Argument(0);
+        let n = AstNode::Number(Complex::from(2.0));
+        let result = AstNode::fold_sub(
+            AstNode::fold_add(x.clone(), n.clone()),
+            x
+        );
+        assert_astnode_eq!(result, n);
+    }
+
+    #[test]
+    fn test_fold_add_zero_terms() {
+        // x + 0 → x
+        let x = AstNode::Argument(0);
+        let zero = AstNode::Number(Complex::ZERO);
+        let result = AstNode::fold_add(x.clone(), zero);
+        assert_astnode_eq!(result, x);
+    }
+
+    #[test]
+    fn test_fold_sub_basic() {
+        // x - y → x + (-1) * y
+        let x = AstNode::Argument(0);
+        let y = AstNode::Argument(1);
+        let result = AstNode::fold_sub(x.clone(), y.clone());
+        let expected = AstNode::fold_add(x, AstNode::Number(-Complex::ONE).mul(y));
+        assert_astnode_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_fold_sub_with_constants() {
+        // 5 - 3 → 2
+        let left = AstNode::Number(Complex::new(5.0, 0.0));
+        let right = AstNode::Number(Complex::new(3.0, 0.0));
+        let result = AstNode::fold_sub(left, right);
+        assert_astnode_eq!(result, AstNode::Number(Complex::new(2.0, 0.0)));
+    }
+
+    #[test]
+    fn test_mul_constant_folding() {
+        let expr = AstNode::fold_mul(
+            AstNode::Number(Complex::from(2.0)),
+            AstNode::Number(Complex::from(3.0)));
+        assert_astnode_eq!(expr, AstNode::Number(Complex::from(6.0)));
+    }
+
+    #[test]
+    fn test_mul_with_zero() {
+        let expr = AstNode::fold_mul(
+            AstNode::Number(Complex::ZERO),
+            AstNode::Argument(0));
+        assert_astnode_eq!(expr, AstNode::Number(Complex::ZERO));
+    }
+
+    #[test]
+    fn test_mul_with_one() {
+        let expr = AstNode::fold_mul(
+            AstNode::Number(Complex::ONE),
+            AstNode::Argument(0));
+        assert_astnode_eq!(expr, AstNode::Argument(0));
+    }
+
+    #[test]
+    fn test_div_to_mul_pow_neg1() {
+        let expr = AstNode::fold_div(
+            AstNode::Argument(0),
+            AstNode::Argument(1));
+        // should become x * y^-1
+        let expected = AstNode::fold_mul(
+            AstNode::Argument(0),
+            AstNode::Argument(1).powi(-1));
+        assert_astnode_eq!(expr, expected);
+    }
+
+    #[test]
+    fn test_combine_same_base_powers() {
+        let expr = AstNode::fold_mul(
+            AstNode::Argument(0).pow(AstNode::Number(Complex::from(2.0))),
+            AstNode::Argument(0).pow(AstNode::Number(Complex::from(3.5))));
+        assert_astnode_eq!(expr, AstNode::Argument(0).pow(AstNode::Number(Complex::from(5.5))));
+    }
+
+    #[test]
+    fn test_combine_same_base_powers_to_powi() {
+        let expr = AstNode::fold_mul(
+            AstNode::Argument(0).pow(AstNode::Number(Complex::from(2.0))),
+            AstNode::Argument(0).pow(AstNode::Number(Complex::from(3.0))));
+        assert_astnode_eq!(expr, AstNode::Argument(0).powi(5));
+    }
+
+    #[test]
+    fn test_nested_mul_flattening() {
+        let expr = AstNode::fold_mul(
+            AstNode::fold_mul(
+                AstNode::Argument(0),
+                AstNode::Number(Complex::from(2.0))),
+            AstNode::Number(Complex::from(3.0))
+        );
+        // (x * 2) * 3 => 6 * x
+        let expected = AstNode::fold_mul(
+            AstNode::Number(Complex::from(6.0)),
+            AstNode::Argument(0));
+        assert_eq!(expr, expected);
+    }
+
+    #[test]
     fn test_simplify_number() {
         let node = AstNode::Number(Complex::new(3.0, 0.0));
         assert_astnode_eq!(node.clone().simplify(), node);
@@ -1847,7 +2327,7 @@ mod astnode_tests {
             }
         );
 
-        // x * 2 * 3 * 4 -> x * 24
+        // x * 2 * 3 * 4 -> 24 * x
         let node = AstNode::BinaryOperator {
             kind: BinaryOperatorKind::Mul,
             left: Box::new(AstNode::BinaryOperator {
@@ -1866,8 +2346,8 @@ mod astnode_tests {
             simplified,
             AstNode::BinaryOperator {
                 kind: BinaryOperatorKind::Mul,
-                left: Box::new(AstNode::Argument(0)),
-                right: Box::new(AstNode::Number(Complex::new(24.0, 0.0))),
+                left: Box::new(AstNode::Number(Complex::new(24.0, 0.0))),
+                right: Box::new(AstNode::Argument(0)),
             }
         );
 
@@ -1909,24 +2389,17 @@ mod astnode_tests {
 
     #[test]
     fn test_simplify_function_call_partial() {
-        let node = AstNode::FunctionCall {
-            kind: FunctionKind::Pow,
-            args: vec![
-                AstNode::Argument(0),
-                AstNode::Number(Complex::new(3.0, 0.0)),
-            ],
-        };
-        let simplified = node.simplify();
+        let node = AstNode::Argument(0).pow(AstNode::Argument(1)).simplify();
         assert_astnode_eq!(
-            simplified,
-            AstNode::FunctionCall {
-                kind: FunctionKind::Pow,
-                args: vec![
-                    AstNode::Argument(0),
-                    AstNode::Number(Complex::new(3.0, 0.0)),
-                ],
-            }
+            node,
+            AstNode::Argument(0).pow(AstNode::Argument(1))
         );
+    }
+
+    #[test]
+    fn test_simplify_pow_to_powi() {
+        let node = AstNode::Argument(0).pow(AstNode::Number(Complex::from(3.0))).simplify();
+        assert_astnode_eq!(node, AstNode::Argument(0).powi(3));
     }
 
 
@@ -2168,5 +2641,57 @@ mod differentiate_tests {
                 order: 2,
             }
         );
+    }
+
+    #[test]
+    fn test_differentiate_mul_x2() {
+        // f(x) = x * x
+        let node = AstNode::Argument(0).mul(AstNode::Argument(0)).differentiate(0)
+            .unwrap().simplify();
+        // d/dx (x * x) = 1 * x + x * 1 = 2x
+        let expected = AstNode::Number(Complex::from(2.0)).mul(AstNode::Argument(0));
+        assert_eq!(node, expected);
+    }
+
+    #[test]
+    fn test_differentiate_powi_x3() {
+        // f(x) = pow(x, 3)
+        let node = AstNode::FunctionCall {
+            kind: FunctionKind::Powi,
+            args: vec![
+                AstNode::Argument(0),
+                AstNode::Number(Complex::new(3.0, 0.0)),
+            ],
+        };
+        let diff = node.differentiate(0).unwrap().simplify();
+        // d/dx x^3 = 3 * x^(3-1) * 1 = 3 * x^2
+        let expected = AstNode::Number(Complex::from(3.0))
+            .mul(AstNode::FunctionCall {
+                kind: FunctionKind::Powi,
+                args: vec![AstNode::Argument(0), AstNode::Number(Complex::from(2.0))],
+            });
+        assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_differentiate_div() {
+        // f(x) = x / (x + 1)
+        let node = AstNode::Argument(0).div(AstNode::Argument(0).add(AstNode::Number(Complex::from(1.0))));
+        let diff = node.differentiate(0).unwrap().simplify();
+
+        // d/dx [x / (x + 1)] = (1 * (x + 1) - x * 1) / (x + 1)^2 = (x + 1 - x) / (x + 1)^2 = (x + 1)^(-2)
+        let expected = AstNode::Argument(0).add(AstNode::Number(Complex::ONE)).powi(-2);
+        assert_eq!(diff, expected);
+    }
+
+    #[test]
+    fn test_differentiate_chain_rule() {
+        // f(x) = sin(x^2)
+        let node = AstNode::Argument(0).powi(2).sin();
+        let diff = node.differentiate(0).unwrap().simplify();
+
+        // d/dx sin(x^2) = cos(x^2) * d/dx(x^2) = cos(x^2) * 2x
+        let expected = AstNode::Number(Complex::from(2.0)).mul(AstNode::Argument(0).powi(2).cos()).mul(AstNode::Argument(0));
+        assert_eq!(diff, expected);
     }
 }
