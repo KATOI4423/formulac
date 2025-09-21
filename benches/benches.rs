@@ -127,6 +127,31 @@ fn bench_analyze_many_vars(c: &mut Criterion) {
     });
 }
 
+fn bench_analyze_diff(c: &mut Criterion) {
+    let vars = Variables::new();
+    let users = UserDefinedTable::new();
+
+    let formulas = [
+        "diff(x^2, x)",
+        "diff(sin(x), x)",
+        "diff(exp(x^2+3*x+1), x)",
+        "diff(sin(cos(x)), x)",
+        "diff(x^10 + x^5 + x^2, x)",
+    ];
+
+    for formula in &formulas {
+        c.bench_function(&format!("compile diff '{}'", formula), |b| {
+            b.iter(|| compile(formula, &["x"], &vars, &users))
+        });
+
+        let expr = compile(formula, &["x"], &vars, &users).unwrap();
+        let x = Complex::new(0.7, 0.1);
+        c.bench_function(&format!("exec diff '{}'", formula), |b| {
+            b.iter(|| expr(&[x]))
+        });
+    }
+}
+
 fn bench_analyze_invalid(c: &mut Criterion) {
     let vars = Variables::new();
     let users = UserDefinedTable::new();
@@ -153,6 +178,7 @@ criterion_group!(bench_analyze,
     bench_analyze_literal,
     bench_analyze_paren,
     bench_analyze_many_vars,
+    bench_analyze_diff,
     bench_analyze_invalid,
 );
 
