@@ -195,7 +195,7 @@ pub fn compile(
 #[cfg(test)]
 mod compile_test {
     use super::*;
-    use num_complex::{Complex, ComplexFloat};
+    use num_complex::{Complex};
     use approx::assert_abs_diff_eq;
 
     #[test]
@@ -268,6 +268,30 @@ mod compile_test {
         let b = Complex::new(-2.0, 3.0);
         let result = f(&[a, b]);
         let expected = a.powc(b);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
+    }
+
+    #[test]
+    fn test_differentiate_without_order() {
+        let vars = Variables::new();
+        let users = UserDefinedTable::new();
+        let f = compile("diff(x^2, x)", &["x"], &vars, &users).unwrap();
+        let x = Complex::new(2.0, 1.0);
+        let result = f(&[x]);
+        let expected = 2.0 * x;
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
+    }
+
+    #[test]
+    fn test_differentiate_with_order() {
+        let vars = Variables::new();
+        let users = UserDefinedTable::new();
+        let f = compile("diff(x^3, x, 2)", &["x"], &vars, &users).unwrap();
+        let x = Complex::new(2.0, 1.0);
+        let result = f(&[x]);
+        let expected = 6.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
