@@ -2310,123 +2310,62 @@ mod astnode_tests {
 
     #[test]
     fn test_simplify_unary_operator() {
-        let node = AstNode::UnaryOperator {
-            kind: UnaryOperatorKind::Negative,
-            expr: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-        };
+        let node = -AstNode::Number(Complex::new(2.0, 0.0));
         let simplified = node.simplify();
         assert_astnode_eq!(simplified, AstNode::Number(Complex::new(-2.0, 0.0)));
     }
 
     #[test]
     fn test_simplify_binary_operator_full() {
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-        };
+        let node = AstNode::Number(Complex::new(2.0, 0.0)) + AstNode::Number(Complex::new(3.0, 0.0));
         let simplified = node.simplify();
         assert_astnode_eq!(simplified, AstNode::Number(Complex::new(5.0, 0.0)));
     }
 
     #[test]
     fn test_simplify_binary_operator_partial() {
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::Argument(0)),
-            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-        };
-        let simplified = node.simplify();
-        assert_astnode_eq!(
-            simplified,
-            AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Add,
-                left: Box::new(AstNode::Argument(0)),
-                right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-            }
-        );
+        let node = AstNode::Argument(0) + AstNode::Number(Complex::new(3.0, 0.0));
+        let simplified = node.clone().simplify();
+        assert_astnode_eq!(simplified, node);
     }
 
     #[test]
     fn test_simplify_binary_operator_chain() {
         // x + 2 + 3 -> x + 5
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Add,
-                left: Box::new(AstNode::Argument(0)),
-                right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-            }),
-            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-        };
+        let node
+            = AstNode::Argument(0)
+            + AstNode::Number(Complex::new(2.0, 0.0))
+            + AstNode::Number(Complex::new(3.0, 0.0));
         let simplified = node.simplify();
         assert_astnode_eq!(
             simplified,
-            AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Add,
-                left: Box::new(AstNode::Argument(0)),
-                right: Box::new(AstNode::Number(Complex::new(5.0, 0.0))),
-            }
+            AstNode::Argument(0) + AstNode::Number(Complex::new(5.0, 0.0))
         );
 
         // x * 2 * 3 * 4 -> 24 * x
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Mul,
-            left: Box::new(AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Mul,
-                left: Box::new(AstNode::BinaryOperator {
-                    kind: BinaryOperatorKind::Mul,
-                    left: Box::new(AstNode::Argument(0)),
-                    right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-                }),
-                right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-            }),
-            right: Box::new(AstNode::Number(Complex::new(4.0, 0.0))),
-        };
+        let node = AstNode::Argument(0) * AstNode::Number(Complex::new(2.0, 0.0))
+            * AstNode::Number(Complex::new(3.0, 0.0)) * AstNode::Number(Complex::new(4.0, 0.0));
         let simplified = node.simplify();
         assert_astnode_eq!(
             simplified,
-            AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Mul,
-                left: Box::new(AstNode::Number(Complex::new(24.0, 0.0))),
-                right: Box::new(AstNode::Argument(0)),
-            }
+            AstNode::Number(Complex::new(24.0, 0.0)) * AstNode::Argument(0)
         );
 
         // 2 * x + 3 -> not changed
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Mul,
-                left: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-                right: Box::new(AstNode::Argument(0))
-            }),
-            right: Box::new(AstNode::Number(Complex::new(3.0, 0.0))),
-        };
+        let node = AstNode::Number(Complex::new(2.0, 0.0)) * AstNode::Argument(0) + AstNode::Number(Complex::new(3.0, 0.0));
         let simplified = node.clone().simplify();
         assert_astnode_eq!(simplified, node)
     }
 
     #[test]
     fn test_simplify_function_call_full() {
-        let node = AstNode::FunctionCall {
-            kind: FunctionKind::Pow,
-            args: vec![
-                AstNode::Number(Complex::new(2.0, 0.0)),
-                AstNode::Number(Complex::new(3.0, 0.0)),
-            ],
-        };
+        let node = AstNode::Number(Complex::new(2.0, 0.0)).pow(AstNode::Number(Complex::new(3.0, 0.0)));
         let simplified = node.simplify();
         assert_astnode_eq!(simplified, AstNode::Number(Complex::new(8.0, 0.0)));
 
-        let node = AstNode::FunctionCall {
-            kind: FunctionKind::Exp,
-            args: vec![
-                AstNode::Number(Complex::new(2.0, 0.0)),
-            ],
-        };
-        let simplified = node.simplify();
-        assert_astnode_eq!(simplified, AstNode::Number(Complex::new(2.0, 0.0).exp()));
+        let node = AstNode::Number(Complex::new(2.0, 0.0)).exp();
+        let simplified = node.clone().simplify();
+        assert_astnode_eq!(simplified, AstNode::Number(Complex::from(2.0).exp()));
     }
 
     #[test]
@@ -2509,10 +2448,7 @@ mod astnode_tests {
 
     #[test]
     fn test_compile_unary_operator() {
-        let ast = AstNode::UnaryOperator {
-            kind: UnaryOperatorKind::Negative,
-            expr: Box::new(AstNode::Number(Complex::new(1.0, 0.0)))
-        };
+        let ast = -AstNode::Number(Complex::new(1.0, 0.0));
         let tokens = ast.compile();
         assert_eq!(
             tokens,
@@ -2522,11 +2458,7 @@ mod astnode_tests {
 
     #[test]
     fn test_compile_binary_operator() {
-        let ast = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::Number(Complex::new(1.0, 0.0))),
-            right: Box::new(AstNode::Argument(1))
-        };
+        let ast = AstNode::Number(Complex::new(1.0, 0.0)) + AstNode::Argument(1);
         let tokens = ast.compile();
         assert_eq!(
             tokens,
@@ -2540,20 +2472,14 @@ mod astnode_tests {
 
     #[test]
     fn test_compile_function_single_argument() {
-        let ast = AstNode::FunctionCall {
-            kind: FunctionKind::Sin,
-            args: vec![AstNode::Number(Complex::new(1.0, 0.0))]
-        };
+        let ast = AstNode::Number(Complex::new(1.0, 0.0)).sin();
         let tokens = ast.compile();
         assert_eq!(tokens, vec![Token::Number(Complex::new(1.0, 0.0)), Token::Function(FunctionKind::Sin)]);
     }
 
     #[test]
     fn test_compile_function_multi_arguments() {
-        let ast = AstNode::FunctionCall {
-            kind: FunctionKind::Pow,
-            args: vec![AstNode::Number(Complex::new(2.0, 0.0)), AstNode::Argument(0)]
-        };
+        let ast = AstNode::Number(Complex::new(2.0, 0.0)).pow(AstNode::Argument(0));
         let tokens = ast.compile();
         assert_eq!(
             tokens,
@@ -2568,14 +2494,7 @@ mod astnode_tests {
     #[test]
     fn test_compile_nested_expression() {
         // cos(1 + 2)
-        let ast = AstNode::FunctionCall {
-            kind: FunctionKind::Cos,
-            args: vec![AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Add,
-                left: Box::new(AstNode::Number(Complex::new(1.0, 0.0))),
-                right: Box::new(AstNode::Number(Complex::new(2.0, 0.0)))
-            }],
-        };
+        let ast = (AstNode::Number(Complex::new(1.0, 0.0)) + AstNode::Number(Complex::new(2.0, 0.0))).cos();
         let tokens = ast.compile();
         assert_eq!(
             tokens,
@@ -2612,57 +2531,30 @@ mod differentiate_tests {
 
     #[test]
     fn test_differentiate_unary_operator() {
-        let node = AstNode::UnaryOperator {
-            kind: UnaryOperatorKind::Negative,
-            expr: Box::new(AstNode::Argument(0)),
-        };
+        let node = -AstNode::Argument(0);
         let diff = node.differentiate(0).unwrap();
-        assert_eq!(
-            diff,
-            AstNode::UnaryOperator {
-                kind: UnaryOperatorKind::Negative,
-                expr: Box::new(AstNode::Number(Complex::ONE)),
-            }
-        );
+        assert_eq!(diff, -AstNode::Number(Complex::ONE));
     }
 
     #[test]
     fn test_differentiate_binary_add() {
-        let node = AstNode::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(AstNode::Argument(0)),
-            right: Box::new(AstNode::Number(Complex::new(2.0, 0.0))),
-        };
+        let node = AstNode::Argument(0) + AstNode::Number(Complex::new(2.0, 0.0));
         let diff = node.differentiate(0).unwrap();
         // d/dx (x + 2) = 1 + 0
         assert_eq!(
             diff,
-            AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Add,
-                left: Box::new(AstNode::Number(Complex::ONE)),
-                right: Box::new(AstNode::Number(Complex::ZERO)),
-            }
+            AstNode::Number(Complex::ONE) + AstNode::Number(Complex::ZERO)
         );
     }
 
     #[test]
     fn test_differentiate_function_sin() {
-        let node = AstNode::FunctionCall {
-            kind: FunctionKind::Sin,
-            args: vec![AstNode::Argument(0)],
-        };
+        let node = AstNode::Argument(0).sin();
         let diff = node.differentiate(0).unwrap();
         // d/dx sin(x) = cos(x) * 1
         assert_eq!(
             diff,
-            AstNode::BinaryOperator {
-                kind: BinaryOperatorKind::Mul,
-                left: Box::new(AstNode::FunctionCall {
-                    kind: FunctionKind::Cos,
-                    args: vec![AstNode::Argument(0)],
-                }),
-                right: Box::new(AstNode::Number(Complex::ONE)),
-            }
+            AstNode::Argument(0).cos().mul(AstNode::Number(Complex::ONE))
         );
     }
 
@@ -2698,20 +2590,11 @@ mod differentiate_tests {
     #[test]
     fn test_differentiate_powi_x3() {
         // f(x) = pow(x, 3)
-        let node = AstNode::FunctionCall {
-            kind: FunctionKind::Powi,
-            args: vec![
-                AstNode::Argument(0),
-                AstNode::Number(Complex::new(3.0, 0.0)),
-            ],
-        };
+        let node = AstNode::Argument(0).powi(3);
         let diff = node.differentiate(0).unwrap().simplify();
         // d/dx x^3 = 3 * x^(3-1) * 1 = 3 * x^2
         let expected = AstNode::Number(Complex::from(3.0))
-            .mul(AstNode::FunctionCall {
-                kind: FunctionKind::Powi,
-                args: vec![AstNode::Argument(0), AstNode::Number(Complex::from(2.0))],
-            });
+            .mul(AstNode::Argument(0).powi(2));
         assert_eq!(diff, expected);
     }
 
