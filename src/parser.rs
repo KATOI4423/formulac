@@ -1455,6 +1455,48 @@ impl AstNode {
     }
 }
 
+impl std::ops::Add<AstNode> for AstNode {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        self.add(rhs)
+    }
+}
+
+impl std::ops::Sub<AstNode> for AstNode {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        self.sub(rhs)
+    }
+}
+
+impl std::ops::Mul<AstNode> for AstNode {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        self.mul(rhs)
+    }
+}
+
+impl std::ops::Div<AstNode> for AstNode {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        self.div(rhs)
+    }
+}
+
+impl std::ops::BitXor<AstNode> for AstNode {
+    type Output = Self;
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        self.pow(rhs)
+    }
+}
+
+impl std::ops::Neg for AstNode {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        self.negative()
+    }
+}
+
 /// AstNode impl `differentiate` and its helpers
 impl AstNode {
     /// Compute the derivative of an AST node with respect to a given variable.
