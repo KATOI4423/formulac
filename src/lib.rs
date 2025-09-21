@@ -297,6 +297,64 @@ mod compile_test {
     }
 
     #[test]
+    fn test_differentiate_with_userdefinedfunction() {
+        let mut users = UserDefinedTable::new();
+
+        // Define f(x) = x^2
+        let func = UserDefinedFunction::new(
+            "f",
+            |args: &[Complex<f64>]| args[0] * args[0],
+            1,
+        ).with_derivative(
+            // derivative f'(x) = 2x
+            vec![|args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0]],
+        );
+        users.register("f", func);
+
+        let vars = Variables::new();
+        let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
+
+        let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+        assert_abs_diff_eq!(result.re, 6.0, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
+    }
+
+    #[test]
+    fn test_differentiate_with_partial_derivative() {
+        let mut users = UserDefinedTable::new();
+
+        // Define g(x, y) = x^2 * y + y^3
+        let func = UserDefinedFunction::new(
+            "g",
+            |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
+            2,
+        ).with_derivative(vec![
+            // partial derivative w.r.t x: ∂g/∂x = 2*x*y
+            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
+            // partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
+            |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
+        ]);
+        users.register("g", func);
+
+        let vars = Variables::new();
+
+        let x = Complex::new(2.0, 0.0);
+        let y = Complex::new(3.0, 0.0);
+
+        let expr_dx = compile("diff(g(x, y), x)", &["x", "y"], &vars, &users).unwrap();
+        let result_dx = expr_dx(&[x, y]);
+        let expect_dx = 2.0 * x * y;
+        assert_abs_diff_eq!(result_dx.re, expect_dx.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result_dx.im, expect_dx.im, epsilon=1.0e-12);
+
+        let expr_dy = compile("diff(g(x, y), y)", &["x", "y"], &vars, &users).unwrap();
+        let result_dy = expr_dy(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+        let expect_dy = x * x + 3.0 * y * y;
+        assert_abs_diff_eq!(result_dy.re, expect_dy.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result_dy.im, expect_dy.im, epsilon=1.0e-12);
+    }
+
+    #[test]
     #[should_panic]
     fn test_too_less_args_length() {
         let vars = Variables::new();
