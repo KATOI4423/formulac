@@ -881,41 +881,43 @@ impl AstNode {
         lexeme: Lexeme,
     ) -> Result<(), String> {
         let top = stack.pop()
-            .ok_or(format!("Missing arguments for {}", lexeme_name_with_range!(lexeme)))?;
+            .ok_or(format!("diff operator {}: missing top argument (expected variable or order)", lexeme_name_with_range!(lexeme)))?;
 
-        if let Self::Number(z) = top {
+        // differential order and variable extraction
+        let (var_idx, order) = match top {
             // the case of `diff(f(x), x, n)`
-            if (z.im != 0.0) || (z.re.fract() != 0.0) {
-                return Err(format!("Not supported fractional calculus, order {}, in {}", z, lexeme_name_with_range!(lexeme)));
-            }
-            let x = z.re();
-            if (x < 0.0) || ((i8::MAX as f64) < x) {
-                return Err(format!("Invalid differential order {} for {}", x, lexeme_name_with_range!(lexeme)));
-            }
-            let order = x as usize;
-            let var = if let Self::Argument(idx) = stack.pop()
-                .ok_or(format!("Missing differential variable for {}", lexeme_name_with_range!(lexeme)))?
-            {
-                idx
-            } else {
-                return Err(format!("Invalid differential variable for {}", lexeme_name_with_range!(lexeme)));
-            };
-            let expr = stack.pop()
-                .ok_or(format!("Missing expr for differential operator {}", lexeme_name_with_range!(lexeme)))?;
-            stack.push(Self::Differentive { expr: Box::new(expr), var, order });
-        } else {
-            // the case of `diff(f(x), x)`, which means `n = 1`
-            let var = if let Self::Argument(idx) = stack.pop()
-                .ok_or(format!("Missing differential variable for {}", lexeme_name_with_range!(lexeme)))?
-            {
-                idx
-            } else {
-                return Err(format!("Invalid differential variable for {}", lexeme_name_with_range!(lexeme)));
-            };
-            let expr = stack.pop()
-                .ok_or(format!("Missing expr for differential operator {}", lexeme_name_with_range!(lexeme)))?;
-            stack.push(Self::Differentive { expr: Box::new(expr), var, order: 1 });
+            Self::Number(z) => {
+                if (z.im != 0.0) || (z.re.fract() != 0.0) {
+                    return Err(format!("diff operator {}: fractional order not supported (got {})", lexeme_name_with_range!(lexeme), z));
+                }
+
+                let order = z.re as usize;
+                if order > i8::MAX as usize {
+                    return Err(format!("diff operator {}: differential order {} exceeds maximum allowed ({})",
+                        lexeme_name_with_range!(lexeme), z, i8::MAX));
+                }
+
+                let var = match stack.pop() {
+                    Some(Self::Argument(idx)) => idx,
+                    Some(other) => return Err(format!("diff operator {}: expected variable (Argument) before order, got {:?}",
+                        lexeme_name_with_range!(lexeme), other)),
+                    None => return Err(format!("diff operator {}: missing differential variable before order", lexeme_name_with_range!(lexeme))),
+                };
+
+                (var, order)
+            },
+            Self::Argument(idx) => (idx, 1), // default order = 1
+            other => return Err(format!("diff operator {}: expected Argument or Number for order, got {:?}",
+                lexeme_name_with_range!(lexeme), other))
         };
+
+        let mut expr = stack.pop()
+            .ok_or(format!("diff operator {}: missing expression to differentiate", lexeme_name_with_range!(lexeme)))?;
+
+        for _ in 0..order {
+            expr = expr.differentiate(var_idx)?;
+        }
+        stack.push(expr);
         Ok(())
     }
 }
