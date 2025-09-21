@@ -365,6 +365,7 @@ mod compile_test {
         f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     #[should_panic]
     fn test_too_much_args_length() {
@@ -373,6 +374,18 @@ mod compile_test {
         let f = compile("x + 1", &["x"], &vars, &users).unwrap();
         f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
     }
+
+    #[cfg(not(debug_assertions))]
+    #[test]
+    fn test_too_much_args_length() {
+        let vars = Variables::new();
+        let users = UserDefinedTable::new();
+        let f = compile("x + 1", &["x"], &vars, &users).unwrap();
+        let result = f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
+        assert_abs_diff_eq!(result.re, 2.0, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
+    }
+
 
     #[test]
     fn test_variables() {
