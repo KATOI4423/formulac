@@ -118,7 +118,7 @@ fn bench_analyze_many_vars(c: &mut Criterion) {
     let formula = var_names.join(" + ");
 
     c.bench_function("compile many vars (100)", |b| {
-        b.iter(|| compile(&formula, &var_refs, &vars, &users);)
+        b.iter(|| compile(&formula, &var_refs, &vars, &users))
     });
 
     let expr = compile(&formula, &[], &vars, &users).unwrap();
