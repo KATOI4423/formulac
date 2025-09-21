@@ -233,8 +233,8 @@ mod compile_test {
         let x = Complex::new(2.0, 1.0);
         let y = Complex::new(3.0, 5.0);
         let result = f(&[x, y]);
-        assert_abs_diff_eq!(result.re(), (x + y).re(), epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), (x + y).im(), epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.re, (x + y).re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, (x + y).im, epsilon=1.0e-12);
     }
 
     #[test]
@@ -244,8 +244,8 @@ mod compile_test {
         let f = compile("sin(x + 1)", &["x"], &vars, &users).unwrap();
         let result = f(&[Complex::new(0.0, 1.0)]);
         let expected = Complex::new(1.0, 1.0).sin();
-        assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
 
     #[test]
@@ -255,8 +255,8 @@ mod compile_test {
         let f = compile("2 + 3 * 4", &[], &vars, &users).unwrap();
         let result = f(&[]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
-        assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
 
     #[test]
@@ -268,8 +268,8 @@ mod compile_test {
         let b = Complex::new(-2.0, 3.0);
         let result = f(&[a, b]);
         let expected = a.powc(b);
-        assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
 
     #[test]
@@ -304,7 +304,7 @@ mod compile_test {
         let f = compile("a * x + b", &["x"], &vars, &users).unwrap();
         let result = f(&[x]);
         let expected = a * x + b;
-        assert_abs_diff_eq!(result.re(), expected.re(), epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), expected.im(), epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
 }
