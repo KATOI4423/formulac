@@ -403,3 +403,43 @@ mod compile_test {
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
 }
+
+#[cfg(test)]
+mod issue_test {
+    use super::*;
+    use num_complex::{Complex};
+    use approx::assert_abs_diff_eq;
+
+    #[test]
+    /// It appears as if parenthesis are not effecting function call precedence in the way
+    /// that the example code would have me believe. I.e f(x) + y is being parsed as f(x +y)
+    /// # This issue was reported at v0.5.0, and resolved in v0.5.1
+    fn test_issue_1() {
+        let vars = Variables::new();
+        let users = UserDefinedTable::new();
+
+        let z = Complex::new(1.0, 3.0);
+
+        let expr_1 = compile("sin(z) + z",&["z"],&vars,&users)
+            .expect("failed to compile formula");
+        let result_1 = expr_1(&[z]);
+        let expect_1 = z.sin() + z;
+
+        assert_abs_diff_eq!(result_1.re, expect_1.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result_1.im, expect_1.im, epsilon=1.0e-12);
+
+        let expr_2 = compile("sin(z + z)",&["z"],&vars,&users)
+            .expect("failed to compile formula");
+        let result_2 = expr_2(&[z]);
+        let expect_2 = (z+z).sin();
+        assert_abs_diff_eq!(result_2.re, expect_2.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result_2.im, expect_2.im, epsilon=1.0e-12);
+
+        let expr_3 = compile("(sin(z)) + z",&["z"],&vars,&users)
+            .expect("failed to compile formula");
+        let result_3 = expr_3(&[z]);
+        let expect_3 = (z.sin()) + z;
+        assert_abs_diff_eq!(result_3.re, expect_3.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result_3.im, expect_3.im, epsilon=1.0e-12);
+    }
+}

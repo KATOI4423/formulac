@@ -609,6 +609,22 @@ impl AstNode {
                 },
             }
         }
+
+        // After finishing the subexpression, check if the top of the stack is a function call
+        // ex) `sin(x + 2)` => after parsing `(x + 2)`, we have to process sin(...)
+        if let Some(top) = token_stack.pop() { // use `.pop()` instead of `.last()` to avoid using `UserDefinedFunction::clone()' in 'from_userfunction()`
+            match top {
+                Token::Function(func) => {
+                    Self::from_function(ast_nodes, func)?;
+                },
+                Token::UserFunction(func) => {
+                    Self::from_userfunction(ast_nodes, func)?;
+                },
+                // Put back the token if it's not a function call to avoid using `func.clone()`
+                other => token_stack.push(other),
+            }
+        }
+
         Ok(())
     }
 
