@@ -137,7 +137,7 @@ pub fn compile(
     arg_names: &[&str],
     vars: &Variables,
     users: &UserDefinedTable
-) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64>, String>
+) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static, String>
 {
     let lexemes = lexer::from(formula);
     let tokens = parser::AstNode::from(&lexemes, arg_names, vars, users)?

@@ -14,31 +14,31 @@ pub const IMAGINARY_UNIT: char = 'i';
 ///
 /// A `Lexeme` stores a text slice and its span (start..end indices) within
 /// the original input string.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Lexeme<'a> {
-    text: &'a str,
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lexeme {
+    text: String,
     start: usize,
     end: usize,
 }
 
-impl<'a> Lexeme<'a> {
+impl Lexeme {
     /// Create a new `Lexeme`.
     ///
     /// # Argument
     ///
     /// * `text` - The slice of text corresponding to the lexeme.
     /// * `span` - The range of the lexeme in the original input string.
-    pub fn new(text: &'a str, span: std::ops::Range<usize>) -> Self {
+    pub fn new(text: &str, span: std::ops::Range<usize>) -> Self {
         Self {
-            text,
+            text: text.to_string(),
             start: span.start,
             end: span.end,
         }
     }
 
     /// Returns the text slice of the lexeme.
-    pub fn text(&self) -> &'a str {
-        self.text
+    pub fn text(&self) -> &str {
+        &self.text
     }
 
     /// Returns the start index of the lexeme in the original input string.
@@ -53,7 +53,7 @@ impl<'a> Lexeme<'a> {
 }
 
 /// Type alias for a collection of lexemes.
-pub type Lexemes<'a> = Vec<Lexeme<'a>>;
+pub type Lexemes = Vec<Lexeme>;
 
 /// Parses an identifier starting at `start_idx`.
 ///
@@ -131,7 +131,7 @@ fn parse_number(start_idx: usize, chars: &mut std::iter::Peekable<std::str::Char
 /// # Returns
 ///
 /// A `VecDeque` of lexemes representing identifiers, numbers, and single-character tokens..
-pub fn from<'a>(input: &'a str) -> Lexemes<'a> {
+pub fn from(input: &str) -> Lexemes {
     let mut lexemes = Lexemes::default();
     let mut chars = input.char_indices().peekable();
 
@@ -151,7 +151,7 @@ pub fn from<'a>(input: &'a str) -> Lexemes<'a> {
             continue;
         }
 
-        let lexeme: Lexeme<'a> = Lexeme::new(
+        let lexeme: Lexeme = Lexeme::new(
             &input[start_idx..end_idx],
             start_idx..end_idx,
         );
@@ -165,8 +165,8 @@ pub fn from<'a>(input: &'a str) -> Lexemes<'a> {
 mod tests {
     use super::*;
 
-    fn lex_texts(input: &str) -> Vec<&str> {
-        from(input).iter().map(|l| l.text()).collect()
+    fn lex_texts(input: &str) -> Vec<String> {
+        from(input).iter().map(|l| l.text().to_string()).collect()
     }
 
     #[test]

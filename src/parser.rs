@@ -321,7 +321,7 @@ functions! {
 /// This enum covers all possible token types, including numbers, operators,
 /// functions, parentheses, commas, and user-defined functions.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token<'a> {
+pub enum Token {
     /// Numerical value token holding a resolved complex number.
     ///
     /// This variant can represent:
@@ -334,7 +334,7 @@ pub enum Token<'a> {
     Argument(usize),
 
     /// Generic operator token holding the original lexeme.
-    Operator(Lexeme<'a>),
+    Operator(Lexeme),
 
     /// Unary operator token (e.g., `+`, `-`).
     UnaryOperator(UnaryOperatorKind),
@@ -343,7 +343,7 @@ pub enum Token<'a> {
     BinaryOperator(BinaryOperatorKind),
 
     /// Differential operator token.
-    DiffOperator(Lexeme<'a>),
+    DiffOperator(Lexeme),
 
     /// Standard mathematical function token (e.g., `sin`, `cos`, `exp`).
     Function(FunctionKind),
@@ -352,16 +352,16 @@ pub enum Token<'a> {
     UserFunction(UserDefinedFunction),
 
     /// Left parenthesis `'('`.
-    LParen(Lexeme<'a>),
+    LParen(Lexeme),
 
     /// Right parenthesis token `')'``.
-    RParen(Lexeme<'a>),
+    RParen(Lexeme),
 
     /// Comma `','`` used as argument separator.
-    Comma(Lexeme<'a>),
+    Comma(Lexeme),
 }
 
-impl<'a> Token<'a> {
+impl Token {
     /// Attempts to parse a string as a real number.
     fn parse_real(s: &str) -> Option<Complex<f64>> {
         s.parse::<f64>().ok().map(Complex::from)
@@ -384,10 +384,10 @@ impl<'a> Token<'a> {
     /// Resolves numbers, variables, constants, operators, functions, and user-defined functions.
     /// Returns an error if the lexeme cannot be recognized.
     pub fn from(
-        lexeme: &Lexeme<'a>,
+        lexeme: &Lexeme,
         args: &[&str],
-        vars: &'a Variables,
-        users: &'a UserDefinedTable,
+        vars: &Variables,
+        users: &UserDefinedTable,
     ) -> Result<Self, String> {
         let text = lexeme.text();
 
@@ -400,7 +400,7 @@ impl<'a> Token<'a> {
         }
 
         if text == DIFFELENCIAL_OPERATOR_STR {
-            return Ok(Token::DiffOperator(*lexeme));
+            return Ok(Token::DiffOperator(lexeme.clone()));
         }
 
         if let Some(position) = args.iter().position(|&arg| arg == text) {
@@ -411,10 +411,10 @@ impl<'a> Token<'a> {
          * because some operator's strings are the same.
          * So we register only its lexeme. */
         if UnaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(*lexeme));
+            return Ok(Token::Operator(lexeme.clone()));
         }
         if BinaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(*lexeme));
+            return Ok(Token::Operator(lexeme.clone()));
         }
 
         if let Some(func_kind) = FunctionKind::from(text) {
@@ -426,9 +426,9 @@ impl<'a> Token<'a> {
         }
 
         match text {
-            "(" => Ok(Token::LParen(*lexeme)),
-            ")" => Ok(Token::RParen(*lexeme)),
-            "," => Ok(Token::Comma(*lexeme)),
+            "(" => Ok(Token::LParen(lexeme.clone())),
+            ")" => Ok(Token::RParen(lexeme.clone())),
+            "," => Ok(Token::Comma(lexeme.clone())),
             _ =>Err(format!("Unknown string {}", lexeme_name_with_range!(lexeme))),
         }
     }
@@ -501,8 +501,8 @@ impl AstNode {
     /// # Returns
     /// - `Ok(AstNode)` representing the root of the parsed AST.
     /// - `Err(String)` if parsing fails due to invalid syntax or unknown tokens.
-    pub fn from<'a>(
-        lexemes: &[Lexeme<'a>],
+    pub fn from(
+        lexemes: &[Lexeme],
         args: &[&str],
         vars: &Variables,
         users: &UserDefinedTable,
@@ -588,10 +588,10 @@ impl AstNode {
     /// # Returns
     /// - `Ok(())` on success.
     /// - `Err(String)` if an unexpected token is found.
-    fn parse_in_right_paren<'a>(
+    fn parse_in_right_paren(
         ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token<'a>>,
-        lexeme: &Lexeme<'a>,
+        token_stack: &mut Vec<Token>,
+        lexeme: &Lexeme,
     ) -> Result<(), String> {
         while let Some(token) = token_stack.pop() {
             match token {
@@ -641,10 +641,10 @@ impl AstNode {
     /// # Returns
     /// - `Ok(())` on success.
     /// - `Err(String)` if an unexpected token is found.
-    fn parse_in_comma<'a>(
+    fn parse_in_comma(
         ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token<'a>>,
-        lexeme: &Lexeme<'a>,
+        token_stack: &mut Vec<Token>,
+        lexeme: &Lexeme,
     ) -> Result<(), String> {
         // use Vec::last() to avoid removing Left Paren from the stack
         while let Some(token) = token_stack.pop() {
@@ -678,9 +678,9 @@ impl AstNode {
     /// # Returns
     /// - `Ok(())` on success.
     /// - `Err(String)` if the lexeme does not represent a valid unary operator.
-    fn parse_in_unary_operator<'a>(
-        token_stack: &mut Vec<Token<'a>>,
-        lexeme: Lexeme<'a>,
+    fn parse_in_unary_operator(
+        token_stack: &mut Vec<Token>,
+        lexeme: Lexeme,
     ) -> Result<(), String> {
         if let Some(oper_kind) = UnaryOperatorKind::from(lexeme.text()) {
             token_stack.push(Token::UnaryOperator(oper_kind));
@@ -702,10 +702,10 @@ impl AstNode {
     /// # Returns
     /// - `Ok(())` on success.
     /// - `Err(String)` if the lexeme does not represent a valid binary operator.
-    fn parse_in_binary_operator<'a>(
+    fn parse_in_binary_operator(
         ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token<'a>>,
-        lexeme: Lexeme<'a>,
+        token_stack: &mut Vec<Token>,
+        lexeme: Lexeme,
     ) -> Result<(), String> {
         if let Some(oper_kind) = BinaryOperatorKind::from(lexeme.text()) {
             let oper_info = oper_kind.info();
@@ -1753,7 +1753,7 @@ impl AstNode {
 /// AstNode impl `compile` and its helper impls
 impl AstNode {
     /// Internal helper to compile the AST into a sequence of executable tokens.
-    fn execute<'a>(&self, tokens: &mut Vec<Token<'a>>) {
+    fn execute(&self, tokens: &mut Vec<Token>) {
         match self {
             Self::Number(val) => tokens.push(Token::Number(*val)),
             Self::Argument(i) => tokens.push(Token::Argument(*i)),
@@ -1786,8 +1786,8 @@ impl AstNode {
     ///
     /// The resulting tokens can be used with a function list generated
     /// by `make_function_list` to evaluate the expression.
-    pub fn compile<'a>(&self) -> Vec<Token<'a>> {
-        let mut tokens: Vec<Token<'a>> = Vec::new();
+    pub fn compile(&self) -> Vec<Token> {
+        let mut tokens: Vec<Token> = Vec::new();
         self.execute(&mut tokens);
         tokens
     }
