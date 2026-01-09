@@ -7,7 +7,7 @@
 //! The lexer handles identifiers, numeric literals (including decimal, scientific
 //! notation, and imaginary unit), and single-character operators or punctuation.
 
-/// Cpmstamt char representing an imaginary unit
+/// Constant char representing an imaginary unit
 pub const IMAGINARY_UNIT: char = 'i';
 
 /// Represents a single lexeme etracted from the input string.
