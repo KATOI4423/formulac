@@ -35,7 +35,7 @@ macro_rules! lexeme_name_with_range {
     };
 }
 
-const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
+pub const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
 
 /// Map of mathematical constants by their string representation.
 static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
