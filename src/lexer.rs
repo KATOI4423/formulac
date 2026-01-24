@@ -155,16 +155,9 @@ pub fn from(input: &str) -> Lexemes {
             _ => start_idx + ch.len_utf8(),
         };
 
-        if end_idx <= start_idx {
-            // Don't create empty lexeme
-            continue;
+        if start_idx < end_idx {
+            lexemes.push(Lexeme::new(&input[start_idx..end_idx], start_idx..end_idx));
         }
-
-        let lexeme: Lexeme = Lexeme::new(
-            &input[start_idx..end_idx],
-            start_idx..end_idx,
-        );
-        lexemes.push(lexeme);
     }
 
     lexemes
