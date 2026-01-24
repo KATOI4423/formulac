@@ -60,6 +60,8 @@ impl Lexeme {
 /// Type alias for a collection of lexemes.
 pub type Lexemes = Vec<Lexeme>;
 
+type CharIter<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
+
 /// Parses an identifier starting at `start_idx`.
 ///
 /// An identifier is a sequence of alphanumeric characters or underscores.
@@ -72,7 +74,8 @@ pub type Lexemes = Vec<Lexeme>;
 /// # Returns
 ///
 /// The ending index of the identifier.
-fn parse_ident(start_idx: usize, chars: &mut std::iter::Peekable<std::str::CharIndices>) -> usize {
+fn parse_ident(start_idx: usize, chars: &mut CharIter) -> usize
+{
     let mut end = start_idx + 1;
     while let Some(&(_, ch)) = chars.peek() {
         if ch.is_alphanumeric() || ch == '_' {
@@ -98,7 +101,8 @@ fn parse_ident(start_idx: usize, chars: &mut std::iter::Peekable<std::str::CharI
 /// # Returns
 ///
 /// The ending index of the numeric literal.
-fn parse_number(start_idx: usize, chars: &mut std::iter::Peekable<std::str::CharIndices>) -> usize {
+fn parse_number(start_idx: usize, chars: &mut CharIter) -> usize
+{
     let mut end = start_idx + 1;
     let mut seen_e = false;
 
