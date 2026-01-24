@@ -39,7 +39,7 @@
 //!
 //! ## Example: Retrieving All Names
 //! ```rust
-//! use formulac::parser::{constant, UnaryOperatorKind, BinaryOperatorKind, FunctionKind};
+//! use formulac::astnode::{constant, UnaryOperatorKind, BinaryOperatorKind, FunctionKind};
 //!
 //! // Constants
 //! let constant_names: Vec<&'static str> = constant::names();
@@ -68,11 +68,11 @@
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
 pub mod lexer;
-pub mod parser;
+pub mod astnode;
 pub mod variable;
 
 use num_complex::Complex;
-use crate::{parser::Token};
+use crate::{astnode::Token};
 use crate::{variable::FunctionCall};
 
 pub type UserDefinedFunction = variable::UserDefinedFunction;
@@ -140,7 +140,7 @@ pub fn compile(
 ) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static, String>
 {
     let lexemes = lexer::from(formula);
-    let tokens = parser::AstNode::from(&lexemes, arg_names, vars, users)?
+    let tokens = astnode::AstNode::from(&lexemes, arg_names, vars, users)?
         .simplify().compile();
 
     let expected_arity = arg_names.len();

@@ -1,4 +1,4 @@
-//! # parser.rs
+//! # astnode.rs
 //!
 //! This module provides the functionality to parse mathematical expressions into an Abstract Syntax Tree (AST)
 //! and then compile them into executable tokens.
@@ -61,7 +61,7 @@ static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
 };
 
 pub mod constant {
-    use crate::parser::CONSTANTS;
+    use crate::astnode::CONSTANTS;
 
     /// Returns a list of supported mathematical constant names.
     pub fn names() -> Vec<&'static str> {

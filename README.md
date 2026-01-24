@@ -9,7 +9,7 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
 - **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
 - **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
 - **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
-  See `src/parser.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols.
+  See `src/astnode.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols.
 - **Unary & Binary operators** — Unary operators (`+`, `-`) and binary operators (`+`, `-`, `*`, `/`, `^`) are represented as `UnaryOperatorKind` and `BinaryOperatorKind`.
 - **Abstract Syntax Tree (AST)** — Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures.
 - **User-defined functions** — Easily register custom functions or constants at runtime using a simple API (`UserDefinedTable`).
