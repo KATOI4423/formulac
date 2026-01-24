@@ -7,6 +7,8 @@
 //! The lexer handles identifiers, numeric literals (including decimal, scientific
 //! notation, and imaginary unit), and single-character operators or punctuation.
 
+use std::ops::Range;
+
 /// Constant char representing an imaginary unit
 pub const IMAGINARY_UNIT: char = 'i';
 
@@ -17,8 +19,7 @@ pub const IMAGINARY_UNIT: char = 'i';
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lexeme {
     text: String,
-    start: usize,
-    end: usize,
+    span: Range<usize>,
 }
 
 impl Lexeme {
@@ -28,11 +29,10 @@ impl Lexeme {
     ///
     /// * `text` - The slice of text corresponding to the lexeme.
     /// * `span` - The range of the lexeme in the original input string.
-    pub fn new(text: &str, span: std::ops::Range<usize>) -> Self {
+    pub fn new(text: &str, span: Range<usize>) -> Self {
         Self {
             text: text.to_string(),
-            start: span.start,
-            end: span.end,
+            span
         }
     }
 
@@ -43,12 +43,17 @@ impl Lexeme {
 
     /// Returns the start index of the lexeme in the original input string.
     pub fn start(&self) -> &usize {
-        &self.start
+        &self.span.start
     }
 
     /// Returns the end index of the lexeme in the original input string.
     pub fn end(&self) -> &usize {
-        &self.end
+        &self.span.end
+    }
+
+    /// Returns the span index (start, end) of the lexeme in the original input string.
+    pub fn span(&self) -> &Range<usize> {
+        &self.span
     }
 }
 
