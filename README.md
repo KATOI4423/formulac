@@ -30,15 +30,16 @@ cargo add formulac
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable};
+use formulac::{Builder, Variables, UserDefinedTable};
 
 fn main() {
     let mut vars = Variables::new();
     vars.insert(&[("a", Complex::new(3.0, 2.0))]);
 
-    let users = UserDefinedTable::new();
     let formula = "sin(z) + a * cos(z)";
-    let expr = compile(formula, &["z"], &vars, &users)
+    let expr = Builder::new(formula, &["z"])
+        .with_variables(vars)
+        .compile()
         .expect("Failed to compile formula");
 
     let result = expr(&[Complex::new(1.0, 2.0)]); // evaluates 'sin(1+2i) + (3+2i) * cos(1+2i)'
@@ -50,7 +51,7 @@ fn main() {
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     // Create user-defined function table
@@ -64,8 +65,11 @@ fn main() {
     );
     users.register("f", func);
 
-    let mut vars = Variables::new();
-    let expr = compile("f(3)", &[], &vars, &users).unwrap();
+    let expr = Builder::new("f(3)", &[])
+        .with_user_defined_functions(users)
+        .compile()
+        .expect("Failed to compile formula with UserDefinedFunction");
+
     assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
 }
 ```
@@ -89,15 +93,13 @@ You can directly write differentiation expressions using the `diff` operator:
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable};
+use formulac::{Builder, Variables, UserDefinedTable};
 
 fn main() {
-    let vars = Variables::new();
-    let users = UserDefinedTable::new();
-
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x)";
-    let expr = compile(formula, &["x"], &vars, &users)
+    let expr = Builder::new(formula, &["x"])
+        .compile()
         .expect("Failed to compile formula");
 
     let result = expr(&[Complex::new(1.0, 0.0)]); // evaluates cos(1)
@@ -109,15 +111,13 @@ When computing derivatives of order 2 or higher, specify the order:
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable};
+use formulac::{Builder, Variables, UserDefinedTable};
 
 fn main() {
-    let vars = Variables::new();
-    let users = UserDefinedTable::new();
-
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x, 2)";
-    let expr = compile(formula, &["x"], &vars, &users)
+    let expr = Builder::new(formula, &["x"])
+        .compile()
         .expect("Failed to compile formula");
 
     let result = expr(&[Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
@@ -131,7 +131,7 @@ You can define your own functions and provide derivatives for them. The derivati
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     let mut users = UserDefinedTable::new();
@@ -149,8 +149,10 @@ fn main() {
     ).with_derivative(vec![deriv]);
     users.register("f", func);
 
-    let vars = Variables::new();
-    let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
+    let expr = Builder::new("diff(f(x), x)", &["x"])
+        .with_user_defined_functions(users)
+        .compile()
+        .expect("Failed to compile formula with UserDefinedFunction");
 
     let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
     println!("Result: {}", result);
@@ -171,7 +173,7 @@ Note: Numerical differentiation is an aproximation, so it may be less accurate t
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     let mut users = UserDefinedTable::new();
@@ -184,8 +186,10 @@ fn main() {
     );
     users.register("f", func);
 
-    let vars = Variables::new();
-    let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
+    let expr = Builder::new("diff(f(x), x)", &["x"])
+        .with_user_defined_functions(users)
+        .compile()
+        .expect("Failed to compile formula with UserDefinedFunction");
 
     let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) ≈ 6
     println!("Result: {}", result);
@@ -198,7 +202,7 @@ For functions with multiple variables, you can register partial derivatives with
 
 ```rust
 use num_complex::Complex;
-use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     let mut users = UserDefinedTable::new();
@@ -223,13 +227,17 @@ fn main() {
     ).with_derivative(vec![deriv_x, deriv_y]);
     users.register("g", func);
 
-    let vars = Variables::new();
-
-    let expr_dx = compile("diff(g(x, y), x)", &["x", "y"], &vars, &users).unwrap();
+    let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
+        .with_user_defined_functions(users.clone()) // use it again later
+        .compile()
+        .unwrap();
     let result_dx = expr_dx(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂x at (2, 3) = {}", result_dx); // 12
 
-    let expr_dy = compile("diff(g(x, y), y)", &["x", "y"], &vars, &users).unwrap();
+    let expr_dy = Builder::new("diff(g(x, y), y)", &["x", "y"])
+        .with_user_defined_functions(users)
+        .compile()
+        .unwrap();
     let result_dy = expr_dy(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂y at (2, 3) = {}", result_dy); // 31
 }
