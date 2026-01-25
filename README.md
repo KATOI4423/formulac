@@ -136,21 +136,58 @@ use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
 fn main() {
     let mut users = UserDefinedTable::new();
 
-    // Define f(x) = x^2
+    // Define f(x) = x^2, derivative f'(x) = 2x
+    let deriv = UserDefinedFunction::new(
+        "df",
+        |args: &[Complex<f64>] Complex::ew(2.0, 0.0) * args[0],
+        1,
+    );
     let func = UserDefinedFunction::new(
         "f",
         |args: &[Complex<f64>]| args[0] * args[0],
         1,
-    ).with_derivative(
-        // derivative f'(x) = 2x
-        vec![|args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0]],
-    );
+    ).with_derivative(vec![deriv]);
     users.register("f", func);
 
     let vars = Variables::new();
     let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
 
     let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+    println!("Result: {}", result);
+}
+```
+
+### User-defined function without derivative
+
+You can also define your own functions without providing derivatives for them. In the case, the derivatives will be calculated automatically by numerical differentiation.
+
+The step size is determined automatically used by the argument value:
+
+$$
+dh = x_i \times 10^{-6}
+$$
+
+Note: Numerical differentiation is an aproximation, so it may be less accurate than analytical derivatives.
+
+```rust
+use num_complex::Complex;
+use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
+
+fn main() {
+    let mut users = UserDefinedTable::new();
+
+    // Define f(x) = x^2 without derivative
+    let func = UserDefinedFunction::new(
+        "f",
+        |args: &[Complex<f64>]| args[0] * args[0],
+        1,
+    );
+    users.register("f", func);
+
+    let vars = Variables::new();
+    let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
+
+    let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) ≈ 6
     println!("Result: {}", result);
 }
 ```
@@ -166,17 +203,24 @@ use formulac::{compile, Variables, UserDefinedTable, UserDefinedFunction};
 fn main() {
     let mut users = UserDefinedTable::new();
 
+    // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
+    let deriv_x = UserDefinedFunction::new(
+        "dg_dx",
+        |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
+        2,
+    );
+    // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
+    let deriv_y = UserDefinedFunction::new(
+        "dg_dx",
+        |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
+        2,
+    );
     // Define g(x, y) = x^2 * y + y^3
     let func = UserDefinedFunction::new(
         "g",
         |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
         2,
-    ).with_derivative(vec![
-        // partial derivative w.r.t x: ∂g/∂x = 2*x*y
-        |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
-        // partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-        |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
-    ]);
+    ).with_derivative(vec![deriv_x, deriv_y]);
     users.register("g", func);
 
     let vars = Variables::new();

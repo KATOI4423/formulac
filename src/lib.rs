@@ -194,6 +194,8 @@ pub fn compile(
 
 #[cfg(test)]
 mod compile_test {
+    use crate::variable::UserDefinedFunction;
+
     use super::*;
     use num_complex::{Complex};
     use approx::assert_abs_diff_eq;
@@ -300,15 +302,19 @@ mod compile_test {
     fn test_differentiate_with_userdefinedfunction() {
         let mut users = UserDefinedTable::new();
 
+        // Define df(x) = 2*x
+        let deriv = UserDefinedFunction::new(
+            "df",
+            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0],
+            1
+        );
+
         // Define f(x) = x^2
         let func = UserDefinedFunction::new(
             "f",
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
-        ).with_derivative(
-            // derivative f'(x) = 2x
-            vec![|args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0]],
-        );
+        ).with_derivative(vec![deriv]);
         users.register("f", func);
 
         let vars = Variables::new();
@@ -323,17 +329,25 @@ mod compile_test {
     fn test_differentiate_with_partial_derivative() {
         let mut users = UserDefinedTable::new();
 
+        // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
+        let dg_dx = UserDefinedFunction::new(
+            "dgdx",
+            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
+            2,
+        );
+        // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
+        let dg_dy = UserDefinedFunction::new(
+            "dgdy",
+            |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
+            2,
+        );
+
         // Define g(x, y) = x^2 * y + y^3
         let func = UserDefinedFunction::new(
             "g",
             |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
             2,
-        ).with_derivative(vec![
-            // partial derivative w.r.t x: ∂g/∂x = 2*x*y
-            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
-            // partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-            |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
-        ]);
+        ).with_derivative(vec![dg_dx, dg_dy]);
         users.register("g", func);
 
         let vars = Variables::new();
@@ -352,6 +366,51 @@ mod compile_test {
         let expect_dy = x * x + 3.0 * y * y;
         assert_abs_diff_eq!(result_dy.re, expect_dy.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dy.im, expect_dy.im, epsilon=1.0e-12);
+    }
+
+    #[test]
+    fn test_differentiate_with_userdefinedfunction_numerical() {
+        let mut users = UserDefinedTable::new();
+
+        // Define f(x) = x^2 without specifying derivative (uses numerical differentiation)
+        let func = UserDefinedFunction::new(
+            "f",
+            |args: &[Complex<f64>]| args[0] * args[0],
+            1,
+        );
+        users.register("f", func);
+
+        let vars = Variables::new();
+        let expr = compile("diff(f(x), x)", &["x"], &vars, &users).unwrap();
+
+        let x = Complex::new(3.0, 0.0);
+        let result = expr(&[x]); // evaluates numerical derivative of f at x=3
+        let expected = 2.0 * x; // analytical derivative: 2x
+        // Allow some tolerance due to numerical differentiation
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-5);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1e-5);
+    }
+
+    #[test]
+    fn test_differentiate_with_userdefinedfunction_numerical_complex() {
+        let mut users = UserDefinedTable::new();
+
+        // Define f(z) = z^2 (complex)
+        let func = UserDefinedFunction::new(
+            "f",
+            |args: &[Complex<f64>]| args[0] * args[0],
+            1,
+        );
+        users.register("f", func);
+
+        let vars = Variables::new();
+        let expr = compile("diff(f(z), z)", &["z"], &vars, &users).unwrap();
+
+        let z = Complex::new(1.0, 2.0);
+        let result = expr(&[z]);
+        let expected = 2.0 * z; // d/dz (z^2) = 2z
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-4);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1e-4);
     }
 
     #[test]

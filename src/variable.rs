@@ -76,11 +76,16 @@
 //! use formulac::UserDefinedFunction;
 //!
 //! // Define f(x) = x^2 with derivative f'(x) = 2x
+//! let deriv = UserDefinedFunction::new(
+//!     "deriv",
+//!     |args| Complex::new(2.0, 0.0) * args[0],
+//!     1,
+//! );
 //! let func = UserDefinedFunction::new(
 //!     "square",
 //!     |args| args[0] * args[0],
 //!     1,
-//! ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
+//! ).with_derivative(vec![ deriv ]);
 //!
 //! // Apply its derivateive if available
 //! if let Some(deriv) = func.derivative(0) {
@@ -268,7 +273,7 @@ type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
 #[derive(Clone)]
 pub struct UserDefinedFunction {
     func: Arc<FuncType>,
-    deriv: Vec<Option<Arc<FuncType>>>,
+    deriv: Vec<UserDefinedFunction>,
     arity: usize,
     name: String,
 }
@@ -323,11 +328,7 @@ impl UserDefinedFunction {
     {
         Self {
             func: Arc::new(func),
-            deriv: {
-                let mut deriv = Vec::new();
-                deriv.resize(arity, None);
-                deriv
-            },
+            deriv: Vec::new(),
             arity,
             name: name.to_string(),
         }
@@ -344,26 +345,55 @@ impl UserDefinedFunction {
     /// use num_complex::Complex;
     /// use formulac::UserDefinedFunction;
     ///
+    /// let deriv = UserDefinedFunction::new(
+    ///     "deriv",
+    ///     |args| Complex::new(2.0, 0.0) * args[0],
+    ///     1,
+    /// );
+    ///
     /// let func = UserDefinedFunction::new(
     ///     "square",
     ///     |args| args[0] * args[0],
     ///     1,
-    /// ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
+    /// ).with_derivative(vec![ deriv ]);
     /// ```
-    pub fn with_derivative<F>(mut self, diffs: Vec<F>) -> Self
-    where
-        F: Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + Clone + 'static,
+    pub fn with_derivative(mut self, diffs: Vec<Self>) -> Self
     {
         debug_assert_eq!(diffs.len(), self.arity);
-        for (i, diff) in diffs.iter().enumerate() {
-            self.deriv[i] = Some(Arc::new(diff.clone()))
-        }
+        self.deriv = diffs;
         self
     }
 
     /// Returns User-defined function name
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Returns numerical derivative
+    ///
+    /// ## about dh
+    /// dh is decided automatically by the value of variable: `args[var]` * 1.0e-6
+    pub fn numeric_deriv(&self, var: usize) -> Option<Self>
+    {
+        if var > self.arity {
+            return None;
+        }
+
+        let func = self.func.clone();
+        let arity = self.arity;
+        let name = format!("{}_num_diff_arg{}", self.name, var);
+        Some(UserDefinedFunction::new(
+            &name,
+            move |args| {
+                let dh = args[var] * 1.0e-6;
+                let mut args_plus = args.to_vec();
+                args_plus[var] += dh;
+                let mut args_minus = args.to_vec();
+                args_minus[var] -= dh;
+                (func(&args_plus) - func(&args_minus)) / (dh * 2.0)
+            },
+            arity,
+        ))
     }
 
     /// Returns a new `UserDefinedFunction` representing the derivative of this function, if defined.
@@ -375,31 +405,26 @@ impl UserDefinedFunction {
     /// use formulac::variable::FunctionCall;
     /// use formulac::UserDefinedFunction;
     ///
+    /// let deriv = UserDefinedFunction::new(
+    ///     "deriv",
+    ///     |args| Complex::new(2.0, 0.0) * args[0],
+    ///     1,
+    /// );
+    ///
     /// let func = UserDefinedFunction::new(
     ///     "square",
     ///     |args| args[0] * args[0],
     ///     1,
-    /// ).with_derivative(vec![ |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] ]);
+    /// ).with_derivative(vec![ deriv ]);
     ///
     /// if let Some(deriv) = func.derivative(0) {
     ///     let result = deriv.apply(&[Complex::new(3.0, 0.0)]);
     ///     assert_eq!(result, Complex::new(6.0, 0.0));
     /// }
     /// ```
-    pub fn derivative(&self, var: usize) -> Option<Self> {
+    pub fn derivative(&self, var: usize) -> Option<&Self> {
         debug_assert!(var < self.arity, "var must be smaller than self.arity");
-        self.deriv[var].as_ref().map(|d| {
-            UserDefinedFunction {
-                func: d.clone(),
-                deriv: {
-                    let mut deriv = Vec::new();
-                    deriv.resize(self.arity, None);
-                    deriv
-                },
-                arity: self.arity,
-                name: format!("{}.diff'", self.name),
-            }
-        })
+        self.deriv.get(var)
     }
 }
 
@@ -721,15 +746,16 @@ mod user_defined_function_tests {
 
     #[test]
     fn test_with_derivative() {
+        let df = UserDefinedFunction::new("diff", |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0], 1);
         let f = UserDefinedFunction::new("square", |args| args[0] * args[0], 1)
-            .with_derivative(vec![|args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0]]);
+            .with_derivative(vec![df]);
 
         let deriv = f.derivative(0).expect("derivative should exist");
         let deriv_result = deriv.apply(&[Complex::new(4.0, 0.0)]);
         assert_abs_diff_eq!(deriv_result.re, 8.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(deriv_result.im, 0.0, epsilon=1.0e-12);
 
-        assert!(format!("{:?}", deriv).contains("square.diff"));
+        assert!(format!("{:?}", deriv).contains("diff"));
     }
 }
 

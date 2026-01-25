@@ -1563,9 +1563,15 @@ impl AstNode {
                 Self::diff_function(kind, args, var)
             },
             Self::UserFunctionCall { func, args } => {
-                match func.derivative(var) {
-                    Some(deriv) => Ok(AstNode::UserFunctionCall { func: deriv, args: args.clone() }),
-                    None => Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var)),
+                if func.arity() < var {
+                    return Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var));
+                }
+
+                if let Some(deriv) = func.derivative(var) {
+                    Ok(AstNode::UserFunctionCall { func: deriv.clone(), args: args.clone() })
+                } else {
+                    // deriv is undefined
+                    Ok(AstNode::UserFunctionCall { func: func.numeric_deriv(var).unwrap(), args: args.clone() })
                 }
             },
             Self::Differentive { expr, var: inner_var, order } => {
