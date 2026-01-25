@@ -139,7 +139,7 @@ fn main() {
     // Define f(x) = x^2, derivative f'(x) = 2x
     let deriv = UserDefinedFunction::new(
         "df",
-        |args: &[Complex<f64>] Complex::ew(2.0, 0.0) * args[0],
+        |args: &[Complex<f64>] Complex::new(2.0, 0.0) * args[0],
         1,
     );
     let func = UserDefinedFunction::new(
@@ -211,7 +211,7 @@ fn main() {
     );
     // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
     let deriv_y = UserDefinedFunction::new(
-        "dg_dx",
+        "dg_dy",
         |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
         2,
     );
