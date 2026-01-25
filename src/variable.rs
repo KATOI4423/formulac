@@ -15,10 +15,8 @@
 //! use formulac::Variables;
 //! use num_complex::Complex;
 //!
-//! let mut vars = Variables::default();
-//!
-//! // Insert variables
-//! vars.insert(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
+//! // Register variables
+//! let mut vars = Variables::from(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
 //!
 //! // Check existence
 //! assert!(vars.contains("x"));
@@ -109,13 +107,12 @@ use std::sync::Arc;
 /// use formulac::Variables;
 /// use num_complex::Complex;
 ///
-/// let mut vars = Variables::default();
-/// vars.insert(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
+/// let vars = Variables::from(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
 ///
 /// assert!(vars.contains("x"));
 /// assert_eq!(*vars.get("y").unwrap(), Complex::new(2.0, 3.0));
 /// ```
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Variables {
     table: HashMap<String, Complex<f64>>,
 }
@@ -155,7 +152,9 @@ impl Variables {
         Complex<f64>: From<V>,
     {
         let mut vars = Self::new();
-        vars.insert(items);
+        for item in items.iter() {
+            vars.insert(item.clone());
+        }
         vars
     }
 
@@ -169,17 +168,15 @@ impl Variables {
     /// use formulac::Variables;
     /// use num_complex::Complex;
     ///
-    /// let mut vars = Variables::default();
-    /// vars.insert(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
+    /// let mut vars = Variables::new();
+    /// vars.insert(("x", Complex::new(1.0, 0.0)));
     /// ```
-    pub fn insert<V>(&mut self, items: &[(&str, V)])
+    pub fn insert<V>(&mut self, items: (&str, V))
     where
         V: Clone,
         Complex<f64>: From<V>,
     {
-        for (key, val) in items {
-            self.table.insert(key.to_string(), Complex::from(val.clone()));
-        }
+        self.table.insert(items.0.to_string(), Complex::from(items.1.clone()));
     }
 
     /// Checks if a variable with the given name exists in the table.
@@ -192,7 +189,7 @@ impl Variables {
     /// use formulac::Variables;
     ///
     /// let mut vars = Variables::default();
-    /// vars.insert(&[("x", 1.0)]);
+    /// vars.insert(("x", 1.0));
     /// assert!(vars.contains("x"));
     /// assert!(!vars.contains("y"));
     /// ```
@@ -210,8 +207,7 @@ impl Variables {
     /// use formulac::Variables;
     /// use num_complex::Complex;
     ///
-    /// let mut vars = Variables::default();
-    /// vars.insert(&[("x", Complex::new(2.0, 3.0))]);
+    /// let vars = formulac::vars!(("x", Complex::new(2.0, 3.0)));
     /// assert_eq!(*vars.get("x").unwrap(), Complex::new(2.0, 3.0));
     /// ```
     pub fn get(&self, key: &str) -> Option<&Complex<f64>> {
@@ -226,7 +222,7 @@ impl Variables {
     /// use formulac::Variables;
     ///
     /// let mut vars = Variables::default();
-    /// vars.insert(&[("x", 1.0)]);
+    /// vars.insert(("x", 1.0));
     /// vars.clear();
     /// assert!(!vars.contains("x"));
     /// ```
@@ -240,6 +236,35 @@ impl Default for Variables {
         Self::new()
     }
 }
+
+/// Creates a Variables containing the arguments.
+///
+/// `vars!` allows Vecs to be defined with the same syntax as array expressions.
+/// There are two forms of this macro:
+///
+/// - Create a Vec containing a given list of elements:
+/// ```rust
+/// use num_complex::Complex;
+/// use formulac::{Variables, vars};
+/// let vars = vars![
+///     ("a", Complex::new(1.0, 0.0)),
+///     ("b", Complex::new(3.2, 1.0))
+/// ];
+/// assert_eq!(vars.get("a"), Some(&Complex::new(1.0, 0.0)));
+/// assert_eq!(vars.get("b"), Some(&Complex::new(3.2, 1.0)));
+/// assert_eq!(vars.get("c"), None);
+/// ```
+#[macro_export]
+macro_rules! vars {
+    ( $( $x:expr), * ) => {
+        {
+            let mut vars = Variables::new();
+            $( vars.insert($x); )*
+            vars
+        }
+    };
+}
+
 
 /// The function type for user-defined functions.
 type FuncType = dyn Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync;
@@ -640,7 +665,8 @@ mod variables_tests {
     #[test]
     fn test_insert_and_get() {
         let mut vars = Variables::new();
-        vars.insert(&[("a", Complex::new(1.0, 0.0)), ("b", Complex::new(2.0, 3.0))]);
+        vars.insert(("a", Complex::new(1.0, 0.0)));
+        vars.insert(("b", Complex::new(2.0, 3.0)));
 
         assert_eq!(vars.get("a"), Some(&Complex::new(1.0, 0.0)));
         assert_eq!(vars.get("b"), Some(&Complex::new(2.0, 3.0)));
@@ -650,7 +676,7 @@ mod variables_tests {
     #[test]
     fn test_contains() {
         let mut vars = Variables::new();
-        vars.insert(&[("x", Complex::new(5.0, 0.0))]);
+        vars.insert(("x", Complex::new(5.0, 0.0)));
 
         assert!(vars.contains("x"));
         assert!(!vars.contains("y"));
@@ -659,7 +685,7 @@ mod variables_tests {
     #[test]
     fn test_clear() {
         let mut vars = Variables::new();
-        vars.insert(&[("foo", Complex::new(1.0, 0.0))]);
+        vars.insert(("foo", Complex::new(1.0, 0.0)));
         assert!(vars.contains("foo"));
 
         vars.clear();
@@ -680,6 +706,16 @@ mod variables_tests {
     fn test_default() {
         let vars = Variables::default();
         assert!(!vars.contains("anything"));
+    }
+
+    #[test]
+    fn test_variable_macro() {
+        let vars = vars![("a", 1.0), ("b", 2.0)];
+        let mut expect = Variables::new();
+        expect.insert(("a", 1.0));
+        expect.insert(("b", 2.0));
+
+        assert_eq!(vars, expect);
     }
 }
 

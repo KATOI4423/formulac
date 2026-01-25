@@ -85,8 +85,7 @@ impl Builder
     /// use num_complex::Complex;
     /// use formulac::{Builder, Variables, UserDefinedTable};
     ///
-    /// let mut vars = Variables::new();
-    /// vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+    /// let vars = Variables::from(&[("a", Complex::new(3.0, 2.0))]);
     ///
     /// let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
     ///     .with_variables(vars)
@@ -411,8 +410,7 @@ mod compile_test {
         let a = Complex::new(2.0, 1.0);
         let b = Complex::new(-4.0, 2.0);
         let x = Complex::new(1.0, 0.0);
-        let mut vars = Variables::new();
-        vars.insert(&[("a", a), ("b", b),]);
+        let vars = Variables::from(&[("a", a), ("b", b),]);
 
         let f = Builder::new("a * x + b", &["x"])
             .with_variables(vars)

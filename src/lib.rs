@@ -26,8 +26,7 @@
 //! use num_complex::Complex;
 //! use formulac::{Builder, Variables, UserDefinedTable};
 //!
-//! let mut vars = Variables::new();
-//! vars.insert(&[("a", Complex::new(3.0, 2.0))]);
+//! let vars = Variables::from(&[("a", Complex::new(3.0, 2.0))]);
 //!
 //! let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
 //!     .with_variables(vars)
