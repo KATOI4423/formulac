@@ -19,23 +19,32 @@ pub struct Builder
     usrs: UserDefinedTable,
 }
 
+impl Builder
+{
+    /// Creates a new `Builder` instance with the given formula and argument names.
+    ///
+    /// This is the starting point for building a compiled mathematical expression.
+    /// You can chain methods like `with_variables` and `with_user_defined_functions`
+    /// to configure the builder before calling `compile`.
+    ///
     /// # Parameters
     /// - `formula`: A string slice containing the mathematical expression to compile.
     /// - `arg_names`: A slice of argument names (`&str`) that the formula depends on.
-    ///   The closure returned will expect argument values in the same order.
-    /// - `vars`: A [`Variables`] table mapping variable names
-    ///   to constant values available in the formula.
-    /// - `users`: A [`UserDefinedTable`] containing
-    ///   any user-defined functions or constants available in the formula.
+    ///   These will be used as placeholders for input values in the compiled closure.
     ///
-    /// # Note
-    /// - The formula string must be a valid expression using supported operators,
-    ///   variables, and functions.
-    /// - Argument names are resolved in the order provided by `arg_names`.
-
-
-impl Builder
-{
+    /// # Returns
+    /// A new `Builder` instance with default (empty) variables and user-defined functions.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::Builder;
+    /// use num_complex::Complex;
+    ///
+    /// let builder = Builder::new("x + 1", &["x"]);
+    /// let func = builder.compile()
+    ///     .expect("Failed to compile 'x + 1'");
+    /// println!("{} + 1 = {}", 3, func(&[Complex::new(3.0, 0.0)]));
+    /// ```
     pub fn new(formula: &str, arg_names: &[&str]) -> Self
     {
         Self {
@@ -46,12 +55,54 @@ impl Builder
         }
     }
 
+    /// Sets the variables for the builder.
+    ///
+    /// Variables are constants that can be referenced in the formula by name.
+    /// This method allows you to provide a pre-configured `Variables` table.
+    ///
+    /// # Parameters
+    /// - `variables`: A `Variables` instance containing named constants.
+    ///
+    /// # Returns
+    /// The `Builder` instance with the updated variables, allowing method chaining.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::{Builder, Variables};
+    /// use num_complex::Complex;
+    ///
+    /// let vars = Variables::from(&[("a", Complex::new(1.0, 0.0))]);
+    /// let builder = Builder::new("a + x", &["x"])
+    ///     .with_variables(vars);
+    /// ```
     pub fn with_variables(mut self, variables: Variables) -> Self
     {
         self.vars = variables;
         self
     }
 
+    /// Sets the user-defined functions for the builder.
+    ///
+    /// User-defined functions allow you to extend the formula parser with custom operations.
+    /// This method allows you to provide a pre-configured `UserDefinedTable`.
+    ///
+    /// # Parameters
+    /// - `user_defined_functions`: A `UserDefinedTable` instance containing custom functions.
+    ///
+    /// # Returns
+    /// The `Builder` instance with the updated user-defined functions, allowing method chaining.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
+    /// use num_complex::Complex;
+    ///
+    /// let mut users = UserDefinedTable::new();
+    /// let func = UserDefinedFunction::new("double", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    /// users.register("double", func);
+    ///
+    /// let builder = Builder::new("double(x)", &["x"]).with_user_defined_functions(users);
+    /// ```
     pub fn with_user_defined_functions(mut self, user_defined_functions: UserDefinedTable) -> Self
     {
         self.usrs = user_defined_functions;
