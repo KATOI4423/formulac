@@ -48,6 +48,8 @@ fn main() {
 
 ### Registering a Custom Function
 
+You can use `UserDefinedTable::register` (check the function conflict) or `UserDefinedTable::insert` (overwrite the conflict function)
+
 ```rust
 use num_complex::Complex;
 use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
@@ -64,12 +66,24 @@ fn main() {
     let users = UserDefinedTable::default()
         .register(func).unwrap();
 
-    let expr = Builder::new("f(3)", &[])
-        .with_user_defined_functions(users)
-        .compile()
+    let builder = Builder::new("f(3)", &[])
+        .with_user_defined_functions(users.clone()); // use it again later
+
+    let expr = builder.compile()
         .expect("Failed to compile formula with UserDefinedFunction");
 
     assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
+
+    let users = users.insert(UserDefinedFunction::new(
+        "f", // it conflicts the above function.
+        |args: &[Complex<f64>] args[0] + Complex::new(2.0, 1.0),
+        1,
+    ));
+
+    let expr = builder.with_user_defined_functions(users)
+        .compile().unwrap();
+
+    assert_eq!(expr(&[]), Complex::new(5.0, 1.0));
 }
 ```
 

@@ -613,6 +613,34 @@ impl UserDefinedTable {
         Ok(self)
     }
 
+    /// Inserts a user-defined function into the table, overwriting any existing function with the same name.
+    ///
+    /// This method allows updating or replacing functions without error, unlike `register`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::variable::FunctionCall; // to use f.apply()
+    ///
+    /// let func1 = UserDefinedFunction::new("my_func", |args| args[0] + Complex::new(1.0, 0.0), 1);
+    /// let func2 = UserDefinedFunction::new("my_func", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    ///
+    /// let table = UserDefinedTable::default()
+    ///     .insert(func1)
+    ///     .insert(func2); // !! overwrite func1 !!
+    ///
+    /// if let Some(f) = table.get("my_func") {
+    ///     let result = f.apply(&[Complex::new(3.0, 0.0)]);
+    ///     assert_eq!(result, Complex::new(6.0, 0.0)); // the result of func2
+    /// }
+    /// ```
+    pub fn insert(mut self, func: UserDefinedFunction) -> Self {
+        self.table.insert(func.name().to_string(), func);
+        self
+    }
+
     /// Retrieves a user-defined function by its name.
     ///
     /// Returns `Some(&UserDefinedFunction)` if a function with the given name exists,
@@ -822,6 +850,30 @@ mod user_defined_table_tests {
 
         let result = retrieved.unwrap().apply(&[Complex::new(2.0, 0.0)]);
         assert_abs_diff_eq!(result.re(), 3.0, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im(), 0.0, epsilon=1.0e-12);
+    }
+
+    #[test]
+    fn test_insert() {
+        let func1 = UserDefinedFunction::new(
+            "my_func",
+            |args| args[0] + Complex::new(1.0, 0.0),
+            1,
+        );
+        let func2 = UserDefinedFunction::new(
+            "my_func",
+            |args| args[0] - Complex::new(1.0, 0.0),
+            1,
+        );
+        let table = UserDefinedTable::default()
+            .insert(func1)
+            .insert(func2);
+
+        let retrieved = table.get("my_func");
+        assert!(retrieved.is_some());
+
+        let result = retrieved.unwrap().apply(&[Complex::new(2.0, 0.0)]);
+        assert_abs_diff_eq!(result.re(), 1.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im(), 0.0, epsilon=1.0e-12);
     }
 
