@@ -53,16 +53,16 @@ use num_complex::Complex;
 use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
-    // Create user-defined function table
-    let mut users = UserDefinedTable::new();
-
     // Define a function f(x) = x^2 + 1
     let func = UserDefinedFunction::new(
         "f",
         |args: &[Complex<f64>]| args[0] * args[0] + Complex::new(1.0, 0.0),
         1,
     );
-    users.register(func);
+
+    // Create user-defined function table
+    let users = UserDefinedTable::default()
+        .register(func).unwrap();
 
     let expr = Builder::new("f(3)", &[])
         .with_user_defined_functions(users)
@@ -133,8 +133,6 @@ use num_complex::Complex;
 use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
-    let mut users = UserDefinedTable::new();
-
     // Define f(x) = x^2, derivative f'(x) = 2x
     let deriv = UserDefinedFunction::new(
         "df",
@@ -146,7 +144,9 @@ fn main() {
         |args: &[Complex<f64>]| args[0] * args[0],
         1,
     ).with_derivative(vec![deriv]);
-    users.register(func);
+
+    let users = UserDefinedTable::default()
+        .register(func).unwrap();
 
     let expr = Builder::new("diff(f(x), x)", &["x"])
         .with_user_defined_functions(users)
@@ -175,15 +175,13 @@ use num_complex::Complex;
 use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
-    let mut users = UserDefinedTable::new();
-
     // Define f(x) = x^2 without derivative
-    let func = UserDefinedFunction::new(
-        "f",
-        |args: &[Complex<f64>]| args[0] * args[0],
-        1,
-    );
-    users.register(func);
+    let users = UserDefinedTable::default()
+        .register(UserDefinedFunction::new(
+           "f",
+            |args: &[Complex<f64>]| args[0] * args[0],
+            1,
+        )).unwrap();
 
     let expr = Builder::new("diff(f(x), x)", &["x"])
         .with_user_defined_functions(users)
@@ -204,8 +202,6 @@ use num_complex::Complex;
 use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
-    let mut users = UserDefinedTable::new();
-
     // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
     let deriv_x = UserDefinedFunction::new(
         "dg_dx",
@@ -224,7 +220,9 @@ fn main() {
         |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
         2,
     ).with_derivative(vec![deriv_x, deriv_y]);
-    users.register(func);
+
+    let users = UserDefinedTable::default()
+        .register(func).unwrap();
 
     let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
         .with_user_defined_functions(users.clone()) // use it again later

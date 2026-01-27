@@ -41,16 +41,16 @@
 //! use formulac::variable::FunctionCall;
 //! use formulac::{UserDefinedTable, UserDefinedFunction};
 //!
-//! // Create a new user-defined table
-//! let mut table = UserDefinedTable::default();
-//!
 //! // Define and register a custom function
 //! let func = UserDefinedFunction::new(
 //!     "my_func",
 //!     |args| args[0] + args[1],
 //!     2,
 //! );
-//! table.register(func);
+//!
+//! // Create a new user-defined table
+//! let table = UserDefinedTable::default()
+//!     .register(func).unwrap();
 //!
 //! // Retrieve and apply the function
 //! if let Some(f) = table.get("my_func") {
@@ -542,9 +542,6 @@ impl PartialEq for UserDefinedFunction {
 /// use num_complex::Complex;
 /// use formulac::{UserDefinedTable, UserDefinedFunction};
 ///
-/// // Create a new user-defined table
-/// let mut users = UserDefinedTable::default();
-///
 /// // Define a custom function
 /// let my_func = UserDefinedFunction::new(
 ///     "my_func",
@@ -552,8 +549,9 @@ impl PartialEq for UserDefinedFunction {
 ///     1,
 /// );
 ///
-/// // Register the custom function
-/// users.register(my_func);
+/// // Create a new user-defined table and register the custom function
+/// let users = UserDefinedTable::default()
+///     .register(my_func).unwrap();
 ///
 /// // Retrieve and use the function
 /// if let Some(func) = users.get("my_func") {
@@ -586,7 +584,11 @@ impl UserDefinedTable {
 
     /// Registers a new user-defined function under the given name.
     ///
-    /// If a function with the same name already exists, it is replaced.
+    /// If a function with the same name already exists, it returns error.
+    ///
+    /// # Results
+    ///  - Ok(Self): the func was registered successfully.
+    ///  - Err(String): the func was already registered
     ///
     /// # Examples
     ///
@@ -594,17 +596,21 @@ impl UserDefinedTable {
     /// use num_complex::Complex;
     /// use formulac::{UserDefinedTable, UserDefinedFunction};
     ///
-    /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new(
     ///     "double",
     ///     |args| args[0] * Complex::new(2.0, 0.0),
     ///     1,
     /// );
-    /// table.register(func);
+    /// let table = UserDefinedTable::default()
+    ///     .register(func).unwrap();
     /// assert!(table.get("double").is_some());
     /// ```
-    pub fn register(&mut self, func: UserDefinedFunction) {
+    pub fn register(mut self, func: UserDefinedFunction) -> Result<Self, String> {
+        if self.table.contains_key(func.name()) {
+            return Err(format!("{} is already registered", func.name()));
+        }
         self.table.insert(func.name().to_string(), func);
+        Ok(self)
     }
 
     /// Retrieves a user-defined function by its name.
@@ -619,9 +625,9 @@ impl UserDefinedTable {
     /// use formulac::{UserDefinedTable, UserDefinedFunction};
     /// use formulac::variable::FunctionCall;
     ///
-    /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
-    /// table.register(func);
+    /// let table = UserDefinedTable::default()
+    ///     .register(func).unwrap();
     ///
     /// if let Some(f) = table.get("square") {
     ///     let result = f.apply(&[Complex::new(3.0, 0.0)]);
@@ -640,9 +646,9 @@ impl UserDefinedTable {
     /// use num_complex::Complex;
     /// use formulac::{UserDefinedTable, UserDefinedFunction};
     ///
-    /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("identity", |args| args[0], 1);
-    /// table.register(func);
+    /// let mut table = UserDefinedTable::default()
+    ///     .register(func).unwrap();
     ///
     /// table.clear();
     /// assert!(table.get("identity").is_none());
@@ -803,14 +809,13 @@ mod user_defined_table_tests {
 
     #[test]
     fn test_register_and_get() {
-        let mut table = UserDefinedTable::new();
-
         let func = UserDefinedFunction::new(
             "my_func",
             |args| args[0] + Complex::new(1.0, 0.0),
             1,
         );
-        table.register(func);
+        let table = UserDefinedTable::default()
+            .register(func).unwrap();
 
         let retrieved = table.get("my_func");
         assert!(retrieved.is_some());
@@ -821,9 +826,7 @@ mod user_defined_table_tests {
     }
 
     #[test]
-    fn test_overwrite() {
-        let mut table = UserDefinedTable::new();
-
+    fn test_name_conflict() {
         let func1 = UserDefinedFunction::new(
             "func",
             |args| args[0] + Complex::new(1.0, 0.0),
@@ -835,25 +838,23 @@ mod user_defined_table_tests {
             0,
         );
 
-        table.register(func1);
-        table.register(func2);
+        let table = UserDefinedTable::default()
+            .register(func1).unwrap()
+            .register(func2);
 
-        let retrieved = table.get("func").unwrap();
-        let result = retrieved.apply(&[Complex::ONE]);
-        assert_eq!(result, Complex::ZERO);
+        assert!(table.is_err());
     }
 
     #[test]
     fn test_clear() {
-        let mut table = UserDefinedTable::new();
-
         let func = UserDefinedFunction::new(
             "func",
             |args| args[0],
             1,
         );
 
-        table.register(func);
+        let mut table = UserDefinedTable::default()
+            .register(func).unwrap();
         assert!(table.get("func").is_some());
 
         table.clear();

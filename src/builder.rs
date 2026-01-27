@@ -97,9 +97,10 @@ impl Builder
     /// use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
     /// use num_complex::Complex;
     ///
-    /// let mut users = UserDefinedTable::new();
-    /// let func = UserDefinedFunction::new("double", |args| args[0] * Complex::new(2.0, 0.0), 1);
-    /// users.register(func);
+    /// let users = UserDefinedTable::default()
+    ///     .register(UserDefinedFunction::new(
+    ///         "double", |args| args[0] * Complex::new(2.0, 0.0), 1
+    ///     )).unwrap();
     ///
     /// let builder = Builder::new("double(x)", &["x"]).with_user_defined_functions(users);
     /// ```
@@ -306,8 +307,6 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_with_userdefinedfunction() {
-        let mut users = UserDefinedTable::new();
-
         // Define df(x) = 2*x
         let deriv = UserDefinedFunction::new(
             "df",
@@ -321,7 +320,8 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         ).with_derivative(vec![deriv]);
-        users.register(func);
+        let users = UserDefinedTable::default()
+            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
             .with_user_defined_functions(users)
@@ -334,8 +334,6 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_with_partial_derivative() {
-        let mut users = UserDefinedTable::new();
-
         // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
         let dg_dx = UserDefinedFunction::new(
             "dgdx",
@@ -355,8 +353,9 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
             2,
         ).with_derivative(vec![dg_dx, dg_dy]);
-        users.register(func);
 
+        let users = UserDefinedTable::default()
+            .register(func).unwrap();
 
         let x = Complex::new(2.0, 0.0);
         let y = Complex::new(3.0, 0.0);
@@ -381,15 +380,14 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_with_userdefinedfunction_numerical() {
-        let mut users = UserDefinedTable::new();
-
         // Define f(x) = x^2 without specifying derivative (uses numerical differentiation)
         let func = UserDefinedFunction::new(
             "f",
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         );
-        users.register(func);
+        let users = UserDefinedTable::default()
+            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
             .with_user_defined_functions(users)
@@ -405,15 +403,14 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_with_userdefinedfunction_numerical_complex() {
-        let mut users = UserDefinedTable::new();
-
         // Define f(z) = z^2 (complex)
         let func = UserDefinedFunction::new(
             "f",
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         );
-        users.register(func);
+        let users = UserDefinedTable::default()
+            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(z), z)", &["z"])
             .with_user_defined_functions(users)
@@ -477,10 +474,10 @@ mod compile_test {
         let a = Complex::new(1.0, 2.0);
         let x = Complex::new(2.0, -1.0);
         let f = {
-            let mut usrs = UserDefinedTable::new();
-            usrs.register(UserDefinedFunction::new(
+            let usrs = UserDefinedTable::default()
+                .register(UserDefinedFunction::new(
                     "f", |args| args[0].conj(), 1
-                ));
+                )).unwrap();
             let vars = Variables::from(&[("a", a.clone())]);
             Builder::new("f(x + a)", &["x"])
                 .with_variables(vars)
