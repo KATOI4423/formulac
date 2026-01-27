@@ -62,7 +62,7 @@ fn main() {
         |args: &[Complex<f64>]| args[0] * args[0] + Complex::new(1.0, 0.0),
         1,
     );
-    users.register("f", func);
+    users.register(func);
 
     let expr = Builder::new("f(3)", &[])
         .with_user_defined_functions(users)
@@ -146,7 +146,7 @@ fn main() {
         |args: &[Complex<f64>]| args[0] * args[0],
         1,
     ).with_derivative(vec![deriv]);
-    users.register("f", func);
+    users.register(func);
 
     let expr = Builder::new("diff(f(x), x)", &["x"])
         .with_user_defined_functions(users)
@@ -183,7 +183,7 @@ fn main() {
         |args: &[Complex<f64>]| args[0] * args[0],
         1,
     );
-    users.register("f", func);
+    users.register(func);
 
     let expr = Builder::new("diff(f(x), x)", &["x"])
         .with_user_defined_functions(users)
@@ -224,7 +224,7 @@ fn main() {
         |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
         2,
     ).with_derivative(vec![deriv_x, deriv_y]);
-    users.register("g", func);
+    users.register(func);
 
     let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
         .with_user_defined_functions(users.clone()) // use it again later

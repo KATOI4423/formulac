@@ -99,7 +99,7 @@ impl Builder
     ///
     /// let mut users = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("double", |args| args[0] * Complex::new(2.0, 0.0), 1);
-    /// users.register("double", func);
+    /// users.register(func);
     ///
     /// let builder = Builder::new("double(x)", &["x"]).with_user_defined_functions(users);
     /// ```
@@ -321,7 +321,7 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         ).with_derivative(vec![deriv]);
-        users.register("f", func);
+        users.register(func);
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
             .with_user_defined_functions(users)
@@ -355,7 +355,7 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
             2,
         ).with_derivative(vec![dg_dx, dg_dy]);
-        users.register("g", func);
+        users.register(func);
 
 
         let x = Complex::new(2.0, 0.0);
@@ -389,7 +389,7 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         );
-        users.register("f", func);
+        users.register(func);
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
             .with_user_defined_functions(users)
@@ -413,7 +413,7 @@ mod compile_test {
             |args: &[Complex<f64>]| args[0] * args[0],
             1,
         );
-        users.register("f", func);
+        users.register(func);
 
         let expr = Builder::new("diff(f(z), z)", &["z"])
             .with_user_defined_functions(users)
@@ -478,7 +478,7 @@ mod compile_test {
         let x = Complex::new(2.0, -1.0);
         let f = {
             let mut usrs = UserDefinedTable::new();
-            usrs.register("f", UserDefinedFunction::new(
+            usrs.register(UserDefinedFunction::new(
                     "f", |args| args[0].conj(), 1
                 ));
             let vars = Variables::from(&[("a", a.clone())]);

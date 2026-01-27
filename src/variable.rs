@@ -50,7 +50,7 @@
 //!     |args| args[0] + args[1],
 //!     2,
 //! );
-//! table.register("my_func", func);
+//! table.register(func);
 //!
 //! // Retrieve and apply the function
 //! if let Some(f) = table.get("my_func") {
@@ -553,7 +553,7 @@ impl PartialEq for UserDefinedFunction {
 /// );
 ///
 /// // Register the custom function
-/// users.register("my_func", my_func);
+/// users.register(my_func);
 ///
 /// // Retrieve and use the function
 /// if let Some(func) = users.get("my_func") {
@@ -600,11 +600,11 @@ impl UserDefinedTable {
     ///     |args| args[0] * Complex::new(2.0, 0.0),
     ///     1,
     /// );
-    /// table.register("double", func);
+    /// table.register(func);
     /// assert!(table.get("double").is_some());
     /// ```
-    pub fn register(&mut self, name: &str, func: UserDefinedFunction) {
-        self.table.insert(name.to_string(), func);
+    pub fn register(&mut self, func: UserDefinedFunction) {
+        self.table.insert(func.name().to_string(), func);
     }
 
     /// Retrieves a user-defined function by its name.
@@ -621,7 +621,7 @@ impl UserDefinedTable {
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("square", |args| args[0] * args[0], 1);
-    /// table.register("square", func);
+    /// table.register(func);
     ///
     /// if let Some(f) = table.get("square") {
     ///     let result = f.apply(&[Complex::new(3.0, 0.0)]);
@@ -642,7 +642,7 @@ impl UserDefinedTable {
     ///
     /// let mut table = UserDefinedTable::new();
     /// let func = UserDefinedFunction::new("identity", |args| args[0], 1);
-    /// table.register("identity", func);
+    /// table.register(func);
     ///
     /// table.clear();
     /// assert!(table.get("identity").is_none());
@@ -810,7 +810,7 @@ mod user_defined_table_tests {
             |args| args[0] + Complex::new(1.0, 0.0),
             1,
         );
-        table.register("my_func", func);
+        table.register(func);
 
         let retrieved = table.get("my_func");
         assert!(retrieved.is_some());
@@ -825,18 +825,18 @@ mod user_defined_table_tests {
         let mut table = UserDefinedTable::new();
 
         let func1 = UserDefinedFunction::new(
-            "func1",
+            "func",
             |args| args[0] + Complex::new(1.0, 0.0),
             1,
         );
         let func2 = UserDefinedFunction::new(
-            "func2",
+            "func",
             |_args| Complex::ZERO,
             0,
         );
 
-        table.register("func", func1);
-        table.register("func", func2);
+        table.register(func1);
+        table.register(func2);
 
         let retrieved = table.get("func").unwrap();
         let result = retrieved.apply(&[Complex::ONE]);
@@ -853,11 +853,11 @@ mod user_defined_table_tests {
             1,
         );
 
-        table.register("f", func);
-        assert!(table.get("f").is_some());
+        table.register(func);
+        assert!(table.get("func").is_some());
 
         table.clear();
-        assert!(table.get("f").is_none());
+        assert!(table.get("func").is_none());
     }
 
     #[test]
