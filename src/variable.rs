@@ -16,7 +16,7 @@
 //! use num_complex::Complex;
 //!
 //! // Register variables
-//! let mut vars = Variables::from(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
+//! let mut vars = Variables::from([("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
 //!
 //! // Check existence
 //! assert!(vars.contains("x"));
@@ -107,7 +107,7 @@ use std::sync::Arc;
 /// use formulac::Variables;
 /// use num_complex::Complex;
 ///
-/// let vars = Variables::from(&[("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
+/// let vars = Variables::from([("x", Complex::new(1.0, 0.0)), ("y", Complex::new(2.0, 3.0))]);
 ///
 /// assert!(vars.contains("x"));
 /// assert_eq!(*vars.get("y").unwrap(), Complex::new(2.0, 3.0));
@@ -134,8 +134,11 @@ impl Variables {
         }
     }
 
-    /// Constructs a `Variables` table from a slice of key-value pairs.
+    /// Constructs a `Variables` table from an iterator of key-value pairs.
     ///
+    /// This method consumes the input iterator, moving ownership of the values into the table.
+    /// It accepts any type that implements `IntoIterator<Item = (S, V)>` where `S` implements `AsRef<str>`,
+    /// including slices, arrays, vecs, and custom iterators.
     /// Values can be any type convertible into `Complex<f64>`.
     ///
     /// # Examples
@@ -143,17 +146,35 @@ impl Variables {
     /// ```rust
     /// use formulac::Variables;
     ///
-    /// let vars = Variables::from(&[("a", 1.0), ("b", 2.0)]);
+    /// // From a slice with &str
+    /// let vars = Variables::from([("a", 1.0), ("b", 2.0)]);
     /// assert!(vars.contains("a"));
     /// ```
-    pub fn from<V>(items: &[(&str, V)]) -> Self
+    ///
+    /// ```rust
+    /// use formulac::Variables;
+    ///
+    /// // From a vec with String
+    /// let vars = Variables::from(vec![("x".to_string(), 1.0), ("y".to_string(), 2.0)]);
+    /// assert!(vars.contains("x"));
+    /// ```
+    ///
+    /// ```rust
+    /// use formulac::Variables;
+    ///
+    /// // From an array with &str
+    /// let vars = Variables::from([("p", 3.0), ("q", 4.5)]);
+    /// assert!(vars.contains("p"));
+    /// ```
+    pub fn from<I, S, V>(items: I) -> Self
     where
-        V: Clone,
+        I: IntoIterator<Item = (S, V)>,
+        S: AsRef<str>,
         Complex<f64>: From<V>,
     {
         let mut vars = Self::new();
-        for item in items.iter() {
-            vars.insert(item.clone());
+        for (name, value) in items {
+            vars.table.insert(name.as_ref().to_string(), Complex::from(value));
         }
         vars
     }
@@ -173,10 +194,9 @@ impl Variables {
     /// ```
     pub fn insert<V>(&mut self, items: (&str, V))
     where
-        V: Clone,
         Complex<f64>: From<V>,
     {
-        self.table.insert(items.0.to_string(), Complex::from(items.1.clone()));
+        self.table.insert(items.0.to_string(), Complex::from(items.1));
     }
 
     /// Checks if a variable with the given name exists in the table.
@@ -847,7 +867,7 @@ mod variables_tests {
 
     #[test]
     fn test_from_slice() {
-        let items = &[("p", 3.0), ("q", 4.5)];
+        let items = [("p", 3.0), ("q", 4.5)];
         let vars = Variables::from(items);
 
         assert_eq!(vars.get("p"), Some(&Complex::new(3.0, 0.0)));
