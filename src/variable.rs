@@ -582,6 +582,31 @@ impl UserDefinedTable {
         Self { table: HashMap::new() }
     }
 
+    /// Adds a user-defined function to the table, overwriting any existing function with the same name.
+    ///
+    /// This method allows chaining multiple additions without consuming self.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// let mut table = UserDefinedTable::default();
+    /// let func1 = UserDefinedFunction::new("f", |args| args[0] + Complex::ONE, 1);
+    /// let func2 = UserDefinedFunction::new("g", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    ///
+    /// table.add(func1);
+    /// table.add(func2); // allows chaining multiple additions
+    ///
+    /// assert!(table.get("f").is_some());
+    /// assert!(table.get("g").is_some());
+    /// ```
+    pub fn add(&mut self, func: UserDefinedFunction)
+    {
+        self.table.insert(func.name().to_string(), func);
+    }
+
     /// Registers a new user-defined function under the given name.
     ///
     /// If a function with the same name already exists, it returns error.
