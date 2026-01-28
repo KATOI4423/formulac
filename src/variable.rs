@@ -666,6 +666,24 @@ impl UserDefinedTable {
         self.table.get(name)
     }
 
+    /// Removes a function from the table,
+    /// returning the value at the function name if the function was previously in the table.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// let func = UserDefinedFunction::new("func", |args| args[0] * args[0], 1);
+    /// let mut table = UserDefinedTable::default()
+    ///     .insert(func.clone());
+    /// assert_eq!(table.remove("func"), Some(func));
+    /// assert_eq!(table.remove("func"), None);
+    /// ```
+    pub fn remove(&mut self, name: &str) -> Option<UserDefinedFunction>
+    {
+        self.table.remove(name)
+    }
+
     /// Clears all user-defined functions from the table.
     ///
     /// # Examples
