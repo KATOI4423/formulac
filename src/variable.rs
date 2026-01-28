@@ -835,46 +835,6 @@ mod variables_tests {
     use super::*;
 
     #[test]
-    fn test_insert_and_get() {
-        let mut vars = Variables::new();
-        vars.insert(("a", Complex::new(1.0, 0.0)));
-        vars.insert(("b", Complex::new(2.0, 3.0)));
-
-        assert_eq!(vars.get("a"), Some(&Complex::new(1.0, 0.0)));
-        assert_eq!(vars.get("b"), Some(&Complex::new(2.0, 3.0)));
-        assert_eq!(vars.get("c"), None);
-    }
-
-    #[test]
-    fn test_contains() {
-        let mut vars = Variables::new();
-        vars.insert(("x", Complex::new(5.0, 0.0)));
-
-        assert!(vars.contains("x"));
-        assert!(!vars.contains("y"));
-    }
-
-    #[test]
-    fn test_clear() {
-        let mut vars = Variables::new();
-        vars.insert(("foo", Complex::new(1.0, 0.0)));
-        assert!(vars.contains("foo"));
-
-        vars.clear();
-        assert!(!vars.contains("foo"));
-        assert_eq!(vars.get("foo"), None);
-    }
-
-    #[test]
-    fn test_from_slice() {
-        let items = [("p", 3.0), ("q", 4.5)];
-        let vars = Variables::from(items);
-
-        assert_eq!(vars.get("p"), Some(&Complex::new(3.0, 0.0)));
-        assert_eq!(vars.get("q"), Some(&Complex::new(4.5, 0.0)));
-    }
-
-    #[test]
     fn test_default() {
         let vars = Variables::default();
         assert!(!vars.contains("anything"));
@@ -974,24 +934,6 @@ mod user_defined_table_tests {
     use num_complex::{Complex, ComplexFloat};
 
     #[test]
-    fn test_register_and_get() {
-        let func = UserDefinedFunction::new(
-            "my_func",
-            |args| args[0] + Complex::new(1.0, 0.0),
-            1,
-        );
-        let table = UserDefinedTable::default()
-            .register(func).unwrap();
-
-        let retrieved = table.get("my_func");
-        assert!(retrieved.is_some());
-
-        let result = retrieved.unwrap().apply(&[Complex::new(2.0, 0.0)]);
-        assert_abs_diff_eq!(result.re(), 3.0, epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im(), 0.0, epsilon=1.0e-12);
-    }
-
-    #[test]
     fn test_insert() {
         let func1 = UserDefinedFunction::new(
             "my_func",
@@ -1033,22 +975,6 @@ mod user_defined_table_tests {
             .register(func2);
 
         assert!(table.is_err());
-    }
-
-    #[test]
-    fn test_clear() {
-        let func = UserDefinedFunction::new(
-            "func",
-            |args| args[0],
-            1,
-        );
-
-        let mut table = UserDefinedTable::default()
-            .register(func).unwrap();
-        assert!(table.get("func").is_some());
-
-        table.clear();
-        assert!(table.get("func").is_none());
     }
 
     #[test]

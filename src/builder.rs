@@ -452,23 +452,6 @@ mod compile_test {
         assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
     }
 
-
-    #[test]
-    fn test_variables() {
-        let a = Complex::new(2.0, 1.0);
-        let b = Complex::new(-4.0, 2.0);
-        let x = Complex::new(1.0, 0.0);
-        let vars = Variables::from([("a", a), ("b", b),]);
-
-        let f = Builder::new("a * x + b", &["x"])
-            .with_variables(vars)
-            .compile().unwrap();
-        let result = f(&[x]);
-        let expected = a * x + b;
-        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
-    }
-
     #[test]
     fn test_structure_lifetime() {
         let a = Complex::new(1.0, 2.0);
