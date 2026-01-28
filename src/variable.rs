@@ -771,6 +771,27 @@ impl UserDefinedTable {
         table
     }
 
+    /// Checks whether the UserDefinedTable contains the function or not
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// let table: UserDefinedTable = vec![
+    ///     UserDefinedFunction::new("a", |args| args[0], 1),
+    /// ].into_iter().collect();
+    ///
+    /// assert!(table.contains("a"));
+    /// assert!(!table.contains("b"));
+    /// ```
+    pub fn contains<S>(&self, name: S) -> bool
+    where
+        S: AsRef<str>,
+    {
+        self.table.contains_key(name.as_ref())
+    }
+
     /// Retrieves a user-defined function by its name.
     ///
     /// Returns `Some(&UserDefinedFunction)` if a function with the given name exists,
