@@ -666,6 +666,81 @@ impl UserDefinedTable {
         self
     }
 
+    /// Constructs a `UserDefinedTable` from an iterator of user-defined functions.
+    ///
+    /// This method consumes the input iterator, moving ownership of the functions into the table.
+    /// It accepts any type that implements `IntoIterator<Item = UserDefinedFunction>`,
+    /// including `Vec`, arrays, and custom iterators.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// // From a Vec
+    /// let func1 = UserDefinedFunction::new("f", |args| args[0], 1);
+    /// let func2 = UserDefinedFunction::new("g", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    /// let table = UserDefinedTable::from(vec![func1, func2]);
+    ///
+    /// assert!(table.get("f").is_some());
+    /// assert!(table.get("g").is_some());
+    /// ```
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// // From an array
+    /// let func1 = UserDefinedFunction::new("f", |args| args[0], 1);
+    /// let func2 = UserDefinedFunction::new("g", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    /// let table = UserDefinedTable::from([func1, func2]);
+    ///
+    /// assert!(table.get("f").is_some());
+    /// ```
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// // From an iterator
+    /// let functions = vec![
+    ///     UserDefinedFunction::new("f", |args| args[0], 1),
+    ///     UserDefinedFunction::new("g", |args| args[0] * Complex::new(2.0, 0.0), 1),
+    /// ];
+    /// let table = UserDefinedTable::from(functions.into_iter());
+    ///
+    /// assert!(table.get("f").is_some());
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// If multiple functions in the iterator have the same name,
+    /// the later one will overwrite the earlier one.
+    ///
+    /// ```rust
+    /// use num_complex::Complex;
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    /// use formulac::variable::FunctionCall;
+    ///
+    /// let func1 = UserDefinedFunction::new("f", |args| args[0] + Complex::ONE, 1);
+    /// let func2 = UserDefinedFunction::new("f", |args| args[0] * Complex::new(2.0, 0.0), 1);
+    /// let table = UserDefinedTable::from(vec![func1, func2]);
+    ///
+    /// if let Some(f) = table.get("f") {
+    ///     let result = f.apply(&[Complex::new(3.0, 0.0)]);
+    ///     assert_eq!(result, Complex::new(6.0, 0.0)); // func2's result
+    /// }
+    /// ```
+    pub fn from<I: IntoIterator<Item = UserDefinedFunction>>(functions: I) -> Self
+    {
+        let mut table = Self::default();
+        for func in functions {
+            table.add(func);
+        }
+        table
+    }
+
     /// Retrieves a user-defined function by its name.
     ///
     /// Returns `Some(&UserDefinedFunction)` if a function with the given name exists,
