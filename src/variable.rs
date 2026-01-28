@@ -257,6 +257,16 @@ impl Default for Variables {
     }
 }
 
+impl<S, V> FromIterator<(S, V)> for Variables
+where
+    S: AsRef<str>,
+    Complex<f64>: From<V>,
+{
+    fn from_iter<T: IntoIterator<Item = (S, V)>>(iter: T) -> Self {
+        Self::from(iter)
+    }
+}
+
 /// Creates a Variables containing the arguments.
 ///
 /// `vars!` allows Vecs to be defined with the same syntax as array expressions.
@@ -827,6 +837,13 @@ impl UserDefinedTable {
 impl Default for UserDefinedTable {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl FromIterator<UserDefinedFunction> for UserDefinedTable
+{
+    fn from_iter<T: IntoIterator<Item = UserDefinedFunction>>(iter: T) -> Self {
+        Self::from(iter)
     }
 }
 
