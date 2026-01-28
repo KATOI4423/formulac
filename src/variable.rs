@@ -257,6 +257,15 @@ impl Default for Variables {
     }
 }
 
+/// #  Examples
+///
+/// ```rust
+/// use formulac::Variables;
+///
+/// let vars: Variables = vec![("a", 1.0), ("b", 2.0)].into_iter().collect();
+/// assert!(vars.contains("a"));
+/// assert!(vars.contains("b"));
+/// ```
 impl<S, V> FromIterator<(S, V)> for Variables
 where
     S: AsRef<str>,
@@ -861,6 +870,19 @@ impl Default for UserDefinedTable {
     }
 }
 
+/// # Examples
+///
+/// ```rust
+/// use formulac::{UserDefinedTable, UserDefinedFunction};
+///
+/// let table: UserDefinedTable = vec![
+///     UserDefinedFunction::new("a", |args| args[0], 1),
+///     UserDefinedFunction::new("b", |args| args[1], 2),
+/// ].into_iter().collect();
+///
+/// assert!(table.contains("a"));
+/// assert!(table.contains("b"));
+/// ```
 impl FromIterator<UserDefinedFunction> for UserDefinedTable
 {
     fn from_iter<T: IntoIterator<Item = UserDefinedFunction>>(iter: T) -> Self {
