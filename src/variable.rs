@@ -249,6 +249,38 @@ impl Variables {
     pub fn clear(&mut self) {
         self.table.clear();
     }
+
+    /// Returns the number of elements in the map.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::Variables;
+    ///
+    /// let mut a = Variables::default();
+    /// assert_eq!(a.len(), 0);
+    /// a.insert(("b", 1.0));
+    /// assert_eq!(a.len(), 1);
+    /// ```
+    pub fn len(&self) -> usize
+    {
+        self.table.len()
+    }
+
+    /// Returns true if the table contains no elements.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::Variables;
+    ///
+    /// let mut a = Variables::default();
+    /// assert!(a.is_empty());
+    /// a.insert(("b", 1.0));
+    /// assert!(!a.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool
+    {
+        self.table.is_empty()
+    }
 }
 
 impl Default for Variables {
@@ -861,6 +893,45 @@ impl UserDefinedTable {
     /// ```
     pub fn clear(&mut self) {
         self.table.clear();
+    }
+
+    /// Returns the number of elements in the table.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// let mut a = UserDefinedTable::new();
+    /// assert_eq!(a.len(), 0);
+    /// a.add(UserDefinedFunction::new("b", |args| args[0], 1));
+    /// assert_eq!(a.len(), 1);
+    /// ```
+    pub fn len(&self) -> usize
+    {
+        self.table.len()
+    }
+
+    /// Returns true if the table contains no elements.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::{UserDefinedTable, UserDefinedFunction};
+    ///
+    /// let mut a = UserDefinedTable::new();
+    /// assert!(a.is_empty());
+    /// a.add(UserDefinedFunction::new("b", |args| args[0], 1));
+    /// assert!(!a.is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool
+    {
+        self.table.is_empty()
+    }
+
+    /// Returns an iterator over the user-defined functions.
+    pub fn iter(&self) -> impl Iterator<Item = &UserDefinedFunction>
+    {
+        self.table.iter()
+            .map(|(_key, value)| value)
     }
 }
 
