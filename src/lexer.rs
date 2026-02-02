@@ -57,6 +57,13 @@ impl Lexeme {
     }
 }
 
+impl std::fmt::Display for Lexeme
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{name} [{start}, {end})", name=self.text, start=self.span.start, end=self.span.end)
+    }
+}
+
 /// Type alias for a collection of lexemes.
 pub type Lexemes = Vec<Lexeme>;
 

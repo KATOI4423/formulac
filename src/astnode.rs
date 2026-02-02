@@ -29,12 +29,6 @@ use num_complex::ComplexFloat;
 use phf::Map;
 use phf_macros::phf_map;
 
-macro_rules! lexeme_name_with_range {
-    ($lexeme: expr) => {
-        format!("{name} at {start}..{end}", name=$lexeme.text(), start=$lexeme.start(), end=$lexeme.end())
-    };
-}
-
 pub const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
 
 /// Map of mathematical constants by their string representation.
@@ -429,7 +423,7 @@ impl Token {
             "(" => Ok(Token::LParen(lexeme.clone())),
             ")" => Ok(Token::RParen(lexeme.clone())),
             "," => Ok(Token::Comma(lexeme.clone())),
-            _ =>Err(format!("Unknown string {}", lexeme_name_with_range!(lexeme))),
+            _ =>Err(format!("Unknown string {}", lexeme)),
         }
     }
 
@@ -551,7 +545,7 @@ impl AstNode {
                     Self::parse_in_comma(&mut ast_nodes, &mut token_stack, lexeme)?;
                     prev_is_value = false; // The operator next to Comma is unary operator; ex) pow(x, -3)
                 },
-                _ => return Err(format!("Invalid token kind made from {}", lexeme_name_with_range!(lexeme))),
+                _ => return Err(format!("Invalid token kind made from {}", lexeme)),
             }
         }
 
@@ -686,7 +680,7 @@ impl AstNode {
             token_stack.push(Token::UnaryOperator(oper_kind));
             Ok(())
         } else {
-            Err(format!("Unknown unary operator {}", lexeme_name_with_range!(lexeme)))
+            Err(format!("Unknown unary operator {}", lexeme))
         }
     }
 
@@ -721,7 +715,7 @@ impl AstNode {
             token_stack.push(Token::BinaryOperator(oper_kind));
             Ok(())
         } else {
-            Err(format!("Unknown binary operator {}", lexeme_name_with_range!(lexeme)))
+            Err(format!("Unknown binary operator {}", lexeme))
         }
     }
 
@@ -897,38 +891,38 @@ impl AstNode {
         lexeme: Lexeme,
     ) -> Result<(), String> {
         let top = stack.pop()
-            .ok_or(format!("diff operator {}: missing top argument (expected variable or order)", lexeme_name_with_range!(lexeme)))?;
+            .ok_or(format!("diff operator {}: missing top argument (expected variable or order)", lexeme))?;
 
         // differential order and variable extraction
         let (var_idx, order) = match top {
             // the case of `diff(f(x), x, n)`
             Self::Number(z) => {
                 if (z.im != 0.0) || (z.re.fract() != 0.0) {
-                    return Err(format!("diff operator {}: fractional order not supported (got {})", lexeme_name_with_range!(lexeme), z));
+                    return Err(format!("diff operator {}: fractional order not supported (got {})", lexeme, z));
                 }
 
                 let order = z.re as usize;
                 if order > i8::MAX as usize {
                     return Err(format!("diff operator {}: differential order {} exceeds maximum allowed ({})",
-                        lexeme_name_with_range!(lexeme), z, i8::MAX));
+                        lexeme, z, i8::MAX));
                 }
 
                 let var = match stack.pop() {
                     Some(Self::Argument(idx)) => idx,
                     Some(other) => return Err(format!("diff operator {}: expected variable (Argument) before order, got {:?}",
-                        lexeme_name_with_range!(lexeme), other)),
-                    None => return Err(format!("diff operator {}: missing differential variable before order", lexeme_name_with_range!(lexeme))),
+                        lexeme, other)),
+                    None => return Err(format!("diff operator {}: missing differential variable before order", lexeme)),
                 };
 
                 (var, order)
             },
             Self::Argument(idx) => (idx, 1), // default order = 1
             other => return Err(format!("diff operator {}: expected Argument or Number for order, got {:?}",
-                lexeme_name_with_range!(lexeme), other))
+                lexeme, other))
         };
 
         let mut expr = stack.pop()
-            .ok_or(format!("diff operator {}: missing expression to differentiate", lexeme_name_with_range!(lexeme)))?;
+            .ok_or(format!("diff operator {}: missing expression to differentiate", lexeme))?;
 
         for _ in 0..order {
             expr = expr.differentiate(var_idx)?;
