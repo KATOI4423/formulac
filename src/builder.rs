@@ -77,7 +77,9 @@ impl Builder
     /// ```
     pub fn with_variables(mut self, variables: Variables) -> Self
     {
-        self.vars = variables;
+        for (key, val) in variables.iter() {
+            self.vars.insert((key.as_str(), *val));
+        }
         self
     }
 
@@ -106,7 +108,9 @@ impl Builder
     /// ```
     pub fn with_user_defined_functions(mut self, user_defined_functions: UserDefinedTable) -> Self
     {
-        self.usrs = user_defined_functions;
+        for func in user_defined_functions.iter() {
+            self.usrs.add(func.clone());
+        }
         self
     }
 

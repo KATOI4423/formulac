@@ -281,6 +281,12 @@ impl Variables {
     {
         self.table.is_empty()
     }
+
+    /// Returns an iterator over the variables.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Complex<f64>)>
+    {
+        self.table.iter()
+    }
 }
 
 impl Default for Variables {
