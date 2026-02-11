@@ -37,7 +37,6 @@
 //!
 //! ## Example: Retrieving All Names
 //! ```rust
-//! use formulac::astnode::{UnaryOperatorKind, BinaryOperatorKind, FunctionKind};
 //! use formulac::constants;
 //!
 //! // Constants
@@ -45,16 +44,16 @@
 //! println!("Constants: {:?}", constant_names);
 //!
 //! // Unary operators
-//! let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
-//! println!("Unary Operators: {:?}", unary_names);
+//! //let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
+//! //println!("Unary Operators: {:?}", unary_names);
 //!
 //! // Binary operators
-//! let binary_names: Vec<&'static str> = BinaryOperatorKind::names();
-//! println!("Binary Operators: {:?}", binary_names);
+//! //let binary_names: Vec<&'static str> = BinaryOperatorKind::names();
+//! //println!("Binary Operators: {:?}", binary_names);
 //!
 //! // Functions
-//! let function_names: Vec<&'static str> = FunctionKind::names();
-//! println!("Functions: {:?}", function_names);
+//! //let function_names: Vec<&'static str> = FunctionKind::names();
+//! //println!("Functions: {:?}", function_names);
 //! ```
 //!
 //! ## When to Use

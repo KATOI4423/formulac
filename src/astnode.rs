@@ -44,7 +44,7 @@ macro_rules! unary_operator_kind {
     ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
         /// Represents a unary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub enum UnaryOperatorKind {
+        pub(crate) enum UnaryOperatorKind {
             $($name),*
         }
 
@@ -86,13 +86,12 @@ unary_operator_kind! {
     Negative => { symbol: "-", apply: |x: Complex<f64>| -x },
 }
 
-
 /// Information about a binary operator in a mathematical expression.
 ///
 /// Contains the operator's precedence and associativity, which are used
 /// when parsing expressions to determine the order of operations.
 #[derive(Debug, Clone, PartialEq)]
-pub struct BinaryOperatorInfo {
+pub(crate) struct BinaryOperatorInfo {
     /// Operator precedence (higher value means higher precedence).
     pub precedence: u8,
 
@@ -114,7 +113,7 @@ macro_rules! binary_operators {
     }),* $(,)?) => {
         /// Represents a binary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub enum BinaryOperatorKind {
+        pub(crate) enum BinaryOperatorKind {
             $($name),*
         }
 
@@ -199,7 +198,7 @@ macro_rules! functions {
         /// Supports common trigonometric, hyperbolic, logarithmic, exponential, and arithmetic functions,
         /// as well as complex-specific operations like conjugation.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub enum FunctionKind {
+        pub(crate) enum FunctionKind {
             $( $variant, )*
         }
 
@@ -281,7 +280,7 @@ functions! {
 /// This enum covers all possible token types, including numbers, operators,
 /// functions, parentheses, commas, and user-defined functions.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub(crate) enum Token {
     /// Numerical value token holding a resolved complex number.
     ///
     /// This variant can represent:
@@ -404,7 +403,7 @@ impl Token {
 ///
 /// The AST allows for expression simplification and compilation into executable tokens.
 #[derive(Debug, Clone, PartialEq)]
-pub enum AstNode {
+pub(crate) enum AstNode {
     /// Numeric literal.
     Number(Complex<f64>),
 
