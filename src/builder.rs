@@ -4,10 +4,11 @@
 
 use crate::lexer;
 use crate::astnode;
-use crate::variable;
+use crate::constants::Constants;
+use crate::variable::UserDefinedTable;
+use crate::variable::FunctionCall;
 
 use astnode::*;
-use variable::*;
 use num_complex::Complex;
 
 
@@ -15,7 +16,7 @@ pub struct Builder
 {
     formula: String,
     args: Vec<String>,
-    vars: Variables,
+    constants: Constants,
     usrs: UserDefinedTable,
 }
 
@@ -24,7 +25,7 @@ impl Builder
     /// Creates a new `Builder` instance with the given formula and argument names.
     ///
     /// This is the starting point for building a compiled mathematical expression.
-    /// You can chain methods like `with_variables` and `with_user_defined_functions`
+    /// You can chain methods like `with_constants` and `with_user_defined_functions`
     /// to configure the builder before calling `compile`.
     ///
     /// # Parameters
@@ -33,7 +34,7 @@ impl Builder
     ///   These will be used as placeholders for input values in the compiled closure.
     ///
     /// # Returns
-    /// A new `Builder` instance with default (empty) variables and user-defined functions.
+    /// A new `Builder` instance with default constants and user-defined functions.
     ///
     /// # Examples
     /// ```rust
@@ -50,35 +51,41 @@ impl Builder
         Self {
             formula: formula.to_string(),
             args: arg_names.to_vec().iter().map(|arg| arg.to_string()).collect(),
-            vars: Variables::new(),
+            constants: Constants::default(),
             usrs: UserDefinedTable::new(),
         }
     }
 
-    /// Sets the variables for the builder.
+    /// Sets the constants for the builder.
     ///
-    /// Variables are constants that can be referenced in the formula by name.
-    /// This method allows you to provide a pre-configured `Variables` table.
+    /// Constants can be referenced in the formula by name.
+    /// This method allows you to provide a pre-configured `Constants` table.
     ///
     /// # Parameters
-    /// - `variables`: A `Variables` instance containing named constants.
+    /// - `constants`: A `Constants` instance containing named constants.
     ///
     /// # Returns
-    /// The `Builder` instance with the updated variables, allowing method chaining.
+    /// The `Builder` instance with the updated constants, allowing method chaining.
     ///
     /// # Examples
     /// ```rust
-    /// use formulac::{Builder, Variables};
+    /// use formulac::Builder;
     /// use num_complex::Complex;
     ///
-    /// let vars = Variables::from([("a", Complex::new(1.0, 0.0))]);
     /// let builder = Builder::new("a + x", &["x"])
-    ///     .with_variables(vars);
+    ///     .with_constants([
+    ///         ("a", Complex::new(1.0, 0.0)),
+    ///         ("b", Complex::new(-1.0, 2.5))
+    ///     ]);
     /// ```
-    pub fn with_variables(mut self, variables: Variables) -> Self
+    pub fn with_constants<I, S, V>(mut self, constants: I) -> Self
+    where
+        I: IntoIterator<Item = (S, V)>,
+        String: From<S>,
+        Complex<f64>: From<V>,
     {
-        for (key, val) in variables.iter() {
-            self.vars.insert((key.as_str(), *val));
+        for (key, value) in constants {
+            self.constants.insert(key, value);
         }
         self
     }
@@ -139,12 +146,10 @@ impl Builder
     /// # Example
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::{Builder, Variables, UserDefinedTable};
-    ///
-    /// let vars = Variables::from([("a", Complex::new(3.0, 2.0))]);
+    /// use formulac::{Builder, UserDefinedTable};
     ///
     /// let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
-    ///     .with_variables(vars)
+    ///     .with_constants([("a", Complex::new(3.0, 2.0))])
     ///     .compile()
     ///     .expect("Failed to compile formula");
     ///
@@ -159,7 +164,7 @@ impl Builder
     {
         let lexemes = lexer::from(&self.formula);
         let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str() ).collect();
-        let tokens = astnode::AstNode::from(&lexemes, &args, &self.vars, &self.usrs)?
+        let tokens = astnode::AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
             .simplify().compile();
 
         let expected_arity = args.len();
@@ -449,7 +454,7 @@ mod compile_test {
     #[cfg(not(debug_assertions))]
     #[test]
     fn test_too_much_args_length() {
-        let f = Builder::new("x + 1", &["x"], &vars, &users)
+        let f = Builder::new("x + 1", &["x"])
             .compile().unwrap();
         let result = f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
         assert_abs_diff_eq!(result.re, 2.0, epsilon=1.0e-12);
@@ -465,9 +470,9 @@ mod compile_test {
                 .register(UserDefinedFunction::new(
                     "f", |args| args[0].conj(), 1
                 )).unwrap();
-            let vars = Variables::from([("a", a.clone())]);
+            let constants = [("a", a.clone())];
             Builder::new("f(x + a)", &["x"])
-                .with_variables(vars)
+                .with_constants(constants)
                 .with_user_defined_functions(usrs)
                 .compile().unwrap()
         };

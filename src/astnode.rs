@@ -5,7 +5,6 @@
 //!
 //! It supports:
 //! - Real and complex numbers
-//! - Variables (`Variables` from `variable.rs`)
 //! - Constants (predefined math constants like PI, E, etc.)
 //! - Unary and binary operators
 //! - Built-in functions (sin, cos, ln, sqrt, etc.)
@@ -23,45 +22,12 @@
 
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
-use crate::{variable::FunctionCall, Variables, UserDefinedFunction, UserDefinedTable};
+use crate::constants::Constants;
+use crate::{variable::FunctionCall, UserDefinedFunction, UserDefinedTable};
 use num_complex::Complex;
 use num_complex::ComplexFloat;
-use phf::Map;
-use phf_macros::phf_map;
 
 pub const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
-
-/// Map of mathematical constants by their string representation.
-static CONSTANTS: Map<&'static str, Complex<f64>> = phf_map! {
-    "E" => Complex::new(std::f64::consts::E, 0.0),
-    "FRAC_1_PI" => Complex::new(std::f64::consts::FRAC_1_PI, 0.0),
-    "FRAC_1_SQRT_2" => Complex::new(std::f64::consts::FRAC_1_SQRT_2, 0.0),
-    "FRAC_2_PI" => Complex::new(std::f64::consts::FRAC_2_PI, 0.0),
-    "FRAC_2_SQRT_PI" => Complex::new(std::f64::consts::FRAC_2_SQRT_PI, 0.0),
-    "FRAC_PI_2" => Complex::new(std::f64::consts::FRAC_PI_2, 0.0),
-    "FRAC_PI_3" => Complex::new(std::f64::consts::FRAC_PI_3, 0.0),
-    "FRAC_PI_4" => Complex::new(std::f64::consts::FRAC_PI_4, 0.0),
-    "FRAC_PI_6" => Complex::new(std::f64::consts::FRAC_PI_6, 0.0),
-    "FRAC_PI_8" => Complex::new(std::f64::consts::FRAC_PI_8, 0.0),
-    "LN_2" => Complex::new(std::f64::consts::LN_2, 0.0),
-    "LN_10" => Complex::new(std::f64::consts::LN_10, 0.0),
-    "LOG2_10" => Complex::new(std::f64::consts::LOG2_10, 0.0),
-    "LOG2_E" => Complex::new(std::f64::consts::LOG2_E, 0.0),
-    "LOG10_2" => Complex::new(std::f64::consts::LOG10_2, 0.0),
-    "LOG10_E" => Complex::new(std::f64::consts::LOG10_E, 0.0),
-    "PI" => Complex::new(std::f64::consts::PI, 0.0),
-    "SQRT_2" => Complex::new(std::f64::consts::SQRT_2, 0.0),
-    "TAU" => Complex::new(std::f64::consts::TAU, 0.0),
-};
-
-pub mod constant {
-    use crate::astnode::CONSTANTS;
-
-    /// Returns a list of supported mathematical constant names.
-    pub fn names() -> Vec<&'static str> {
-        CONSTANTS.keys().cloned().collect()
-    }
-}
 
 /// Judge the exp is compatible with i32 or not
 fn is_exp_compatible_with_i32(exp: &Complex<f64>) -> bool {
@@ -319,7 +285,7 @@ pub enum Token {
     /// Numerical value token holding a resolved complex number.
     ///
     /// This variant can represent:
-    /// - User-defined variables with values resolved at parse time.
+    /// - User-defined constants with values resolved at parse time.
     /// - Predefined mathematical constants.
     /// - Literal real or imaginary numbers.
     Number(Complex<f64>),
@@ -375,19 +341,18 @@ impl Token {
 
     /// Converts a lexeme into a corresponding `Token`.
     ///
-    /// Resolves numbers, variables, constants, operators, functions, and user-defined functions.
+    /// Resolves numbers, constants, operators, functions, and user-defined functions.
     /// Returns an error if the lexeme cannot be recognized.
     pub fn from(
         lexeme: &Lexeme,
         args: &[&str],
-        vars: &Variables,
+        vars: &Constants,
         users: &UserDefinedTable,
     ) -> Result<Self, String> {
         let text = lexeme.text();
 
         if let Some(val) = Self::parse_real(text)
             .or_else(|| Self::parse_imaginary(text))
-            .or_else(|| CONSTANTS.get(text).cloned())
             .or_else(|| vars.get(text).copied())
         {
             return Ok(Token::Number(val));
@@ -498,7 +463,7 @@ impl AstNode {
     pub fn from(
         lexemes: &[Lexeme],
         args: &[&str],
-        vars: &Variables,
+        vars: &Constants,
         users: &UserDefinedTable,
     ) -> Result<Self, String> {
         let mut ast_nodes: Vec<Self> = Vec::new();
@@ -1515,7 +1480,7 @@ impl AstNode {
     ///
     /// This function recursively differentiates an `AstNode` representing a mathematical
     /// expression. It supports:
-    /// - Numbers and arguments (variables),
+    /// - Numbers and arguments,
     /// - Unary and binary operators,
     /// - Built-in functions,
     /// - User-defined functions,
@@ -1918,7 +1883,7 @@ mod token_tests {
     #[test]
     fn test_number_token() {
         let lex = Lexeme::new("3.14", 0..4);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1931,7 +1896,7 @@ mod token_tests {
     #[test]
     fn test_imaginary_number() {
         let lex = Lexeme::new("2i", 0..2);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1944,7 +1909,7 @@ mod token_tests {
     #[test]
     fn test_constant_token() {
         let lex = Lexeme::new("PI", 0..2);
-        let vars = Variables::new();
+        let vars = Constants::default();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1957,7 +1922,7 @@ mod token_tests {
     #[test]
     fn test_argument_token() {
         let lex = Lexeme::new("arg0", 0..4);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let args = ["arg0"];
         let users = UserDefinedTable::new();
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1970,7 +1935,7 @@ mod token_tests {
     #[test]
     fn test_operator_token() {
         let lex = Lexeme::new("+", 0..1);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let args: [&str; 0] = [];
         let users = UserDefinedTable::new();
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1983,7 +1948,7 @@ mod token_tests {
     #[test]
     fn test_function_token() {
         let lex = Lexeme::new("sin", 0..3);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
         let token = Token::from(&lex, &args, &vars, &users).unwrap();
@@ -1998,7 +1963,7 @@ mod token_tests {
         let lex_l = Lexeme::new("(", 0..1);
         let lex_r = Lexeme::new(")", 0..1);
         let lex_c = Lexeme::new(",", 0..1);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
 
@@ -2010,7 +1975,7 @@ mod token_tests {
     #[test]
     fn test_unknown_string() {
         let lex = Lexeme::new("unknown", 0..7);
-        let vars = Variables::new();
+        let vars = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
         let res = Token::from(&lex, &args, &vars, &users);
@@ -2064,7 +2029,7 @@ mod astnode_tests {
     #[test]
     fn test_single_number_astnode() {
         let lexemes = lexer::from("42");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::Number(val) => assert_eq!(val, Complex::new(42.0, 0.0)),
             _ => panic!("Expected Number AST node"),
@@ -2074,7 +2039,7 @@ mod astnode_tests {
     #[test]
     fn test_unary_operator_negative_astnode() {
         let lexemes = lexer::from("- 3");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::UnaryOperator { kind, expr } => {
                 assert_eq!(kind, UnaryOperatorKind::Negative);
@@ -2090,7 +2055,7 @@ mod astnode_tests {
     #[test]
     fn test_binary_operator_precedence_astnode() {
         let lexemes = lexer::from("2 + 3 * 4");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         // expected: (2 + (3 * 4))
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -2112,7 +2077,7 @@ mod astnode_tests {
     #[test]
     fn test_parentheses_override_precedence_astnode() {
         let lexemes = lexer::from("( 2 + 3 ) * 4");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         // expected: ((2 + 3) * 4)
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -2130,7 +2095,7 @@ mod astnode_tests {
     #[test]
     fn test_function_single_arg_astnode() {
         let lexemes = lexer::from("sin ( 0 )");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Sin);
@@ -2144,7 +2109,7 @@ mod astnode_tests {
     #[test]
     fn test_function_multiple_args_astnode() {
         let lexemes = lexer::from("pow ( 2 , 3 )");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -2156,7 +2121,7 @@ mod astnode_tests {
         }
 
         let lexemes = lexer::from("pow ( sin(x) , 3 )");
-        let ast = AstNode::from(&lexemes, &["x"], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &["x"], &Constants::new(), &UserDefinedTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -2174,14 +2139,14 @@ mod astnode_tests {
     #[test]
     fn test_imaginary_number_astnode() {
         let lexemes = lexer::from("5i");
-        let ast = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
         assert_eq!(ast, AstNode::Number(Complex::new(0.0, 5.0)));
     }
 
     #[test]
     fn test_unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
-        let res = AstNode::from(&lexemes, &[], &Variables::new(), &UserDefinedTable::new());
+        let res = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new());
         assert!(res.is_err());
     }
 

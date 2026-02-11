@@ -30,14 +30,12 @@ cargo add formulac
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable};
+use formulac::{Builder, UserDefinedTable};
 
 fn main() {
-    let vars = Variables::from([("a", Complex::new(3.0, 2.0))]);
-
     let formula = "sin(z) + a * cos(z)";
     let expr = Builder::new(formula, &["z"])
-        .with_variables(vars)
+        .with_constants([("a", Complex::new(3.0, 2.0))])
         .compile()
         .expect("Failed to compile formula");
 
@@ -52,7 +50,7 @@ You can use `UserDefinedTable::register` (check the function conflict) or `UserD
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     // Define a function f(x) = x^2 + 1
@@ -106,7 +104,7 @@ You can directly write differentiation expressions using the `diff` operator:
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable};
+use formulac::{Builder, UserDefinedTable};
 
 fn main() {
     // Differentiate sin(x) with respect to x
@@ -124,7 +122,7 @@ When computing derivatives of order 2 or higher, specify the order:
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable};
+use formulac::{Builder, UserDefinedTable};
 
 fn main() {
     // Differentiate sin(x) with respect to x
@@ -144,7 +142,7 @@ You can define your own functions and provide derivatives for them. The derivati
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     // Define f(x) = x^2, derivative f'(x) = 2x
@@ -186,7 +184,7 @@ Note: Numerical differentiation is an aproximation, so it may be less accurate t
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     // Define f(x) = x^2 without derivative
@@ -213,7 +211,7 @@ For functions with multiple variables, you can register partial derivatives with
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, Variables, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
 
 fn main() {
     // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
@@ -258,9 +256,6 @@ fn main() {
 
 - **`compile`**
   Compiles a formula string into a Rust closure `Fn(&[Complex<f64>]) -> Complex<f64>` that evaluates the expression for given variable values.
-
-- **`Variables`**
-  A lookup table mapping variable names (strings) to `Complex<f64>` values, used during parsing.
 
 - **`UserDefinedTable`**
   Allows registration of custom functions under user-defined names for use in expressions.
@@ -358,7 +353,7 @@ The benchmarks are located in `benches/benches.rs` and cover:
 - Nested expressions (e.g., sin(sin(...)))
 - Numeric literals
 - Expressions with and without parentheses
-- Many variable references (up to 100 variables)
+- Many constants references (up to 100 constants)
 - Differentiate expressions
 - Invalid expressions (error cases)
 - Practical expressions (polynomials, wave functions, exponential decay)
