@@ -345,14 +345,14 @@ impl Token {
     pub fn from(
         lexeme: &Lexeme,
         args: &[&str],
-        vars: &Constants,
+        constants: &Constants,
         users: &UserDefinedTable,
     ) -> Result<Self, String> {
         let text = lexeme.text();
 
         if let Some(val) = Self::parse_real(text)
             .or_else(|| Self::parse_imaginary(text))
-            .or_else(|| vars.get(text).copied())
+            .or_else(|| constants.get(text).copied())
         {
             return Ok(Token::Number(val));
         }
@@ -453,7 +453,7 @@ impl AstNode {
     /// # Parameters
     /// - `lexemes`: Slice of lexemes representing the expression.
     /// - `args`: List of argument names for functions.
-    /// - `vars`: Table of variable values.
+    /// - `constants`: Table of variable values.
     /// - `users`: Table of user-defined functions.
     ///
     /// # Returns
@@ -462,7 +462,7 @@ impl AstNode {
     pub fn from(
         lexemes: &[Lexeme],
         args: &[&str],
-        vars: &Constants,
+        constants: &Constants,
         users: &UserDefinedTable,
     ) -> Result<Self, String> {
         let mut ast_nodes: Vec<Self> = Vec::new();
@@ -472,7 +472,7 @@ impl AstNode {
         let lexemes = lexemes.iter().peekable();
 
         for lexeme in lexemes {
-            let token = Token::from(lexeme, args, vars, users)?;
+            let token = Token::from(lexeme, args, constants, users)?;
             match token {
                 Token::Number(val) => {
                     ast_nodes.push(Self::Number(val));
@@ -1882,10 +1882,10 @@ mod token_tests {
     #[test]
     fn test_number_token() {
         let lex = Lexeme::new("3.14", 0..4);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(3.14, 0.0)),
             _ => panic!("Expected Number token"),
@@ -1895,10 +1895,10 @@ mod token_tests {
     #[test]
     fn test_imaginary_number() {
         let lex = Lexeme::new("2i", 0..2);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(0.0, 2.0)),
             _ => panic!("Expected Number token"),
@@ -1908,10 +1908,10 @@ mod token_tests {
     #[test]
     fn test_constant_token() {
         let lex = Lexeme::new("PI", 0..2);
-        let vars = Constants::default();
+        let constants = Constants::default();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Number(val) => assert_eq!(val, Complex::new(std::f64::consts::PI, 0.0)),
             _ => panic!("Expected Number token"),
@@ -1921,10 +1921,10 @@ mod token_tests {
     #[test]
     fn test_argument_token() {
         let lex = Lexeme::new("arg0", 0..4);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let args = ["arg0"];
         let users = UserDefinedTable::new();
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Argument(pos) => assert_eq!(pos, 0),
             _ => panic!("Expected Argument token"),
@@ -1934,10 +1934,10 @@ mod token_tests {
     #[test]
     fn test_operator_token() {
         let lex = Lexeme::new("+", 0..1);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let args: [&str; 0] = [];
         let users = UserDefinedTable::new();
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Operator(_) => {}, // OK
             _ => panic!("Expected Operator token"),
@@ -1947,10 +1947,10 @@ mod token_tests {
     #[test]
     fn test_function_token() {
         let lex = Lexeme::new("sin", 0..3);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &vars, &users).unwrap();
+        let token = Token::from(&lex, &args, &constants, &users).unwrap();
         match token {
             Token::Function(f) => assert_eq!(f, FunctionKind::Sin),
             _ => panic!("Expected Function token"),
@@ -1962,22 +1962,22 @@ mod token_tests {
         let lex_l = Lexeme::new("(", 0..1);
         let lex_r = Lexeme::new(")", 0..1);
         let lex_c = Lexeme::new(",", 0..1);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
 
-        assert!(matches!(Token::from(&lex_l, &args, &vars, &users).unwrap(), Token::LParen(_)));
-        assert!(matches!(Token::from(&lex_r, &args, &vars, &users).unwrap(), Token::RParen(_)));
-        assert!(matches!(Token::from(&lex_c, &args, &vars, &users).unwrap(), Token::Comma(_)));
+        assert!(matches!(Token::from(&lex_l, &args, &constants, &users).unwrap(), Token::LParen(_)));
+        assert!(matches!(Token::from(&lex_r, &args, &constants, &users).unwrap(), Token::RParen(_)));
+        assert!(matches!(Token::from(&lex_c, &args, &constants, &users).unwrap(), Token::Comma(_)));
     }
 
     #[test]
     fn test_unknown_string() {
         let lex = Lexeme::new("unknown", 0..7);
-        let vars = Constants::new();
+        let constants = Constants::new();
         let users = UserDefinedTable::new();
         let args: [&str; 0] = [];
-        let res = Token::from(&lex, &args, &vars, &users);
+        let res = Token::from(&lex, &args, &constants, &users);
         assert!(res.is_err());
     }
 }
