@@ -27,7 +27,7 @@ impl Constants
     pub fn from<I, S, V>(items: I) -> Self
     where
         I: IntoIterator<Item = (S, V)>,
-        String: From<S>,
+        S: Into<String>,
         Complex<f64>: From<V>,
     {
         let mut consts = Self::new();
@@ -40,26 +40,26 @@ impl Constants
     /// Inserts a constant into the table.
     pub fn insert<S, V>(&mut self, key: S, value: V)
     where
-        String: From<S>,
+        S: Into<String>,
         Complex<f64>: From<V>,
     {
-        self.map.insert(String::from(key), Complex::from(value));
+        self.map.insert(key.into(), Complex::from(value));
     }
 
     /// Checks if a constant with the given name exists in the table.
     pub fn contains<S>(&self, key: S) -> bool
     where
-        String: From<S>,
+        S: Into<String>,
     {
-        self.map.contains_key(String::from(key).as_str())
+        self.map.contains_key(key.into().as_str())
     }
 
     /// Retrieves a reference to the value of a constant by name.
     pub fn get<S>(&self, key: S) -> Option<&Complex<f64>>
     where
-        String: From<S>,
+        S: Into<String>,
     {
-        self.map.get(String::from(key).as_str())
+        self.map.get(key.into().as_str())
     }
 
     /// Clears all constants from the table.
@@ -86,7 +86,7 @@ impl Constants
 
 impl<S, V> FromIterator<(S, V)> for Constants
 where
-    String: From<S>,
+    S: Into<String>,
     Complex<f64>: From<V>,
 {
     fn from_iter<T: IntoIterator<Item = (S, V)>>(iter: T) -> Self
