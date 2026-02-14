@@ -12,6 +12,7 @@ categories = ["parsing", "science", "mathematics"]
 
 [dependencies]
 num-complex = "0.4.6"
+num-traits = "0.2.19"
 phf = "0.13.1"
 phf_macros = "0.13.1"
 
