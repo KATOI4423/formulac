@@ -9,6 +9,8 @@ use crate::functions::core::{
     ComplexBackend,
 };
 
+use std::marker::PhantomData;
+
 /// Error type for parsing standard function names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ParseStdFuncError {
@@ -48,9 +50,10 @@ macro_rules! define_functions {
             }
         }
 
-        impl<T> From<FuncKind> for FunctionImpl<T>
+        impl<T, S> From<FuncKind> for FunctionImpl<T, S>
         where
-            T: ComplexBackend,
+            T: ComplexBackend<S>,
+            S: Clone + Send + Sync + 'static,
         {
             /// Converts a FuncKind into its implementation.
             fn from(kind: FuncKind) -> Self
@@ -82,7 +85,7 @@ define_functions!(
     ln      => FunctionImpl::Unary(|x: &T| x.ln()),
     log10   => FunctionImpl::Unary(|x: &T| x.log10()),
     sqrt    => FunctionImpl::Unary(|x: &T| x.sqrt()),
-    abs     => FunctionImpl::Unary(|x: &T| x.abs()),
+    abs     => FunctionImpl::Unary(|x: &T| T::from(x.abs())),
     conj    => FunctionImpl::Unary(|x: &T| x.conj()),
     pow     => FunctionImpl::Binary(|l: &T, r: &T| l.pow(r)),
     powi    => FunctionImpl::Powi(|x: &T, n: i32| x.powi(n)),
@@ -95,9 +98,10 @@ define_functions!(
 ///  - binary functions that take two complex arguments
 ///  - integer power functions
 #[derive(Clone, Debug)]
-pub(crate) enum FunctionImpl<T>
+pub(crate) enum FunctionImpl<T, S>
 where
-    T: ComplexBackend,
+    T: ComplexBackend<S>,
+    S: Clone + Send + Sync + 'static,
 {
     /// Unary function taking a single complex number.
     Unary(fn(&T) -> T),
@@ -105,4 +109,7 @@ where
     Binary(fn(&T, &T) -> T),
     /// Integer power function.
     Powi(fn(&T, i32) -> T),
+    /// Marker to hold the type parameter S.
+    #[doc(hidden)]
+    _Phantom(PhantomData<S>),
 }

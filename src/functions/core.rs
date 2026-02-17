@@ -6,15 +6,25 @@
 //! operations on complex numbers, enabling different implementations to be used
 //! interchangeably.
 
+use num_traits::float::{
+    Float,
+    FloatConst,
+    FloatCore,
+};
+
 /// Trait for complex number mathematical operations.
 ///
 /// Provides a unified interface for performing mathematical operations on complex numbers.
 /// Implementations can use different backends (e.g., `num_complex::Complex`, custom types).
-pub(crate) trait ComplexBackend:
-    Clone
+pub(crate) trait ComplexBackend<S>:
+    Clone + Send + Sync + 'static
+where
+    S: Clone + Send + Sync + 'static
 {
     fn zero() -> Self;
     fn one() -> Self;
+    fn two() -> Self;
+    fn i() -> Self;
 
     fn sin(&self) -> Self;
     fn cos(&self) -> Self;
@@ -40,24 +50,29 @@ pub(crate) trait ComplexBackend:
     fn powi(&self, n: i32) -> Self;
 
     fn sqrt(&self) -> Self;
-    fn abs(&self) -> Self;
+    fn abs(&self) -> S;
     fn conj(&self) -> Self;
+
+    fn re(&self) -> S;
+    fn im(&self) -> S;
+
+    fn from(v: S) -> Self;
+    fn eps() -> Self;
 }
 
 use num_complex::{
     Complex, ComplexFloat,
 };
-use num_traits::{
-    Float, FloatConst
-};
 
 /// Implementation of `ComplexBackend` for `num_complex::Complex`.
-impl<T> ComplexBackend for Complex<T>
+impl<T> ComplexBackend<T> for Complex<T>
 where
-    T: Float + FloatConst,
+    T: Float + FloatConst + FloatCore + Send + Sync + 'static,
 {
-    fn zero() -> Self { Complex::new(T::zero(), T::zero()) }
-    fn one() -> Self { Complex::new(T::one(), T::zero()) }
+    fn zero() -> Self { <Complex::<T> as num_traits::Zero>::zero() }
+    fn one() -> Self { <Complex::<T> as num_traits::One>::one() }
+    fn two() -> Self { <Complex::<T> as num_traits::One>::one() + <Complex::<T> as num_traits::One>::one() }
+    fn i() -> Self { Complex::i() }
 
     fn sin(&self) -> Self { ComplexFloat::sin(*self) }
     fn cos(&self) -> Self { ComplexFloat::cos(*self) }
@@ -83,6 +98,12 @@ where
     fn powi(&self, n: i32) -> Self { ComplexFloat::powi(*self, n) }
 
     fn sqrt(&self) -> Self { ComplexFloat::sqrt(*self) }
-    fn abs(&self) -> Self { Self::new(ComplexFloat::abs(*self), T::zero()) }
+    fn abs(&self) -> T { ComplexFloat::abs(*self) }
     fn conj(&self) -> Self { ComplexFloat::conj(*self) }
+
+    fn re(&self) -> T { self.re }
+    fn im(&self) -> T { self.im }
+
+    fn from(v: T) -> Self { <Complex<T> as From<T>>::from(v) }
+    fn eps() -> Self { <Complex<T> as From<T>>::from(<T as Float>::epsilon()) }
 }
