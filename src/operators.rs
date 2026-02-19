@@ -62,6 +62,11 @@ unary_operator_kinds! {
     Neg => { symbol: "-", apply: |x: T| -x },
 }
 
+pub fn unary_operator_names() -> &'static[&'static str]
+{
+    UnaryOperatorKind::names()
+}
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BinaryOperatorInfo {
@@ -132,6 +137,11 @@ binary_operator_kinds! {
     Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l: T, r: T| l * r },
     Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l: T, r: T| l / r },
     Pow => { symbol: "^", precedence: 2, left_assoc: true,  apply: |l: T, r: T| l.pow(&r) },
+}
+
+pub fn binary_opeator_names() -> &'static [&'static str]
+{
+    BinaryOperatorKind::names()
 }
 
 
