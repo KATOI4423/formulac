@@ -1,4 +1,7 @@
-//! # operators.rs
+//! # Operators Module
+//!
+//! This module defines the unary and binary operators used for mathematical expressions.
+//! It includes operator definitions, their precedence, associativity, and application logic.
 
 use crate::functions::core::ComplexBackend;
 
@@ -10,7 +13,7 @@ use std::ops::{
     Div,
 };
 
-
+/// Error type for parsing operator strings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ParseOperatorError {
     UnknownOperator,
@@ -18,6 +21,7 @@ pub(crate) enum ParseOperatorError {
 
 macro_rules! unary_operator_kinds {
     ($( $name: ident => { symbol: $symbol:expr, apply: $apply:expr } ), + $(,)? ) => {
+        /// Internal representation of unary operators.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(crate) enum UnaryOperatorKind {
             $($name), *
@@ -62,12 +66,24 @@ unary_operator_kinds! {
     Neg => { symbol: "-", apply: |x: T| -x },
 }
 
+/// Returns a list of all supported unary operator symbols.
+///
+/// Currently supported: `+`, `-`.
+///
+/// # Examples
+/// ```
+/// let names = formulac::operators::unary_operator_names();
+/// assert!(names.contains(&"+"));
+/// ```
 pub fn unary_operator_names() -> &'static[&'static str]
 {
     UnaryOperatorKind::names()
 }
 
 
+/// Metadata for binary operators.
+///
+/// Stores `precedence` (higher value = higher priority) and `is_left_assoc`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct BinaryOperatorInfo {
     pub precedence: u8,
@@ -81,6 +97,7 @@ macro_rules! binary_operator_kinds {
         left_assoc: $assoc:expr,
         apply: $apply:expr
     }), + $(,)?) => {
+        /// Internal representation of binary operators.
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub(crate) enum BinaryOperatorKind {
             $( $name ),*
@@ -139,6 +156,17 @@ binary_operator_kinds! {
     Pow => { symbol: "^", precedence: 2, left_assoc: true,  apply: |l: T, r: T| l.pow(&r) },
 }
 
+/// Returns a list of all supported binary operator symbols.
+///
+/// Currently supported: `+`, `-`, `*`, `/`, `^`.
+///
+/// # Examples
+/// ```
+/// let names = formulac::operators::binary_opeator_names();
+/// assert!(names.contains(&"*"));
+/// ```
+///
+/// Note: There is a minor typo in the function name (`opeator`) in the current implementation.
 pub fn binary_opeator_names() -> &'static [&'static str]
 {
     BinaryOperatorKind::names()
