@@ -17,7 +17,7 @@ macro_rules! unary_operator_kinds {
         }
 
         impl UnaryOperatorKind {
-            pub fn apply<T, S>(&self, x: &T) -> T
+            pub fn apply<T, S>(&self, x: T) -> T
             where
                 T: ComplexBackend<S> + Neg<Output = T>,
                 S: Clone + Send + Sync + 'static
@@ -51,8 +51,8 @@ macro_rules! unary_operator_kinds {
 }
 
 unary_operator_kinds! {
-    Pos => { symbol: "+", apply: |x: &T| x.clone() },
-    Neg => { symbol: "-", apply: |x: &T| -x.clone() },
+    Pos => { symbol: "+", apply: |x: T| x },
+    Neg => { symbol: "-", apply: |x: T| -x },
 }
 
 #[cfg(test)]
@@ -74,7 +74,7 @@ mod unary_operator_kind_tests {
     #[test]
     fn test_apply() {
         let x = Complex::new(2.0, -1.0);
-        assert_eq!(UnaryOperatorKind::Pos.apply(&x), x);
-        assert_eq!(UnaryOperatorKind::Neg.apply(&x), -x);
+        assert_eq!(UnaryOperatorKind::Pos.apply(x), x);
+        assert_eq!(UnaryOperatorKind::Neg.apply(x), -x);
     }
 }
