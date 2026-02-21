@@ -5,7 +5,7 @@
 //! This module defines the built-in mathematical functions available in formulas,
 //! including trigonometric, hyperbolic, exponential, and logarithmic functions.
 
-use crate::functions::core::{
+use crate::core::{
     ComplexBackend,
 };
 

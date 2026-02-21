@@ -3,7 +3,7 @@
 //! This module defines the unary and binary operators used for mathematical expressions.
 //! It includes operator definitions, their precedence, associativity, and application logic.
 
-use crate::functions::core::ComplexBackend;
+use crate::core::ComplexBackend;
 
 use std::ops::{
     Neg,

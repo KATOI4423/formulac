@@ -17,7 +17,6 @@
 //! Note: all submodules are `pub(crate)` because the functions API is an
 //! internal implementation detail of the crate.
 pub(crate) mod buildin;
-pub(crate) mod core;
 pub(crate) mod custom;
 
 /// Return the available built-in function names.

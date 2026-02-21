@@ -7,7 +7,7 @@
 //! derivative computation, making it suitable for symbolic differentiation and
 //! automatic differentiation applications.
 
-use crate::functions::core::{
+use crate::core::{
     ComplexBackend,
 };
 
