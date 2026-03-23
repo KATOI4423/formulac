@@ -67,6 +67,7 @@
 
 pub mod lexer;
 pub mod astnode;
+pub mod operators;
 pub mod variable;
 pub mod builder;
 pub mod constants;

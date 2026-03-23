@@ -23,7 +23,12 @@
 use crate::lexer::Lexeme;
 use crate::lexer::IMAGINARY_UNIT;
 use crate::constants::Constants;
+use crate::operators::{
+    BinaryOperatorKind,
+    UnaryOperatorKind,
+};
 use crate::{variable::FunctionCall, UserDefinedFunction, UserDefinedTable};
+use std::str::FromStr;
 use num_complex::Complex;
 use num_complex::ComplexFloat;
 
@@ -34,137 +39,6 @@ fn is_exp_compatible_with_i32(exp: &Complex<f64>) -> bool {
     (exp.im == 0.0) && (exp.re.fract() == 0.0)
         && (i32::MIN as f64 <= exp.re) && (exp.re <= i32::MAX as f64)
 }
-
-#[doc(hidden)]
-/// Internal macro to define all unary operators.
-///
-/// This macro is **not intended for public use**.
-/// It centralizes the enum variants, string representation, and apply logic for unary operators.
-macro_rules! unary_operator_kind {
-    ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
-        /// Represents a unary operator in a mathematical expression.
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum UnaryOperatorKind {
-            $($name),*
-        }
-
-        impl UnaryOperatorKind {
-            /// Converts a string representation to a `UnaryOperatorKind`.
-            pub fn from(s: &str) -> Option<Self> {
-                match s {
-                    $( $symbol => Some(Self::$name), )*
-                    _ => None,
-                }
-            }
-
-            /// Applies the unary operator to a complex number.
-            pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
-                match self {
-                    $( Self::$name => $apply(x), )*
-                }
-            }
-
-            /// Returns a list of all supported unary operator symbols.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($symbol),*]
-            }
-        }
-
-        impl std::fmt::Display for UnaryOperatorKind {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = match self {
-                    $( Self::$name => $symbol, )*
-                };
-                write!(f, "{}", s)
-            }
-        }
-    };
-}
-
-unary_operator_kind! {
-    Positive => { symbol: "+", apply: |x: Complex<f64>| x },
-    Negative => { symbol: "-", apply: |x: Complex<f64>| -x },
-}
-
-/// Information about a binary operator in a mathematical expression.
-///
-/// Contains the operator's precedence and associativity, which are used
-/// when parsing expressions to determine the order of operations.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BinaryOperatorInfo {
-    /// Operator precedence (higher value means higher precedence).
-    pub precedence: u8,
-
-    /// Whether the operator is left-associative.
-    pub is_left_assoc: bool,
-}
-
-#[doc(hidden)]
-/// Internal macro to define all binary operators.
-///
-/// This macro is **not intended for public use**.
-/// It centralizes the enum variants, string representation, precedence, associativity, and apply logic.
-macro_rules! binary_operators {
-    ($($name:ident => {
-        symbol: $symbol:expr,
-        precedence: $prec:expr,
-        left_assoc: $assoc:expr,
-        apply: $apply:expr
-    }),* $(,)?) => {
-        /// Represents a binary operator in a mathematical expression.
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum BinaryOperatorKind {
-            $($name),*
-        }
-
-        impl BinaryOperatorKind {
-            /// Returns operator precedence and associativity.
-            pub fn info(&self) -> BinaryOperatorInfo {
-                match self {
-                    $(Self::$name => BinaryOperatorInfo { precedence: $prec, is_left_assoc: $assoc },)*
-                }
-            }
-
-            /// Converts a string to the corresponding operator.
-            pub fn from(s: &str) -> Option<Self> {
-                match s {
-                    $($symbol => Some(Self::$name),)*
-                    _ => None,
-                }
-            }
-
-            /// Applies the operator to two complex numbers.
-            pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
-                match self {
-                    $(Self::$name => $apply(l, r),)*
-                }
-            }
-
-            /// Returns a list of all supported binary operator symbols.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($symbol),*]
-            }
-        }
-
-        impl std::fmt::Display for BinaryOperatorKind {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = match self {
-                    $(Self::$name => $symbol,)*
-                };
-                write!(f, "{}", s)
-            }
-        }
-    };
-}
-
-binary_operators! {
-    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l + r },
-    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l - r },
-    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l * r },
-    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l / r },
-    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<f64>, r: Complex<f64>| l.powc(r) },
-}
-
 
 #[doc(hidden)]
 /// Internal macro for defining built-in mathematical functions.
@@ -368,10 +242,10 @@ impl Token {
         /* We can't know whether the text is unary operator or binary operator
          * because some operator's strings are the same.
          * So we register only its lexeme. */
-        if UnaryOperatorKind::from(text).is_some() {
+        if UnaryOperatorKind::from_str(text).is_ok() {
             return Ok(Token::Operator(lexeme.clone()));
         }
-        if BinaryOperatorKind::from(text).is_some() {
+        if BinaryOperatorKind::from_str(text).is_ok() {
             return Ok(Token::Operator(lexeme.clone()));
         }
 
@@ -640,7 +514,7 @@ impl AstNode {
         token_stack: &mut Vec<Token>,
         lexeme: Lexeme,
     ) -> Result<(), String> {
-        if let Some(oper_kind) = UnaryOperatorKind::from(lexeme.text()) {
+        if let Ok(oper_kind) = UnaryOperatorKind::from_str(lexeme.text()) {
             token_stack.push(Token::UnaryOperator(oper_kind));
             Ok(())
         } else {
@@ -665,11 +539,10 @@ impl AstNode {
         token_stack: &mut Vec<Token>,
         lexeme: Lexeme,
     ) -> Result<(), String> {
-        if let Some(oper_kind) = BinaryOperatorKind::from(lexeme.text()) {
-            let oper_info = oper_kind.info();
+        if let Ok(oper_kind) = BinaryOperatorKind::from_str(lexeme.text()) {
             while let Some(Token::BinaryOperator(top_oper)) = token_stack.last().cloned() {
-                if (oper_info.is_left_assoc && (top_oper.info().precedence < oper_info.precedence))
-                    || (!oper_info.is_left_assoc && (top_oper.info().precedence <= oper_info.precedence))
+                if (oper_kind.is_left_assoc() && (top_oper.precedence() < oper_kind.precedence()))
+                    || (!oper_kind.is_left_assoc() && (top_oper.precedence() <= oper_kind.precedence()))
                 {
                     break;
                 }
@@ -1754,60 +1627,6 @@ impl AstNode {
         let mut tokens: Vec<Token> = Vec::new();
         self.execute(&mut tokens);
         tokens
-    }
-}
-
-#[cfg(test)]
-mod unary_operator_kind_tests {
-    use super::*;
-    #[test]
-    fn test_unary_operator_kind_from() {
-        assert_eq!(UnaryOperatorKind::from("+"), Some(UnaryOperatorKind::Positive));
-        assert_eq!(UnaryOperatorKind::from("-"), Some(UnaryOperatorKind::Negative));
-        assert_eq!(UnaryOperatorKind::from("*"), None);
-        assert_eq!(UnaryOperatorKind::from(""), None);
-        assert_eq!(UnaryOperatorKind::from("x"), None);
-    }
-}
-
-#[cfg(test)]
-mod binary_operator_kind_tests {
-    use super::*;
-
-    #[test]
-    fn test_binary_operator_kind_info() {
-        let add_info = BinaryOperatorKind::Add.info();
-        assert_eq!(add_info.precedence, 0);
-        assert!(add_info.is_left_assoc);
-
-        let sub_info = BinaryOperatorKind::Sub.info();
-        assert_eq!(sub_info.precedence, 0);
-        assert!(sub_info.is_left_assoc);
-
-        let mul_info = BinaryOperatorKind::Mul.info();
-        assert_eq!(mul_info.precedence, 1);
-        assert!(mul_info.is_left_assoc);
-
-        let div_info = BinaryOperatorKind::Div.info();
-        assert_eq!(div_info.precedence, 1);
-        assert!(div_info.is_left_assoc);
-
-        let pow_info = BinaryOperatorKind::Pow.info();
-        assert_eq!(pow_info.precedence, 2);
-        assert!(!pow_info.is_left_assoc);
-    }
-
-    #[test]
-    fn test_binary_operator_kind_from() {
-        assert_eq!(BinaryOperatorKind::from("+"), Some(BinaryOperatorKind::Add));
-        assert_eq!(BinaryOperatorKind::from("-"), Some(BinaryOperatorKind::Sub));
-        assert_eq!(BinaryOperatorKind::from("*"), Some(BinaryOperatorKind::Mul));
-        assert_eq!(BinaryOperatorKind::from("/"), Some(BinaryOperatorKind::Div));
-        assert_eq!(BinaryOperatorKind::from("^"), Some(BinaryOperatorKind::Pow));
-
-        assert_eq!(BinaryOperatorKind::from(""), None);
-        assert_eq!(BinaryOperatorKind::from("x"), None);
-        assert_eq!(BinaryOperatorKind::from("%"), None);
     }
 }
 
