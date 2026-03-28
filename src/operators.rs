@@ -6,11 +6,8 @@
 use num_complex::Complex;
 use std::str::FromStr;
 
-/// Error type for parsing opeator strings.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ParseOpeatorError {
-    Unknown,
-}
+use crate::err::ParseError;
+use crate::lexer::Lexeme;
 
 #[doc(hidden)]
 /// Internal macro to define all unary operators.
@@ -22,12 +19,12 @@ macro_rules! unary_operator_kind {
             $($name),*
         }
 
-        impl FromStr for UnaryOperatorKind {
-            type Err = ParseOpeatorError;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
+        impl TryFrom<Lexeme> for UnaryOperatorKind {
+            type Error = ParseError;
+            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
+                match s.text() {
                     $( $symbol => Ok(Self::$name), )*
-                    _ => Err(ParseOpeatorError::Unknown),
+                    _ => Err(ParseError::UnknownToken(s)),
                 }
             }
         }
@@ -76,12 +73,12 @@ macro_rules! binary_operators {
             $($name),*
         }
 
-        impl FromStr for BinaryOperatorKind {
-            type Err = ParseOpeatorError;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
+        impl TryFrom<Lexeme> for BinaryOperatorKind {
+            type Error = ParseError;
+            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
+                match s.text() {
                     $( $symbol => Ok(Self::$name), )*
-                    _ => Err(ParseOpeatorError::Unknown),
+                    _ => Err(ParseError::UnknownToken(s.clone())),
                 }
             }
         }
@@ -153,15 +150,15 @@ mod tests {
 
         #[test]
         fn from_valid_symbols() {
-            assert_eq!(UnaryOperatorKind::from_str("+"), Ok(UnaryOperatorKind::Positive));
-            assert_eq!(UnaryOperatorKind::from_str("-"), Ok(UnaryOperatorKind::Negative));
+            assert_eq!(UnaryOperatorKind::try_from(Lexeme::new("+", 0..1)), Ok(UnaryOperatorKind::Positive));
+            assert_eq!(UnaryOperatorKind::try_from(Lexeme::new("-", 0..1)), Ok(UnaryOperatorKind::Negative));
         }
 
         #[test]
         fn from_invalid_symbol() {
-            assert_eq!(UnaryOperatorKind::from_str("*"), Err(ParseOpeatorError::Unknown));
-            assert_eq!(UnaryOperatorKind::from_str(""),  Err(ParseOpeatorError::Unknown));
-            assert_eq!(UnaryOperatorKind::from_str("++"), Err(ParseOpeatorError::Unknown));
+            assert!(UnaryOperatorKind::try_from(Lexeme::new("*", 0..1)).is_err());
+            assert!(UnaryOperatorKind::try_from(Lexeme::new("", 0..1)).is_err());
+            assert!(UnaryOperatorKind::try_from(Lexeme::new("++", 0..2)).is_err());
         }
 
         #[test]
@@ -199,18 +196,18 @@ mod tests {
         // -- TryFrom --
         #[test]
         fn from_valid_symbols() {
-            assert_eq!(BinaryOperatorKind::from_str("+"), Ok(BinaryOperatorKind::Add));
-            assert_eq!(BinaryOperatorKind::from_str("-"), Ok(BinaryOperatorKind::Sub));
-            assert_eq!(BinaryOperatorKind::from_str("*"), Ok(BinaryOperatorKind::Mul));
-            assert_eq!(BinaryOperatorKind::from_str("/"), Ok(BinaryOperatorKind::Div));
-            assert_eq!(BinaryOperatorKind::from_str("^"), Ok(BinaryOperatorKind::Pow));
+            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("+", 0..1)), Ok(BinaryOperatorKind::Add));
+            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("-", 0..1)), Ok(BinaryOperatorKind::Sub));
+            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("*", 0..1)), Ok(BinaryOperatorKind::Mul));
+            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("/", 0..1)), Ok(BinaryOperatorKind::Div));
+            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("^", 0..1)), Ok(BinaryOperatorKind::Pow));
         }
 
         #[test]
         fn from_invalid_symbol() {
-            assert_eq!(BinaryOperatorKind::from_str(""),   Err(ParseOpeatorError::Unknown));
-            assert_eq!(BinaryOperatorKind::from_str("**"), Err(ParseOpeatorError::Unknown));
-            assert_eq!(BinaryOperatorKind::from_str("!"),  Err(ParseOpeatorError::Unknown));
+            assert!(BinaryOperatorKind::try_from(Lexeme::new("", 0..1)).is_err());
+            assert!(BinaryOperatorKind::try_from(Lexeme::new("**", 0..2)).is_err());
+            assert!(BinaryOperatorKind::try_from(Lexeme::new("!", 0..1)).is_err());
         }
 
         // -- precedence --

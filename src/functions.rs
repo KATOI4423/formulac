@@ -23,6 +23,18 @@ pub enum FunctionArgs {
     Binary(Complex<f64>, Complex<f64>),
 }
 
+impl FunctionArgs {
+    /// Constructs `FunctionArgs` from a slice, based on length.
+    pub(crate) fn from(args: impl IntoIterator<Item = Complex<f64>>) -> Self {
+        let args: Vec<_> = args.into_iter().collect();
+        match args.len() {
+            1 => Self::Unary(args[0]),
+            2 => Self::Binary(args[0], args[1]),
+            n => unreachable!("unsupported arity: {}", n),
+        }
+    }
+}
+
 /// A trait representing a callable mathematical function.
 ///
 /// This trait is implemented by types that can be called with a fixed number
@@ -386,22 +398,13 @@ impl UserFn {
                 };
                 let dh = argv[var] * 1.0e-6;
                 argv[var] += dh;
-                let plus  = func(Self::to_args(arity, &argv));
+                let plus  = func(FunctionArgs::from(argv.clone()));
                 argv[var] -= dh * 2.0;
-                let minus = func(Self::to_args(arity, &argv));
+                let minus = func(FunctionArgs::from(argv));
                 (plus - minus) / (dh * 2.0)
             },
             arity,
         ))
-    }
-
-    /// Helper to convert a `Vec<Complex<f64>>` back to `FunctionArgs` by arity.
-    fn to_args(arity: usize, v: &[Complex<f64>]) -> FunctionArgs {
-        match arity {
-            1 => FunctionArgs::Unary(v[0]),
-            2 => FunctionArgs::Binary(v[0], v[1]),
-            _ => unreachable!("unsupported arity: {}", arity),
-        }
     }
 }
 
