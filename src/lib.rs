@@ -66,12 +66,13 @@
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
 pub mod lexer;
-pub mod astnode;
+// pub mod astnode;
 pub mod operators;
-pub mod variable;
-pub mod builder;
+// pub mod variable;
+// pub mod builder;
 pub mod constants;
+pub mod functions;
 
-pub type UserDefinedFunction = variable::UserDefinedFunction;
-pub type UserDefinedTable = variable::UserDefinedTable;
-pub type Builder = builder::Builder;
+// pub type UserDefinedFunction = variable::UserDefinedFunction;
+// pub type UserDefinedTable = variable::UserDefinedTable;
+// pub type Builder = builder::Builder;
