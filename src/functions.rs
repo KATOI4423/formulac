@@ -15,8 +15,8 @@ pub enum ParseFunctionError {
 
 /// Typed arguments passed to a built-in function.
 ///
-/// Enforces at the type level that unary and bunary functions
-/// recieve the correct number of arguments.
+/// Enforces at the type level that unary and binary functions
+/// receive the correct number of arguments.
 #[derive(Clone, Debug, PartialEq)]
 pub enum FunctionArgs {
     Unary(Complex<f64>),
@@ -32,7 +32,7 @@ pub enum FunctionArgs {
 ///
 /// # Methods
 ///
-/// - `apply(&self, args: &[Complex<f64>]) -> Complex<f64>`
+/// - `apply(&self, args: FunctionArgs) -> Complex<f64>`
 ///   Evaluates the function with the given arguments. The length of `args`
 ///   must match the function's arity.
 ///
