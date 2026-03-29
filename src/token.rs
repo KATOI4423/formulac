@@ -24,7 +24,7 @@ use crate::operators::{
 };
 
 pub const DIFFERENTIAL_OPERATOR_STR: &str = "diff";
-pub type UserFnTable = HashMap<String, UserFn>;
+pub(crate) type UserFnTable = HashMap<String, UserFn>;
 
 /// Represents a parsed token in a mathematical expression.
 ///

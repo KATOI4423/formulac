@@ -333,7 +333,7 @@ impl AstNode {
             }),
         };
 
-        let mut expr = output.pop().ok_or(ParseError::InvalidDerivative {
+        let expr = output.pop().ok_or(ParseError::InvalidDerivative {
             lexeme: lexeme.clone(),
             reason: "missing expression to differentiate".into(),
         })?;
