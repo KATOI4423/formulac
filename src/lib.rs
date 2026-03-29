@@ -24,7 +24,7 @@
 //! ## Example
 //! ```rust
 //! use num_complex::Complex;
-//! use formulac::{Builder, UserDefinedTable};
+//! use formulac::builder::Builder;
 //!
 //! let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
 //!     .with_constants([("a", Complex::new(3.0, 2.0))])
@@ -70,8 +70,6 @@ pub mod astnode;
 pub mod err;
 pub mod operators;
 pub mod token;
-// pub mod builder;
+pub mod builder;
 pub mod constants;
 pub mod functions;
-
-// pub type Builder = builder::Builder;

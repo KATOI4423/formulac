@@ -2,14 +2,21 @@
 //!
 //! This module provides structures and utilities for building function object.
 
+use num_complex::Complex;
+
+use crate::err::ParseError;
 use crate::lexer;
 use crate::astnode;
 use crate::constants::Constants;
-use crate::variable::UserDefinedTable;
-use crate::variable::FunctionCall;
-
-use astnode::*;
-use num_complex::Complex;
+use crate::functions::{
+    FunctionArgs,
+    FunctionCall,
+    UserFn,
+};
+use crate::token::{
+    Token,
+    UserFnTable,
+};
 
 
 pub struct Builder
@@ -17,7 +24,7 @@ pub struct Builder
     formula: String,
     args: Vec<String>,
     constants: Constants,
-    usrs: UserDefinedTable,
+    usrs: UserFnTable,
 }
 
 impl Builder
@@ -25,7 +32,7 @@ impl Builder
     /// Creates a new `Builder` instance with the given formula and argument names.
     ///
     /// This is the starting point for building a compiled mathematical expression.
-    /// You can chain methods like `with_constants` and `with_user_defined_functions`
+    /// You can chain methods like `with_constants` and `with_user_functions`
     /// to configure the builder before calling `compile`.
     ///
     /// # Parameters
@@ -38,7 +45,7 @@ impl Builder
     ///
     /// # Examples
     /// ```rust
-    /// use formulac::Builder;
+    /// use formulac::builder::Builder;
     /// use num_complex::Complex;
     ///
     /// let builder = Builder::new("x + 1", &["x"]);
@@ -52,7 +59,7 @@ impl Builder
             formula: formula.to_string(),
             args: arg_names.to_vec().iter().map(|arg| arg.to_string()).collect(),
             constants: Constants::default(),
-            usrs: UserDefinedTable::new(),
+            usrs: UserFnTable::new(),
         }
     }
 
@@ -69,7 +76,7 @@ impl Builder
     ///
     /// # Examples
     /// ```rust
-    /// use formulac::Builder;
+    /// use formulac::builder::Builder;
     /// use num_complex::Complex;
     ///
     /// let builder = Builder::new("a + x", &["x"])
@@ -93,32 +100,99 @@ impl Builder
     /// Sets the user-defined functions for the builder.
     ///
     /// User-defined functions allow you to extend the formula parser with custom operations.
-    /// This method allows you to provide a pre-configured `UserDefinedTable`.
+    /// This method allows you to provide a pre-configured list of `UserFn`.
     ///
     /// # Parameters
-    /// - `user_defined_functions`: A `UserDefinedTable` instance containing custom functions.
+    /// - `user_functions`: A list of `UserFn` instance containing custom functions.
     ///
     /// # Returns
     /// The `Builder` instance with the updated user-defined functions, allowing method chaining.
     ///
     /// # Examples
     /// ```rust
-    /// use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
+    /// use formulac::builder::Builder;
+    /// use formulac::functions::{FunctionArgs, UserFn};
     /// use num_complex::Complex;
     ///
-    /// let users = UserDefinedTable::default()
-    ///     .register(UserDefinedFunction::new(
-    ///         "double", |args| args[0] * Complex::new(2.0, 0.0), 1
-    ///     )).unwrap();
+    /// let func = UserFn::new(
+    ///     "double",
+    ///     |args| {
+    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
+    ///         x * Complex::new(2.0, 0.0)
+    ///     },
+    ///     1,
+    /// );
     ///
-    /// let builder = Builder::new("double(x)", &["x"]).with_user_defined_functions(users);
+    /// let builder = Builder::new("double(x)", &["x"])
+    ///     .with_user_functions([func]);
     /// ```
-    pub fn with_user_defined_functions(mut self, user_defined_functions: UserDefinedTable) -> Self
+    pub fn with_user_functions<I>(mut self, user_functions: I) -> Self
+    where
+        I: IntoIterator<Item = UserFn>,
     {
-        for func in user_defined_functions.iter() {
-            self.usrs.add(func.clone());
+        for func in user_functions.into_iter() {
+            self.usrs.insert(func.name().into(), func);
         }
         self
+    }
+
+    fn build_tokens(&self) -> Result<Vec<Token>, ParseError>
+    {
+        let lexemes = lexer::from(&self.formula);
+        let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
+        let tokens = astnode::AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
+            .simplify()
+            .compile();
+
+        Ok(tokens)
+    }
+
+    fn build_executor(tokens: Vec<Token>, expected_arity: usize)
+        -> impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static
+    {
+        move |arg_values: &[Complex<f64>]| {
+            // check arity only debug build
+            debug_assert_eq!(arg_values.len(), expected_arity);
+
+            let mut stack: Vec<Complex<f64>> = Vec::new();
+            for token in tokens.iter() {
+                match token {
+                    Token::Number(val) => stack.push(*val),
+                    Token::Argument(idx) => stack.push(arg_values[*idx]),
+                    Token::UnaryOperator(oper) => {
+                        let expr = stack.pop().unwrap();
+                        stack.push(oper.apply(expr));
+                    },
+                    Token::BinaryOperator(oper) => {
+                        let r = stack.pop().unwrap();
+                        let l = stack.pop().unwrap();
+                        stack.push(oper.apply(l, r));
+                    },
+                    Token::Function(func) => {
+                        let n = func.arity();
+                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                        for _ in 0..n {
+                            args.push(stack.pop().unwrap())
+                        }
+                        args.reverse();
+                        stack.push(func.apply(FunctionArgs::from(args)));
+                    },
+                    Token::UserFunction(func) => {
+                        let n = func.arity();
+                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                        args.resize(n, Complex::new(0.0, 0.0));
+
+                        for i in (0..n).rev() {
+                            args[i] = stack.pop().unwrap();
+                        }
+                        stack.push(func.apply(FunctionArgs::from(args)));
+                    },
+                    _ => unreachable!("Invalid tokens found: use compiled tokens"),
+                }
+            }
+
+            stack.pop().unwrap_or_else(|| unreachable!("empty stack at end"))
+        }
     }
 
     /// Compiles a mathematical expression into an executable closure.
@@ -141,12 +215,12 @@ impl Builder
     /// - Panics if the number of arguments provided does not match `arg_names.len()`.
     ///   So check it with debug build.
     ///
-    /// On failure, returns an error string describing the parsing or compilation error.
+    /// On failure, returns an error enum describing the parsing or compilation error.
     ///
     /// # Example
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::{Builder, UserDefinedTable};
+    /// use formulac::builder::Builder;
     ///
     /// let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
     ///     .with_constants([("a", Complex::new(3.0, 2.0))])
@@ -160,66 +234,21 @@ impl Builder
     /// # Notes
     /// - This function does not evaluate immediately; instead, it produces
     ///   a reusable compiled closure for efficient repeated evaluation.
-    pub fn compile(&self) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static, String>
+    pub fn compile(&self) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static, ParseError>
     {
-        let lexemes = lexer::from(&self.formula);
-        let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str() ).collect();
-        let tokens = astnode::AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
-            .simplify().compile();
+        let tokens = self.build_tokens()?;
+        let expected_arity = self.args.len();
 
-        let expected_arity = args.len();
-        let func = move |arg_values: &[Complex<f64>]| {
-            // check arity only debug build
-            debug_assert_eq!(arg_values.len(), expected_arity);
-
-            let mut stack: Vec<Complex<f64>> = Vec::new();
-            for token in tokens.iter() {
-                match token {
-                    Token::Number(val) => stack.push(*val),
-                    Token::Argument(idx) => stack.push(arg_values[*idx]),
-                    Token::UnaryOperator(oper) => {
-                        let expr = stack.pop().unwrap();
-                        stack.push(oper.apply(expr));
-                    },
-                    Token::BinaryOperator(oper) => {
-                        let r = stack.pop().unwrap();
-                        let l = stack.pop().unwrap();
-                        stack.push(oper.apply(l, r));
-                    },
-                    Token::Function(func) => {
-                        let n = func.arity();
-                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
-                        args.resize(n, Complex::new(0.0, 0.0));
-
-                        for i in (0..n).rev() {
-                            args[i] = stack.pop().unwrap();
-                        }
-                        stack.push(func.apply(&args));
-                    },
-                    Token::UserFunction(func) => {
-                        let n = func.arity();
-                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
-                        args.resize(n, Complex::new(0.0, 0.0));
-
-                        for i in (0..n).rev() {
-                            args[i] = stack.pop().unwrap();
-                        }
-                        stack.push(func.apply(&args));
-                    },
-                    _ => unreachable!("Invalid tokens found: use compiled tokens"),
-                }
-            }
-
-            stack.pop().unwrap()
-        };
-
-        Ok(func)
+        Ok(Self::build_executor(tokens, expected_arity))
     }
 }
 
 #[cfg(test)]
 mod compile_test {
-    use crate::variable::UserDefinedFunction;
+    use crate::functions::{
+        FunctionArgs,
+        UserFn,
+    };
 
     use super::*;
     use num_complex::{Complex};
@@ -315,25 +344,29 @@ mod compile_test {
     }
 
     #[test]
-    fn test_differentiate_with_userdefinedfunction() {
+    fn test_differentiate_with_userfn() {
         // Define df(x) = 2*x
-        let deriv = UserDefinedFunction::new(
+        let deriv = UserFn::new(
             "df",
-            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0],
+            |args| {
+                    let FunctionArgs::Unary(x) = args else { unreachable!() };
+                    Complex::new(2.0, 0.0) * x
+            },
             1
         );
 
         // Define f(x) = x^2
-        let func = UserDefinedFunction::new(
+        let func = UserFn::new(
             "f",
-            |args: &[Complex<f64>]| args[0] * args[0],
+            |args| {
+                    let FunctionArgs::Unary(x) = args else { unreachable!() };
+                    x * x
+                },
             1,
         ).with_derivative(vec![deriv]);
-        let users = UserDefinedTable::default()
-            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
-            .with_user_defined_functions(users)
+            .with_user_functions([func])
             .compile().unwrap();
 
         let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
@@ -344,33 +377,39 @@ mod compile_test {
     #[test]
     fn test_differentiate_with_partial_derivative() {
         // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
-        let dg_dx = UserDefinedFunction::new(
+        let dg_dx = UserFn::new(
             "dgdx",
-            |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
+            |args| {
+                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
+                Complex::new(2.0, 0.0) * x * y
+            },
             2,
         );
         // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-        let dg_dy = UserDefinedFunction::new(
+        let dg_dy = UserFn::new(
             "dgdy",
-            |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
+            |args| {
+                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
+                x * x + Complex::new(3.0, 0.0) * y * y
+            },
             2,
         );
 
         // Define g(x, y) = x^2 * y + y^3
-        let func = UserDefinedFunction::new(
+        let func = UserFn::new(
             "g",
-            |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
+            |args| {
+                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
+                x * x * y + y * y * y
+            },
             2,
         ).with_derivative(vec![dg_dx, dg_dy]);
-
-        let users = UserDefinedTable::default()
-            .register(func).unwrap();
 
         let x = Complex::new(2.0, 0.0);
         let y = Complex::new(3.0, 0.0);
 
         let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
-            .with_user_defined_functions(users.clone())
+            .with_user_functions([func.clone()])
             .compile()
             .unwrap();
         let result_dx = expr_dx(&[x, y]);
@@ -379,7 +418,7 @@ mod compile_test {
         assert_abs_diff_eq!(result_dx.im, expect_dx.im, epsilon=1.0e-12);
 
         let expr_dy = Builder::new("diff(g(x, y), y)", &["x", "y"])
-            .with_user_defined_functions(users)
+            .with_user_functions([func.clone()])
             .compile().unwrap();
         let result_dy = expr_dy(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
         let expect_dy = x * x + 3.0 * y * y;
@@ -388,18 +427,19 @@ mod compile_test {
     }
 
     #[test]
-    fn test_differentiate_with_userdefinedfunction_numerical() {
+    fn test_differentiate_with_userfn_numerical() {
         // Define f(x) = x^2 without specifying derivative (uses numerical differentiation)
-        let func = UserDefinedFunction::new(
+        let func = UserFn::new(
             "f",
-            |args: &[Complex<f64>]| args[0] * args[0],
+            |args| {
+                let FunctionArgs::Unary(x) = args else { unreachable!() };
+                x * x
+            },
             1,
         );
-        let users = UserDefinedTable::default()
-            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(x), x)", &["x"])
-            .with_user_defined_functions(users)
+            .with_user_functions([func])
             .compile().unwrap();
 
         let x = Complex::new(3.0, 0.0);
@@ -411,18 +451,19 @@ mod compile_test {
     }
 
     #[test]
-    fn test_differentiate_with_userdefinedfunction_numerical_complex() {
+    fn test_differentiate_with_userfn_numerical_complex() {
         // Define f(z) = z^2 (complex)
-        let func = UserDefinedFunction::new(
+        let func = UserFn::new(
             "f",
-            |args: &[Complex<f64>]| args[0] * args[0],
+            |args| {
+                let FunctionArgs::Unary(x) = args else { unreachable!() };
+                x * x
+            },
             1,
         );
-        let users = UserDefinedTable::default()
-            .register(func).unwrap();
 
         let expr = Builder::new("diff(f(z), z)", &["z"])
-            .with_user_defined_functions(users)
+            .with_user_functions([func])
             .compile().unwrap();
 
         let z = Complex::new(1.0, 2.0);
@@ -466,14 +507,15 @@ mod compile_test {
         let a = Complex::new(1.0, 2.0);
         let x = Complex::new(2.0, -1.0);
         let f = {
-            let usrs = UserDefinedTable::default()
-                .register(UserDefinedFunction::new(
-                    "f", |args| args[0].conj(), 1
-                )).unwrap();
             let constants = [("a", a.clone())];
             Builder::new("f(x + a)", &["x"])
                 .with_constants(constants)
-                .with_user_defined_functions(usrs)
+                .with_user_functions([
+                    UserFn::new("f", |args| {
+                        let FunctionArgs::Unary(x) = args else { unreachable!() };
+                        x.conj()
+                    }, 1)
+                ])
                 .compile().unwrap()
         };
 
