@@ -68,14 +68,14 @@
 //! ## License
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
-pub mod lexer;
 pub mod astnode;
-pub mod err;
-pub mod operators;
-pub mod token;
 pub mod builder;
 pub mod constants;
 pub mod functions;
+pub mod err;
+pub mod lexer;
+pub mod operators;
+pub mod token;
 
 pub type Builder<const N: usize> = builder::Builder<N>;
 pub type UserFn = functions::UserFn;

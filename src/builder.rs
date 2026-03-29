@@ -4,15 +4,15 @@
 
 use num_complex::Complex;
 
-use crate::err::ParseError;
-use crate::lexer;
 use crate::astnode;
 use crate::constants::Constants;
+use crate::err::ParseError;
 use crate::functions::{
     FunctionArgs,
     FunctionCall,
     UserFn,
 };
+use crate::lexer;
 use crate::token::{
     Token,
     UserFnTable,
