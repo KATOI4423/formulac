@@ -24,36 +24,39 @@
 //! ## Example
 //! ```rust
 //! use num_complex::Complex;
-//! use formulac::{Builder, UserDefinedTable};
+//! use formulac::Builder;
 //!
-//! let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
+//! let expr = Builder::new("sin(z) + a * cos(z)", ["z"])
 //!     .with_constants([("a", Complex::new(3.0, 2.0))])
 //!     .compile()
 //!     .expect("Failed to compile formula");
 //!
-//! let result = expr(&[Complex::new(1.0, 2.0)]);
+//! let result = expr([Complex::new(1.0, 2.0)]);
 //! println!("Result = {}", result);
 //! ```
 //!
 //! ## Example: Retrieving All Names
 //! ```rust
-//! use formulac::constants;
+//! use formulac::constants::Constants;
+//! use formulac::operators::{UnaryOperatorKind, BinaryOperatorKind};
+//! use formulac::functions::FunctionKind;
+//!
 //!
 //! // Constants
-//! let constant_names: Vec<String> = constants::names();
+//! let constant_names: Vec<_> = Constants::symbols().collect();
 //! println!("Constants: {:?}", constant_names);
 //!
 //! // Unary operators
-//! //let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
-//! //println!("Unary Operators: {:?}", unary_names);
+//! let unary_names = UnaryOperatorKind::symbols();
+//! println!("Unary Operators: {:?}", unary_names);
 //!
 //! // Binary operators
-//! //let binary_names: Vec<&'static str> = BinaryOperatorKind::names();
-//! //println!("Binary Operators: {:?}", binary_names);
+//! let binary_names = BinaryOperatorKind::symbols();
+//! println!("Binary Operators: {:?}", binary_names);
 //!
 //! // Functions
-//! //let function_names: Vec<&'static str> = FunctionKind::names();
-//! //println!("Functions: {:?}", function_names);
+//! let function_names = FunctionKind::symbols();
+//! println!("Functions: {:?}", function_names);
 //! ```
 //!
 //! ## When to Use
@@ -65,12 +68,14 @@
 //! ## License
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
-pub mod lexer;
 pub mod astnode;
-pub mod variable;
 pub mod builder;
 pub mod constants;
+pub mod functions;
+pub mod err;
+pub mod lexer;
+pub mod operators;
+pub mod token;
 
-pub type UserDefinedFunction = variable::UserDefinedFunction;
-pub type UserDefinedTable = variable::UserDefinedTable;
-pub type Builder = builder::Builder;
+pub type Builder<const N: usize> = builder::Builder<N>;
+pub type UserFn = functions::UserFn;

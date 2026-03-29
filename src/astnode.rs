@@ -1,407 +1,31 @@
 //! # astnode.rs
 //!
-//! This module provides the functionality to parse mathematical expressions into an Abstract Syntax Tree (AST)
-//! and then compile them into executable tokens.
+//! Parses mathematical expressions into an Abstract Syntax Tree (AST)
+//! and compiles them into executable tokens.
 //!
-//! It supports:
-//! - Real and complex numbers
-//! - Constants (predefined math constants like PI, E, etc.)
-//! - Unary and binary operators
-//! - Built-in functions (sin, cos, ln, sqrt, etc.)
-//! - User-defined functions (`UserDefinedFunction` and `UserDefinedTable`)
-//!
-//! The parsing process converts a sequence of lexemes (from the lexer) into an `AstNode` tree,
-//! which can then be simplified or compiled into a sequence of executable tokens.
-//!
-//! # Notes
-//! - Operator precedence and associativity are handled according to standard math rules.
-//! - Unary and binary operators sharing symbols (like "-" for negation and subtraction) are disambiguated
-//!   based on context.
-//! - AST simplification will precompute nodes if all arguments are constant numbers.
-//! - User-defined functions must be registered in `UserDefinedTable` before parsing expressions using them.
+//! Supports real/complex numbers, constants, unary/binary operators,
+//! built-in functions, user-defined functions, and symbolic differentiation.
 
-use crate::lexer::Lexeme;
-use crate::lexer::IMAGINARY_UNIT;
-use crate::constants::Constants;
-use crate::{variable::FunctionCall, UserDefinedFunction, UserDefinedTable};
 use num_complex::Complex;
-use num_complex::ComplexFloat;
 
-pub const DIFFELENCIAL_OPERATOR_STR: &str = "diff";
+use crate::constants::Constants;
+use crate::err::ParseError;
+use crate::functions::{FunctionArgs, FunctionCall, FunctionKind, UserFn};
+use crate::lexer::Lexeme;
+use crate::operators::{BinaryOperatorKind, UnaryOperatorKind};
+use crate::token::{Token, UserFnTable};
 
-/// Judge the exp is compatible with i32 or not
-fn is_exp_compatible_with_i32(exp: &Complex<f64>) -> bool {
-    (exp.im == 0.0) && (exp.re.fract() == 0.0)
-        && (i32::MIN as f64 <= exp.re) && (exp.re <= i32::MAX as f64)
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+fn is_i32_compatible(z: &Complex<f64>) -> bool {
+    z.im == 0.0
+        && z.re.fract() == 0.0
+        && (i32::MIN as f64..=i32::MAX as f64).contains(&z.re)
 }
 
-#[doc(hidden)]
-/// Internal macro to define all unary operators.
-///
-/// This macro is **not intended for public use**.
-/// It centralizes the enum variants, string representation, and apply logic for unary operators.
-macro_rules! unary_operator_kind {
-    ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
-        /// Represents a unary operator in a mathematical expression.
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum UnaryOperatorKind {
-            $($name),*
-        }
+// ─── AstNode ────────────────────────────────────────────────────────────────
 
-        impl UnaryOperatorKind {
-            /// Converts a string representation to a `UnaryOperatorKind`.
-            pub fn from(s: &str) -> Option<Self> {
-                match s {
-                    $( $symbol => Some(Self::$name), )*
-                    _ => None,
-                }
-            }
-
-            /// Applies the unary operator to a complex number.
-            pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
-                match self {
-                    $( Self::$name => $apply(x), )*
-                }
-            }
-
-            /// Returns a list of all supported unary operator symbols.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($symbol),*]
-            }
-        }
-
-        impl std::fmt::Display for UnaryOperatorKind {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = match self {
-                    $( Self::$name => $symbol, )*
-                };
-                write!(f, "{}", s)
-            }
-        }
-    };
-}
-
-unary_operator_kind! {
-    Positive => { symbol: "+", apply: |x: Complex<f64>| x },
-    Negative => { symbol: "-", apply: |x: Complex<f64>| -x },
-}
-
-/// Information about a binary operator in a mathematical expression.
-///
-/// Contains the operator's precedence and associativity, which are used
-/// when parsing expressions to determine the order of operations.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct BinaryOperatorInfo {
-    /// Operator precedence (higher value means higher precedence).
-    pub precedence: u8,
-
-    /// Whether the operator is left-associative.
-    pub is_left_assoc: bool,
-}
-
-#[doc(hidden)]
-/// Internal macro to define all binary operators.
-///
-/// This macro is **not intended for public use**.
-/// It centralizes the enum variants, string representation, precedence, associativity, and apply logic.
-macro_rules! binary_operators {
-    ($($name:ident => {
-        symbol: $symbol:expr,
-        precedence: $prec:expr,
-        left_assoc: $assoc:expr,
-        apply: $apply:expr
-    }),* $(,)?) => {
-        /// Represents a binary operator in a mathematical expression.
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum BinaryOperatorKind {
-            $($name),*
-        }
-
-        impl BinaryOperatorKind {
-            /// Returns operator precedence and associativity.
-            pub fn info(&self) -> BinaryOperatorInfo {
-                match self {
-                    $(Self::$name => BinaryOperatorInfo { precedence: $prec, is_left_assoc: $assoc },)*
-                }
-            }
-
-            /// Converts a string to the corresponding operator.
-            pub fn from(s: &str) -> Option<Self> {
-                match s {
-                    $($symbol => Some(Self::$name),)*
-                    _ => None,
-                }
-            }
-
-            /// Applies the operator to two complex numbers.
-            pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
-                match self {
-                    $(Self::$name => $apply(l, r),)*
-                }
-            }
-
-            /// Returns a list of all supported binary operator symbols.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($symbol),*]
-            }
-        }
-
-        impl std::fmt::Display for BinaryOperatorKind {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = match self {
-                    $(Self::$name => $symbol,)*
-                };
-                write!(f, "{}", s)
-            }
-        }
-    };
-}
-
-binary_operators! {
-    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l + r },
-    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l - r },
-    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l * r },
-    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l / r },
-    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<f64>, r: Complex<f64>| l.powc(r) },
-}
-
-
-#[doc(hidden)]
-/// Internal macro for defining built-in mathematical functions.
-///
-/// This macro is **not intended for public use**.
-/// It centralizes the declaration of functions in one place and automatically
-/// generates the [`FunctionKind`] enum and its implementations (`from`, `arity`,
-/// `apply`, and `Display`).
-///
-/// # Developer Notes
-/// - Each function must declare:
-///   - The enum variant name
-///   - Its canonical string name
-///   - The number of arguments it takes
-///   - How it is applied to its arguments
-/// - To add or remove a built-in function, update the list inside this macro.
-/// - User-defined functions should *not* be added here; use [`UserDefinedTable`] instead.
-///
-/// This macro ensures consistency across:
-/// - Parsing (string → enum)
-/// - Evaluation (apply)
-/// - Formatting (Display)
-macro_rules! functions {
-    ($( $variant: ident => {
-        name: $name:expr,
-        arity: $arity:expr,
-        apply: |$a:ident| $body:expr
-    }, )*) => {
-        /// Represents a mathematical function that can be applied to one or more complex numbers.
-        ///
-        /// Supports common trigonometric, hyperbolic, logarithmic, exponential, and arithmetic functions,
-        /// as well as complex-specific operations like conjugation.
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum FunctionKind {
-            $( $variant, )*
-        }
-
-        impl FunctionKind {
-            /// Converts a string representation of a function into a `FunctionKind`.
-            ///
-            /// Returns `None` if the string does not match any supported function.
-            pub fn from(s: &str) -> Option<Self> {
-                match s {
-                    $( $name => Some(Self::$variant), )*
-                    _ => None,
-                }
-            }
-
-            /// Returns a list of all supported function names.
-            pub fn names() -> Vec<&'static str> {
-                vec![$($name),*]
-            }
-        }
-
-        impl FunctionCall for FunctionKind {
-            /// Returns arity, the number of arguments that the function takes.
-            fn arity(&self) -> usize {
-                match self {
-                    $( Self::$variant => $arity, )*
-                }
-            }
-
-            /// Applies the function to a slice of complex numbers and returns the result.
-            ///
-            /// The number of elements in `args` must match the value returned by `arity`.
-            fn apply(&self, args: &[Complex<f64>]) -> Complex<f64> {
-                match self {
-                    $( Self::$variant => {
-                        let $a = args;
-                        $body
-                    }, )*
-                }
-            }
-        }
-
-        impl std::fmt::Display for FunctionKind {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                let s = match self {
-                    $( Self::$variant => $name, )*
-                };
-                write!(f, "{}", s)
-            }
-        }
-    };
-}
-
-functions! {
-    Sin     => { name: "sin",       arity: 1,   apply: |a| a[0].sin() },
-    Cos     => { name: "cos",       arity: 1,   apply: |a| a[0].cos() },
-    Tan     => { name: "tan",       arity: 1,   apply: |a| a[0].tan() },
-    Asin    => { name: "asin",      arity: 1,   apply: |a| a[0].asin() },
-    Acos    => { name: "acos",      arity: 1,   apply: |a| a[0].acos() },
-    Atan    => { name: "atan",      arity: 1,   apply: |a| a[0].atan() },
-    Sinh    => { name: "sinh",      arity: 1,   apply: |a| a[0].sinh() },
-    Cosh    => { name: "cosh",      arity: 1,   apply: |a| a[0].cosh() },
-    Tanh    => { name: "tanh",      arity: 1,   apply: |a| a[0].tanh() },
-    Asinh   => { name: "asinh",     arity: 1,   apply: |a| a[0].asinh() },
-    Acosh   => { name: "acosh",     arity: 1,   apply: |a| a[0].acosh() },
-    Atanh   => { name: "atanh",     arity: 1,   apply: |a| a[0].atanh() },
-    Exp     => { name: "exp",       arity: 1,   apply: |a| a[0].exp() },
-    Ln      => { name: "ln",        arity: 1,   apply: |a| a[0].ln() },
-    Log10   => { name: "log10",     arity: 1,   apply: |a| a[0].log10() },
-    Sqrt    => { name: "sqrt",      arity: 1,   apply: |a| a[0].sqrt() },
-    Abs     => { name: "abs",       arity: 1,   apply: |a| Complex::from(a[0].abs()) },
-    Conj    => { name: "conj",      arity: 1,   apply: |a| a[0].conj() },
-    Pow     => { name: "pow",       arity: 2,   apply: |a| a[0].powc(a[1]) },
-    Powi    => { name: "powi",      arity: 2,   apply: |a| a[0].powi(a[1].re as i32) },
-}
-
-/// Represents a parsed token in a mathematical expression.
-///
-/// Tokens are produced by the lexer and consumed by the parser to build an AST.
-/// This enum covers all possible token types, including numbers, operators,
-/// functions, parentheses, commas, and user-defined functions.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token {
-    /// Numerical value token holding a resolved complex number.
-    ///
-    /// This variant can represent:
-    /// - User-defined constants with values resolved at parse time.
-    /// - Predefined mathematical constants.
-    /// - Literal real or imaginary numbers.
-    Number(Complex<f64>),
-
-    /// Function argument token by its position index in the argument list.
-    Argument(usize),
-
-    /// Generic operator token holding the original lexeme.
-    Operator(Lexeme),
-
-    /// Unary operator token (e.g., `+`, `-`).
-    UnaryOperator(UnaryOperatorKind),
-
-    /// Binary operator token (e.g., `+`, `-`, `*`, `/`, `^`).
-    BinaryOperator(BinaryOperatorKind),
-
-    /// Differential operator token.
-    DiffOperator(Lexeme),
-
-    /// Standard mathematical function token (e.g., `sin`, `cos`, `exp`).
-    Function(FunctionKind),
-
-    /// User-defined function token.
-    UserFunction(UserDefinedFunction),
-
-    /// Left parenthesis `'('`.
-    LParen(Lexeme),
-
-    /// Right parenthesis token `')'``.
-    RParen(Lexeme),
-
-    /// Comma `','`` used as argument separator.
-    Comma(Lexeme),
-}
-
-impl Token {
-    /// Attempts to parse a string as a real number.
-    fn parse_real(s: &str) -> Option<Complex<f64>> {
-        s.parse::<f64>().ok().map(Complex::from)
-    }
-
-    /// Attempts to parse a string as an imaginary number.
-    fn parse_imaginary(s: &str) -> Option<Complex<f64>> {
-        let num_part = s.strip_suffix(IMAGINARY_UNIT)?;
-        if num_part.is_empty() {
-            return Some(Complex::I);
-        }
-        match num_part.parse::<f64>() {
-            Ok(val) => Some(Complex::new(0.0, val)),
-            Err(_) => None,
-        }
-    }
-
-    /// Converts a lexeme into a corresponding `Token`.
-    ///
-    /// Resolves numbers, constants, operators, functions, and user-defined functions.
-    /// Returns an error if the lexeme cannot be recognized.
-    pub fn from(
-        lexeme: &Lexeme,
-        args: &[&str],
-        constants: &Constants,
-        users: &UserDefinedTable,
-    ) -> Result<Self, String> {
-        let text = lexeme.text();
-
-        if let Some(val) = Self::parse_real(text)
-            .or_else(|| Self::parse_imaginary(text))
-            .or_else(|| constants.get(text).copied())
-        {
-            return Ok(Token::Number(val));
-        }
-
-        if text == DIFFELENCIAL_OPERATOR_STR {
-            return Ok(Token::DiffOperator(lexeme.clone()));
-        }
-
-        if let Some(position) = args.iter().position(|&arg| arg == text) {
-            return Ok(Token::Argument(position));
-        }
-
-        /* We can't know whether the text is unary operator or binary operator
-         * because some operator's strings are the same.
-         * So we register only its lexeme. */
-        if UnaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(lexeme.clone()));
-        }
-        if BinaryOperatorKind::from(text).is_some() {
-            return Ok(Token::Operator(lexeme.clone()));
-        }
-
-        if let Some(func_kind) = FunctionKind::from(text) {
-            return Ok(Token::Function(func_kind));
-        }
-
-        if let Some(user_func) = users.get(text) {
-            return Ok(Token::UserFunction(user_func.clone()));
-        }
-
-        match text {
-            "(" => Ok(Token::LParen(lexeme.clone())),
-            ")" => Ok(Token::RParen(lexeme.clone())),
-            "," => Ok(Token::Comma(lexeme.clone())),
-            _ =>Err(format!("Unknown string {}", lexeme)),
-        }
-    }
-
-}
-
-/// Abstract Syntax Tree (AST) node representing a mathematical expression.
-///
-/// Each node corresponds to a part of an expression:
-/// - numeric values,
-/// - function arguments,
-/// - unary/binary operators,
-/// - function calls.
-///
-/// The AST allows for expression simplification and compilation into executable tokens.
+/// Abstract Syntax Tree node representing a mathematical expression.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AstNode {
     /// Numeric literal.
@@ -423,546 +47,368 @@ pub(crate) enum AstNode {
         right: Box<AstNode>,
     },
 
-    /// Differential operator
-    Differentive {
+    /// Derivative node: `diff(expr, var, order)`.
+    Derivative {
         expr: Box<AstNode>,
-        var: usize, // this is equal to the usize of AstNode::Argument
+        var: usize,
         order: usize,
     },
 
-    /// Function call with evaluated argument expressions.
+    /// Built-in function call.
     FunctionCall {
         kind: FunctionKind,
         args: Vec<AstNode>,
     },
 
-    /// User-defined Function call with evaluated argmuent expressions.
+    /// User-defined function call.
     UserFunctionCall {
-        func: UserDefinedFunction,
+        func: UserFn,
         args: Vec<AstNode>,
     },
 }
 
-/// AstNode impl `from` and its helper impls
+// ─── parse ──────────────────────────────────────────────────────────────────
+
 impl AstNode {
-    /// Parses a slice of lexemes into an AST node.
-    ///
-    ///  Implements a full shunting-yard-like parser handling numbers, arguments, unary/binary operators,
-    /// function calls, parentheses, and commas.
-    ///
-    /// # Parameters
-    /// - `lexemes`: Slice of lexemes representing the expression.
-    /// - `args`: List of argument names for functions.
-    /// - `constants`: Table of variable values.
-    /// - `users`: Table of user-defined functions.
-    ///
-    /// # Returns
-    /// - `Ok(AstNode)` representing the root of the parsed AST.
-    /// - `Err(String)` if parsing fails due to invalid syntax or unknown tokens.
+    /// Parses a slice of `Lexeme`s into an AST using a shunting-yard algorithm.
     pub fn from(
-        lexemes: &[Lexeme],
-        args: &[&str],
+        lexemes:   &[Lexeme],
+        args:      &[&str],
         constants: &Constants,
-        users: &UserDefinedTable,
-    ) -> Result<Self, String> {
-        let mut ast_nodes: Vec<Self> = Vec::new();
-        let mut token_stack: Vec<Token> = Vec::new();
-        // record whether the previous token is finished by value or not to evaluate the token is unary operator or binary operator.
+        users:     &UserFnTable,
+    ) -> Result<Self, ParseError> {
+        let mut output: Vec<Self>  = Vec::new();
+        let mut ops:    Vec<Token> = Vec::new();
+        // Tracks whether the previous token produced a value,
+        // used to distinguish unary from binary operators.
         let mut prev_is_value = false;
-        let lexemes = lexemes.iter().peekable();
 
         for lexeme in lexemes {
-            let token = Token::from(lexeme, args, constants, users)?;
+            let token = Token::try_from(lexeme, args, constants, users)?;
             match token {
                 Token::Number(val) => {
-                    ast_nodes.push(Self::Number(val));
+                    output.push(Self::Number(val));
                     prev_is_value = true;
-                },
+                }
                 Token::Argument(pos) => {
-                    ast_nodes.push(Self::Argument(pos));
+                    output.push(Self::Argument(pos));
                     prev_is_value = true;
-                },
-                Token::Operator(lexeme) => {
-                    match prev_is_value {
-                        true => Self::parse_in_binary_operator(&mut ast_nodes, &mut token_stack, lexeme)?,
-                        false => Self::parse_in_unary_operator(&mut token_stack, lexeme)?,
-                    };
+                }
+                Token::Operator(lex) => {
+                    if prev_is_value {
+                        Self::push_binary_op(&mut output, &mut ops, lex)?;
+                    } else {
+                        Self::push_unary_op(&mut ops, lex)?;
+                    }
                     prev_is_value = false;
-                },
-                Token::DiffOperator(_) => {
-                    token_stack.push(token);
+                }
+                // Functions and diff are pushed onto the op stack;
+                // they are resolved when their closing ')' is encountered.
+                Token::DiffOperator(_) | Token::Function(_) | Token::UserFunction(_) => {
+                    ops.push(token);
                     prev_is_value = false;
-                },
-                Token::Function(_) | Token::UserFunction(_) => {
-                    token_stack.push(token);
-                    prev_is_value = false;
-                },
+                }
+                // '(' resets prev_is_value so the next token
+                // (e.g. `-` in `(-x)`) is treated as unary.
                 Token::LParen(_) => {
-                    token_stack.push(token);
-                    prev_is_value = false; // The operator next to LParen is unary operator; ex) cos(-x), 3 * (-2)
-                },
+                    ops.push(token);
+                    prev_is_value = false;
+                }
                 Token::RParen(_) => {
-                    Self::parse_in_right_paren(&mut ast_nodes, &mut token_stack, lexeme)?;
-                    prev_is_value = true; // The operator next to RParen is binary operator; ex) sin(x) + 2, (x+2)/(x-3)
-                },
+                    Self::flush_until_lparen(&mut output, &mut ops, lexeme)?;
+                    prev_is_value = true;
+                }
                 Token::Comma(_) => {
-                    Self::parse_in_comma(&mut ast_nodes, &mut token_stack, lexeme)?;
-                    prev_is_value = false; // The operator next to Comma is unary operator; ex) pow(x, -3)
-                },
-                _ => return Err(format!("Invalid token kind made from {}", lexeme)),
+                    Self::flush_until_lparen_keep(&mut output, &mut ops, lexeme)?;
+                    prev_is_value = false;
+                }
+                _ => return Err(ParseError::InternalError {
+                    reason: format!("unexpected token from '{}'", lexeme.text()),
+                }),
             }
         }
 
-        while let Some(token) = token_stack.pop() {
-            match token {
-                Token::UnaryOperator(oper) => Self::from_unary(&mut ast_nodes, oper)?,
-                Token::BinaryOperator(oper) => Self::from_binary(&mut ast_nodes, oper)?,
-                Token::DiffOperator(lexeme) => Self::from_diff(&mut ast_nodes, lexeme)?,
-                Token::Function(func) => Self::from_function(&mut ast_nodes, func)?,
-                Token::UserFunction(func) => Self::from_userfunction(&mut ast_nodes, func)?,
-                _ => return Err("Unexpected token at the end".into()),
-            }
-        }
+        // Drain the remaining operator stack.
+        Self::flush_all(&mut output, &mut ops)?;
 
-        let ret = ast_nodes.pop()
-            .ok_or("Fail to parse to AST. There are NO AST node remaining.")?;
-
-        if !ast_nodes.is_empty() {
-            return Err("Fail to parse to AST. There are too AST node remaining.".into());
+        match output.len() {
+            1 => Ok(output.pop().unwrap()),
+            0 => Err(ParseError::WrongReturn("no AST node produced".into())),
+            _ => Err(ParseError::WrongReturn("too many AST nodes remaining".into())),
         }
-        Ok(ret)
     }
 
-    /// Parses tokens in a subexpression until a right parenthesis `)` is encountered.
-    ///
-    /// Pops tokens from `token_stack` and constructs AST nodes into `ast_nodes`.
-    /// Handles unary operators, binary operators, and function calls.
-    ///
-    /// # Parameters
-    /// - `ast_nodes`: Vector to accumulate AST nodes.
-    /// - `token_stack`: Stack of tokens to process.
-    /// - `lexeme`: Lexeme representing the right parenthesis.
-    ///
-    /// # Returns
-    /// - `Ok(())` on success.
-    /// - `Err(String)` if an unexpected token is found.
-    fn parse_in_right_paren(
-        ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token>,
-        lexeme: &Lexeme,
-    ) -> Result<(), String> {
-        while let Some(token) = token_stack.pop() {
-            match token {
-                Token::LParen(_) => break,
-                Token::UnaryOperator(oper) => Self::from_unary(ast_nodes, oper)?,
-                Token::BinaryOperator(oper) => Self::from_binary(ast_nodes, oper)?,
-                Token::DiffOperator(lexeme) => Self::from_diff(ast_nodes, lexeme)?,
-                Token::Function(func) => Self::from_function(ast_nodes, func)?,
-                Token::UserFunction(func) => Self::from_userfunction(ast_nodes, func)?,
-                _ => {
-                    return Err(format!(
-                        "Unexpected token in stack when parsing in RParen at {s}..{e}",
-                        s=lexeme.start(), e=lexeme.end(),
-                    ))
-                },
+    // ── shunting-yard helpers ────────────────────────────────────────────────
+
+    /// Pushes a unary operator onto the op stack.
+    fn push_unary_op(ops: &mut Vec<Token>, lex: Lexeme) -> Result<(), ParseError> {
+        let kind = UnaryOperatorKind::try_from(lex.clone())
+            .map_err(|_| ParseError::InvalidFormula {
+                reason: format!("unknown unary operator '{}'", lex.text()),
+            })?;
+        ops.push(Token::UnaryOperator(kind));
+        Ok(())
+    }
+
+    /// Pops higher-precedence binary operators from the stack, then pushes the new one.
+    fn push_binary_op(
+        output: &mut Vec<Self>,
+        ops:    &mut Vec<Token>,
+        lex:    Lexeme,
+    ) -> Result<(), ParseError> {
+        let oper = BinaryOperatorKind::try_from(lex.clone())
+            .map_err(|_| ParseError::InvalidFormula {
+                reason: format!("unknown binary operator '{}'", lex.text()),
+            })?;
+
+        // Shunting-yard precedence rule.
+        while let Some(Token::BinaryOperator(top)) = ops.last() {
+            let should_pop = if oper.is_left_assoc() {
+                top.precedence() >= oper.precedence()
+            } else {
+                top.precedence() > oper.precedence()
+            };
+            if !should_pop { break; }
+            Self::apply_binary(output, *top)?;
+            ops.pop();
+        }
+        ops.push(Token::BinaryOperator(oper));
+        Ok(())
+    }
+
+    /// Pops and applies operators until a `(` is found, then resolves any
+    /// pending function/diff call sitting just below the `(`.
+    fn flush_until_lparen(
+        output: &mut Vec<Self>,
+        ops:    &mut Vec<Token>,
+        lex:    &Lexeme,
+    ) -> Result<(), ParseError> {
+        loop {
+            match ops.pop() {
+                Some(Token::LParen(_)) => break,
+                Some(t) => Self::apply_token(output, t)?,
+                None => return Err(ParseError::InvalidFormula {
+                    reason: format!("mismatched ')' at {}..{}", lex.start(), lex.end()),
+                }),
             }
         }
-
-        // After finishing the subexpression, check if the top of the stack is a function call
-        // ex) `sin(x + 2)` => after parsing `(x + 2)`, we have to process sin(...)
-        if let Some(top) = token_stack.pop() { // use `.pop()` instead of `.last()` to avoid using `UserDefinedFunction::clone()' in 'from_userfunction()`
+        // Check for a function/diff call sitting just below the '('.
+        if let Some(top) = ops.pop() {
             match top {
-                Token::Function(func) => {
-                    Self::from_function(ast_nodes, func)?;
-                },
-                Token::UserFunction(func) => {
-                    Self::from_userfunction(ast_nodes, func)?;
-                },
-                // Put back the token if it's not a function call to avoid using `func.clone()`
-                other => token_stack.push(other),
+                Token::Function(f)     => Self::apply_fn(output, f.arity(), |args| Self::FunctionCall { kind: f, args })?,
+                Token::UserFunction(f) => Self::apply_fn(output, f.arity(), |args| Self::UserFunctionCall { func: f, args })?,
+                Token::DiffOperator(l) => Self::apply_diff(output, l)?,
+                other                  => ops.push(other), // not a call; put it back
             }
         }
-
         Ok(())
     }
 
-    /// Parses tokens in a subexpression until a comma `,` is encountered.
-    ///
-    /// Pops tokens from `token_stack` (without removing the left parenthesis) and constructs
-    /// AST nodes into `ast_nodes`. Handles unary and binary operators.
-    ///
-    /// # Parameters
-    /// - `ast_nodes`: Vector to accumulate AST nodes.
-    /// - `token_stack`: Stack of tokens to process.
-    /// - `lexeme`: Lexeme representing the comma.
-    ///
-    /// # Returns
-    /// - `Ok(())` on success.
-    /// - `Err(String)` if an unexpected token is found.
-    fn parse_in_comma(
-        ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token>,
-        lexeme: &Lexeme,
-    ) -> Result<(), String> {
-        // use Vec::last() to avoid removing Left Paren from the stack
-        while let Some(token) = token_stack.pop() {
+    /// Like `flush_until_lparen`, but leaves the `(` on the stack (used for `,`).
+    fn flush_until_lparen_keep(
+        output: &mut Vec<Self>,
+        ops:    &mut Vec<Token>,
+        lex:    &Lexeme,
+    ) -> Result<(), ParseError> {
+        loop {
+            match ops.last() {
+                Some(Token::LParen(_)) => return Ok(()),
+                Some(_) => {
+                    let t = ops.pop().unwrap();
+                    Self::apply_token(output, t)?;
+                }
+                None => return Err(ParseError::InvalidFormula {
+                    reason: format!("mismatched ',' at {}..{}", lex.start(), lex.end()),
+                }),
+            }
+        }
+    }
+
+    /// Drains the entire op stack at end-of-input.
+    fn flush_all(
+        output: &mut Vec<Self>,
+        ops:    &mut Vec<Token>,
+    ) -> Result<(), ParseError> {
+        while let Some(token) = ops.pop() {
             match token {
-                Token::LParen(_) => {
-                    token_stack.push(token);
-                    break;
-                },
-                Token::UnaryOperator(oper) => Self::from_unary(ast_nodes, oper)?,
-                Token::BinaryOperator(oper) => Self::from_binary(ast_nodes, oper)?,
-                Token::DiffOperator(lexeme) => Self::from_diff(ast_nodes, lexeme)?,
-                Token::Function(func) => Self::from_function(ast_nodes, func)?,
-                Token::UserFunction(func) => Self::from_userfunction(ast_nodes, func)?,
-                _ => {
-                    return Err(format!(
-                        "Unexpected token in stack when parsing in Comma at {s}..{e}",
-                        s=lexeme.start(), e=lexeme.end(),
-                    ))
-                },
-            }
-        }
-        Ok(())
-    }
-
-    /// Parses a unary operator token and pushes it onto the token stack.
-    ///
-    /// # Parameters
-    /// - `token_stack`: Stack of tokens to process.
-    /// - `lexeme`: Lexeme representing the unary operator.
-    ///
-    /// # Returns
-    /// - `Ok(())` on success.
-    /// - `Err(String)` if the lexeme does not represent a valid unary operator.
-    fn parse_in_unary_operator(
-        token_stack: &mut Vec<Token>,
-        lexeme: Lexeme,
-    ) -> Result<(), String> {
-        if let Some(oper_kind) = UnaryOperatorKind::from(lexeme.text()) {
-            token_stack.push(Token::UnaryOperator(oper_kind));
-            Ok(())
-        } else {
-            Err(format!("Unknown unary operator {}", lexeme))
-        }
-    }
-
-    /// Parses a binary operator token, resolves operator precedence, and pushes it onto the token stack.
-    ///
-    /// Implements the shunting-yard precedence rules for left- and right-associative operators.
-    ///
-    /// # Parameters
-    /// - `ast_nodes`: Vector of AST nodes built so far.
-    /// - `token_stack`: Stack of tokens to process.
-    /// - `lexeme`: Lexeme representing the binary operator.
-    ///
-    /// # Returns
-    /// - `Ok(())` on success.
-    /// - `Err(String)` if the lexeme does not represent a valid binary operator.
-    fn parse_in_binary_operator(
-        ast_nodes: &mut Vec<Self>,
-        token_stack: &mut Vec<Token>,
-        lexeme: Lexeme,
-    ) -> Result<(), String> {
-        if let Some(oper_kind) = BinaryOperatorKind::from(lexeme.text()) {
-            let oper_info = oper_kind.info();
-            while let Some(Token::BinaryOperator(top_oper)) = token_stack.last().cloned() {
-                if (oper_info.is_left_assoc && (top_oper.info().precedence < oper_info.precedence))
-                    || (!oper_info.is_left_assoc && (top_oper.info().precedence <= oper_info.precedence))
-                {
-                    break;
+                Token::LParen(_) | Token::RParen(_) => {
+                    return Err(ParseError::InvalidFormula {
+                        reason: "mismatched parentheses".into(),
+                    });
                 }
-                token_stack.pop();
-                Self::from_binary(ast_nodes, top_oper)?;
+                t => Self::apply_token(output, t)?,
             }
-            token_stack.push(Token::BinaryOperator(oper_kind));
-            Ok(())
-        } else {
-            Err(format!("Unknown binary operator {}", lexeme))
+        }
+        Ok(())
+    }
+
+    // ── token application ────────────────────────────────────────────────────
+
+    /// Dispatches a single token to the appropriate `apply_*` function.
+    fn apply_token(output: &mut Vec<Self>, token: Token) -> Result<(), ParseError> {
+        match token {
+            Token::UnaryOperator(op)  => Self::apply_unary(output, op),
+            Token::BinaryOperator(op) => Self::apply_binary(output, op),
+            Token::Function(f)        => Self::apply_fn(output, f.arity(), |args| Self::FunctionCall { kind: f, args }),
+            Token::UserFunction(f)    => Self::apply_fn(output, f.arity(), |args| Self::UserFunctionCall { func: f, args }),
+            Token::DiffOperator(lex)  => Self::apply_diff(output, lex),
+            other => Err(ParseError::InvalidFormula {
+                reason: format!("unexpected token in operator stack: {:?}", other),
+            }),
         }
     }
 
-    /// Internal helper to create a unary operator AST node from a stack.
-    ///
-    /// This function pops the top operand from the stack and constructs a
-    /// `UnaryOperator` AST node representing the specified unary operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `stack` - A mutable reference to a stack of `AstNode`s. The operand for the unary
-    ///   operator is expected at the top of the stack.
-    /// * `oper` - The `UnaryOperatorKind` specifying which unary operation to create
-    ///   (e.g., `Neg`, `Pos`, `Abs`).
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the `UnaryOperator` node was successfully created and pushed onto the stack.
-    /// * `Err(String)` if the stack does not contain an operand for the unary operator.
-    ///
-    /// # Notes
-    ///
-    /// - This is an internal helper used during parsing to construct AST nodes for unary operations.
-    fn from_unary(
-        stack: &mut Vec<Self>,
-        oper: UnaryOperatorKind,
-    ) -> Result<(), String> {
-        let expr = stack.pop()
-            .ok_or(format!("Missing unary opeator {}", oper))?;
-        stack.push(Self::UnaryOperator { kind: oper, expr: Box::new(expr) });
+    fn apply_unary(output: &mut Vec<Self>, op: UnaryOperatorKind) -> Result<(), ParseError> {
+        let expr = output.pop().ok_or(ParseError::InternalError {
+            reason: format!("missing operand for unary '{}'", op),
+        })?;
+        output.push(Self::UnaryOperator { kind: op, expr: Box::new(expr) });
         Ok(())
     }
 
-    /// Internal helper to create a binary operator AST node from a stack.
-    ///
-    /// This function pops the top two operands from the stack and constructs a
-    /// `BinaryOperator` AST node representing the specified binary operation.
-    ///
-    /// # Arguments
-    ///
-    /// * `stack` - A mutable reference to a stack of `AstNode`s. The right-hand operand
-    ///   is expected at the top of the stack, followed by the left-hand operand.
-    /// * `oper` - The `BinaryOperatorKind` specifying which binary operation to create
-    ///   (e.g., `Add`, `Sub`, `Mul`, `Div`, `Pow`).
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the `BinaryOperator` node was successfully created and pushed onto the stack.
-    /// * `Err(String)` if the stack does not contain enough operands for the binary operator.
-    ///
-    /// # Notes
-    ///
-    /// - This is an internal helper used during parsing to construct AST nodes for binary operations.
-    fn from_binary(
-        stack: &mut Vec<Self>,
-        oper: BinaryOperatorKind,
-    ) -> Result<(), String> {
-        let right = stack.pop()
-            .ok_or(format!("Missing right operand for {}", oper))?;
-        let left = stack.pop()
-            .ok_or(format!("missing left operand for {}", oper))?;
-        stack.push(Self::BinaryOperator{
-            kind: oper,
-            left: Box::new(left),
-            right: Box::new(right),
-        });
+    fn apply_binary(output: &mut Vec<Self>, op: BinaryOperatorKind) -> Result<(), ParseError> {
+        let right = output.pop().ok_or(ParseError::MissingRightOperator { operator: op.to_string() })?;
+        let left  = output.pop().ok_or(ParseError::MissingLeftOperator  { operator: op.to_string() })?;
+        output.push(Self::BinaryOperator { kind: op, left: Box::new(left), right: Box::new(right) });
         Ok(())
     }
 
-    /// Internal helper to create a function call AST node from a stack.
+    /// Generic function-application helper shared by built-in and user-defined functions.
     ///
-    /// This function pops the required number of arguments from the stack and constructs a
-    /// `FunctionCall` AST node representing a call to the specified built-in function.
-    ///
-    /// # Arguments
-    ///
-    /// * `stack` - A mutable reference to a stack of `AstNode`s. The function arguments are
-    ///   popped from this stack in reverse order (last argument first).
-    /// * `func` - The `FunctionKind` representing the built-in function to call.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the `FunctionCall` node was successfully created and pushed onto the stack.
-    /// * `Err(String)` if the stack does not contain enough arguments for the function.
-    ///
-    /// # Notes
-    ///
-    /// - The function assumes that the arguments on the stack are correctly ordered according to
-    ///   the parser's rules (last argument at the top of the stack).
-    /// - This is an internal helper used during parsing to construct AST nodes for built-in
-    ///   function calls.
-    fn from_function(
-        stack: &mut Vec<Self>,
-        func: FunctionKind,
-    ) -> Result<(), String> {
-        let n = func.arity();
-        let mut args = Vec::new();
-        args.resize(n, Self::Argument(0)); // Dummy Self for initializing
-        for i in (0..n).rev() { // this is expanded to `for (i=n-1; i >= 0; i--)` by LLVM
-            let arg = stack.pop()
-                .ok_or(format!("Missing function argument for {}", func))?;
-            args[i] = arg;
+    /// Pops `arity` nodes from `output` in order and calls `make_node` to build the AST node.
+    fn apply_fn<F>(
+        output:    &mut Vec<Self>,
+        arity:     usize,
+        make_node: F,
+    ) -> Result<(), ParseError>
+    where
+        F: FnOnce(Vec<Self>) -> Self,
+    {
+        if output.len() < arity {
+            return Err(ParseError::MissingArgs { func: format!("<arity {}>", arity) });
         }
-        stack.push(Self::FunctionCall { kind: func, args });
+        let start = output.len() - arity;
+        let args  = output.drain(start..).collect();
+        output.push(make_node(args));
         Ok(())
     }
 
-    /// Internal helper to create a user-defined function call AST node from a stack.
-    ///
-    /// This function pops the required number of arguments from the stack and constructs a
-    /// `UserFunctionCall` AST node representing a call to the specified user-defined function.
-    ///
-    /// # Arguments
-    ///
-    /// * `stack` - A mutable reference to a stack of `AstNode`s. The function arguments are
-    ///   popped from this stack in reverse order (last argument first).
-    /// * `func` - The `UserDefinedFunction` to call, including its name and arity.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the `UserFunctionCall` node was successfully created and pushed onto the stack.
-    /// * `Err(String)` if the stack does not contain enough arguments for the function.
-    ///
-    /// # Notes
-    ///
-    /// - The function assumes that the arguments on the stack are correctly ordered according to
-    ///   the parser's rules (last argument at the top of the stack).
-    /// - This is an internal helper used during parsing to construct AST nodes for user-defined
-    ///   function calls.
-    fn from_userfunction(
-        stack: &mut Vec<Self>,
-        func: UserDefinedFunction,
-    ) -> Result<(), String> {
-        let n = func.arity();
-        let mut args = Vec::new();
-        args.resize(n, Self::Argument(0)); // Dummy Self for initializing
-        for i in (0..n).rev() {
-            let arg = stack.pop()
-                .ok_or(format!("Missing function argument for {}", func.name()))?;
-            args[i] = arg;
-        }
-        stack.push(Self::UserFunctionCall { func, args });
-        Ok(())
-    }
+    fn parse_diff_args(output: &mut Vec<Self>, lexeme: &Lexeme) -> Result<(AstNode, usize, usize), ParseError>
+    {
+        let top = output.pop().ok_or(ParseError::InvalidDerivative {
+            lexeme: lexeme.clone(),
+            reason: "missing argument (expected variable or order)".into(),
+        })?;
 
-    /// Internal helper to create a differential operator AST node from a stack.
-    ///
-    /// This function pops the necessary operands from the stack to construct a `Differentive`
-    /// AST node, representing the derivative of an expression. It supports both:
-    /// - `diff(f(x), x)` for first-order derivatives, and
-    /// - `diff(f(x), x, n)` for higher-order derivatives (integer `n` only).
-    ///
-    /// # Arguments
-    ///
-    /// * `stack` - A mutable reference to a stack of `AstNode`s. Operands are popped from this
-    ///   stack to build the differential node.
-    /// * `lexeme` - The lexeme corresponding to the differential operator, used for error messages.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(())` if the differential node was successfully created and pushed onto the stack.
-    /// * `Err(String)` if the stack does not contain sufficient operands, the differential
-    ///   variable is invalid, or the order of differentiation is invalid (non-integer or negative).
-    ///
-    /// # Notes
-    ///
-    /// - Fractional calculus (non-integer order) is not supported.
-    /// - The order of differentiation must be between 0 and `i8::MAX`.
-    /// - This function assumes that the expression and variable nodes are correctly ordered
-    ///   on the stack according to the parser's rules.
-    fn from_diff(
-        stack: &mut Vec<Self>,
-        lexeme: Lexeme,
-    ) -> Result<(), String> {
-        let top = stack.pop()
-            .ok_or(format!("diff operator {}: missing top argument (expected variable or order)", lexeme))?;
-
-        // differential order and variable extraction
         let (var_idx, order) = match top {
-            // the case of `diff(f(x), x, n)`
+            // diff(f, x, n) — explicit order
             Self::Number(z) => {
-                if (z.im != 0.0) || (z.re.fract() != 0.0) {
-                    return Err(format!("diff operator {}: fractional order not supported (got {})", lexeme, z));
+                if z.im != 0.0 || z.re.fract() != 0.0 {
+                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: z });
                 }
-
                 let order = z.re as usize;
                 if order > i8::MAX as usize {
-                    return Err(format!("diff operator {}: differential order {} exceeds maximum allowed ({})",
-                        lexeme, z, i8::MAX));
+                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: z });
                 }
-
-                let var = match stack.pop() {
+                let var = match output.pop() {
                     Some(Self::Argument(idx)) => idx,
-                    Some(other) => return Err(format!("diff operator {}: expected variable (Argument) before order, got {:?}",
-                        lexeme, other)),
-                    None => return Err(format!("diff operator {}: missing differential variable before order", lexeme)),
+                    Some(other) => return Err(ParseError::InvalidDerivative {
+                        lexeme: lexeme.clone(),
+                        reason: format!("expected Argument before order, got {:?}", other),
+                    }),
+                    None => return Err(ParseError::InvalidDerivative {
+                        lexeme: lexeme.clone(),
+                        reason: "missing variable before order".into(),
+                    }),
                 };
-
                 (var, order)
-            },
-            Self::Argument(idx) => (idx, 1), // default order = 1
-            other => return Err(format!("diff operator {}: expected Argument or Number for order, got {:?}",
-                lexeme, other))
+            }
+            // diff(f, x) — default order 1
+            Self::Argument(idx) => (idx, 1),
+
+            other => return Err(ParseError::InvalidDerivative {
+                lexeme: lexeme.clone(),
+                reason: format!("expected Argument or Number, got {:?}", other),
+            }),
         };
 
-        let mut expr = stack.pop()
-            .ok_or(format!("diff operator {}: missing expression to differentiate", lexeme))?;
+        let expr = output.pop().ok_or(ParseError::InvalidDerivative {
+            lexeme: lexeme.clone(),
+            reason: "missing expression to differentiate".into(),
+        })?;
+
+        Ok((expr, var_idx, order))
+    }
+
+    fn apply_diff(output: &mut Vec<Self>, lexeme: Lexeme) -> Result<(), ParseError> {
+        let (mut expr, var, order) = Self::parse_diff_args(output, &lexeme)?;
 
         for _ in 0..order {
-            expr = expr.differentiate(var_idx)?;
+            expr = expr.differentiate(var)?;
         }
-        stack.push(expr);
+        output.push(expr);
         Ok(())
     }
 }
 
-/// AstNode impl `simplify` and its helper impls
+// ─── simplify ───────────────────────────────────────────────────────────────
+
 impl AstNode {
-    /// Simplifies the AST by evaluating constant sub-expressions.
-    ///
-    /// Returns a new `AstNode` where all numeric computations that can be resolved
-    /// at compile time are folded into `Number` nodes.
+    /// Simplifies the AST by constant-folding and algebraic normalization.
     pub fn simplify(self) -> Self {
         match self {
             Self::UnaryOperator { kind, expr } => {
                 let expr = expr.simplify();
-                if let AstNode::Number(val ) = expr {
-                    AstNode::Number(kind.apply(val))
-                } else {
-                    AstNode::UnaryOperator { kind, expr: Box::new(expr) }
+                match expr {
+                    Self::Number(v) => Self::Number(kind.apply(v)),
+                    other => Self::UnaryOperator { kind, expr: Box::new(other) },
                 }
-            },
-            Self::BinaryOperator { kind, left, right }
-                => Self::fold_binary(kind, *left, *right),
-            Self::FunctionCall { kind: FunctionKind::Pow, mut args } |
-            Self::FunctionCall { kind: FunctionKind::Powi, mut args } => {
+            }
+            Self::BinaryOperator { kind, left, right } => {
+                Self::fold_binary(kind, *left, *right)
+            }
+            // pow/powi get their own folding path.
+            Self::FunctionCall { kind: FunctionKind::Pow  | FunctionKind::Powi, mut args } => {
                 let base = args.remove(0);
-                let exp = args.remove(0);
+                let exp  = args.remove(0);
                 Self::fold_pow(base, exp)
-            },
-            Self::FunctionCall { kind, args }
-                => Self::fold_function(kind, args, |k, a| AstNode::FunctionCall { kind: k, args: a }),
-            Self::UserFunctionCall { func, args }
-                => Self::fold_function(func, args, |f, a| AstNode::UserFunctionCall { func: f, args: a }),
-            _ => self,
+            }
+            Self::FunctionCall { kind, args } => {
+                Self::fold_generic_fn(kind, args, |k, a| Self::FunctionCall { kind: k, args: a })
+            }
+            Self::UserFunctionCall { func, args } => {
+                Self::fold_generic_fn(func, args, |f, a| Self::UserFunctionCall { func: f, args: a })
+            }
+            other => other,
         }
     }
 
-    /// Internal helper to fold a function with arguments AST nodes if possible.
-    fn fold_function<T, F>(func: T, args: Vec<Self>, make_node: F) -> Self
+    // ── fold helpers ─────────────────────────────────────────────────────────
+
+    /// Evaluates a function call if all arguments are numeric literals.
+    fn fold_generic_fn<T, F>(func: T, args: Vec<Self>, make_node: F) -> Self
     where
         T: FunctionCall,
-        F: Fn(T, Vec<Self>) -> Self,
+        F: FnOnce(T, Vec<Self>) -> Self,
     {
-        let args: Vec<_> = args.into_iter().map(|a| a.simplify()).collect();
-        if args.iter().all(|a| matches!(a, AstNode::Number(_))) {
-            let nums: Vec<Complex<f64>> = args.iter().map(|a| {
-                if let AstNode::Number(v) = a { *v } else { unreachable!() }
-            }).collect();
-            AstNode::Number(func.apply(&nums))
+        let args: Vec<_> = args.into_iter().map(Self::simplify).collect();
+        let all_numbers  = args.iter().all(|a| matches!(a, Self::Number(_)));
+        if all_numbers {
+            let nums: Vec<Complex<f64>> = args.iter()
+                .map(|a| if let Self::Number(v) = a { *v } else { unreachable!() })
+                .collect();
+            Self::Number(func.apply(FunctionArgs::from(nums)))
         } else {
             make_node(func, args)
         }
     }
 
-
-    /// Internal helper to fold a binary operator with two AST nodes if possible.
-    ///
-    /// Performs constant folding when both operands are numbers. Also applies simple
-    /// arithmetic optimizations for associative operators like `+` and `*`.
-    ///
-    /// # Parameters
-    /// - `kind`: The binary operator kind.
-    /// - `left`: Left-hand AST node.
-    /// - `right`: Right-hand AST node.
-    ///
-    /// # Returns
-    /// - Simplified AST node after folding if applicable.
     fn fold_binary(kind: BinaryOperatorKind, left: Self, right: Self) -> Self {
-        let left = left.simplify();
+        let left  = left.simplify();
         let right = right.simplify();
 
-        if let (AstNode::Number(l), AstNode::Number(r)) = (&left, &right) {
+        // Both sides are numbers → evaluate immediately.
+        if let (Self::Number(l), Self::Number(r)) = (&left, &right) {
             return Self::Number(kind.apply(*l, *r));
         }
 
@@ -975,571 +421,300 @@ impl AstNode {
         }
     }
 
-    /// Simplifies and folds addition expressions by normalizing terms.
-    ///
-    /// This function applies a series of algebraic optimizations to
-    /// binary addition nodes:
-    ///
-    /// - **Flatten nested additions**:
-    ///   - `((a + b) + c)` → `a + b + c`
-    /// - **Constant folding**:
-    ///   - `2 + 3 + x` → `5 + x`
-    /// - **Combine like terms**:
-    ///   - `x + x` → `2 * x`
-    ///   - `a * x + b * x` → `(a + b) * x`
-    /// - **Remove zero terms**:
-    ///   - `x + 0` → `x`
-    ///
-    /// # Parameters
-    /// - `left`: Left-hand operand of the addition.
-    /// - `right`: Right-hand operand of the addition.
-    ///
-    /// # Returns
-    /// A simplified [`AstNode`] representing the optimized addition.
+    // ── addition ─────────────────────────────────────────────────────────────
+
+    /// `left + right` with flattening, constant-folding, and like-term combining.
     fn fold_add(left: Self, right: Self) -> Self {
+        // 1. Flatten nested additions into a single term list.
         let mut terms = Vec::new();
-        Self::collect_add_terms(left, &mut terms);
+        Self::collect_add_terms(left,  &mut terms);
         Self::collect_add_terms(right, &mut terms);
 
+        // 2. Separate numeric constants from symbolic terms.
         let mut const_sum = Complex::ZERO;
-        let mut new_terms = Vec::new();
-        for term in terms {
-            match term {
+        let mut sym_terms = Vec::new();
+        for t in terms {
+            match t {
                 Self::Number(z) => const_sum += z,
-                other => new_terms.push(other),
+                other           => sym_terms.push(other),
+            }
+        }
+        if const_sum != Complex::ZERO {
+            sym_terms.push(Self::Number(const_sum));
+        }
+
+        // 3. Combine like terms (e.g. x + x → 2*x).
+        let terms = Self::combine_like_add_terms(sym_terms);
+
+        // 4. Fold back into a left-associative chain.
+        Self::chain_add(terms)
+    }
+
+    fn collect_add_terms(node: Self, out: &mut Vec<Self>) {
+        match node {
+            Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
+                Self::collect_add_terms(*left,  out);
+                Self::collect_add_terms(*right, out);
+            }
+            other => out.push(other),
+        }
+    }
+
+    /// Combines `a*x + b*x → (a+b)*x`, removes zero-coefficient terms.
+    fn combine_like_add_terms(terms: Vec<Self>) -> Vec<Self> {
+        // Map: (variable node) → accumulated coefficient
+        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
+
+        for term in terms {
+            let (var, coeff) = match term {
+                Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
+                    match (*left, *right) {
+                        (Self::Number(z), v) => (v, z),
+                        (v, Self::Number(z)) => (v, z),
+                        (l, r)               => (l.mul(r), Complex::ONE),
+                    }
+                }
+                other => (other, Complex::ONE),
+            };
+            match map.iter_mut().find(|(v, _)| *v == var) {
+                Some((_, c)) => *c += coeff,
+                None         => map.push((var, coeff)),
             }
         }
 
-        if const_sum != Complex::ZERO {
-            new_terms.push(Self::Number(const_sum));
-        }
+        map.into_iter()
+            .filter(|(_, c)| *c != Complex::ZERO)
+            .map(|(var, coeff)| {
+                if coeff == Complex::ONE { var }
+                else { Self::Number(coeff).mul(var) }
+            })
+            .collect()
+    }
 
-        terms = Self::combine_same_terms(new_terms);
+    fn chain_add(terms: Vec<Self>) -> Self {
         match terms.len() {
             0 => Self::zero(),
-            1 => terms.into_iter().next().unwrap(), // use `into_iter().next().unwrap()` to avoid `clone()`
-            _ => {
-                let mut iter = terms.into_iter();
-                let mut node = iter.next().unwrap();
-                for term in iter {
-                    node = node.add(term);
-                }
-                node
-            }
+            1 => terms.into_iter().next().unwrap(),
+            _ => terms.into_iter().reduce(|acc, t| acc.add(t)).unwrap(),
         }
     }
 
-    /// Recursively collects terms from a nested addition expression into a flat list.
-    ///
-    /// This function traverses an `AstNode` and flattens any nested
-    /// addition nodes (`BinaryOperatorKind::Add`) into individual terms.
-    /// Non-addition nodes are added directly to the `terms` vector.
-    ///
-    /// # Parameters
-    /// - `node`: The AST node to traverse and collect from.
-    /// - `terms`: A mutable vector where the flattened terms are appended.
-    fn collect_add_terms(node: Self, terms: &mut Vec<Self>) {
-        match node {
-            AstNode::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
-                Self::collect_add_terms(*left, terms);
-                Self::collect_add_terms(*right, terms);
-            },
-            _ => terms.push(node),
-        }
-    }
+    // ── subtraction ──────────────────────────────────────────────────────────
 
-    /// Combines like terms in a list of addition terms.
-    ///
-    /// This function detects terms that are the same variable or a constant
-    /// multiplied by the same variable and sums their coefficients.
-    /// It also removes any terms with zero coefficient.
-    ///
-    /// - `x + x` → `2 * x`
-    /// - `a * x + b * x` → `(a + b) * x`
-    /// - `x + 0` → `x`
-    ///
-    /// # Parameters
-    /// - `terms`: A vector of AST nodes representing individual terms.
-    ///
-    /// # Returns
-    /// A new vector of AST nodes where like terms have been combined.
-    ///
-    /// # Note
-    /// The function preserves ownership of nodes and uses `mul` to construct
-    /// coefficient multiplications.
-    fn combine_same_terms(terms: Vec<Self>) -> Vec<Self> {
-        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
-
-        for term in terms {
-            match term {
-                // the case of `a * x`
-                Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
-                    match (&*left, &*right) {
-                        (Self::Number(z), v)
-                            => Self::insert_term(&mut map, v.clone(), *z),
-                        (v, Self::Number(z))
-                            => Self::insert_term(&mut map, v.clone(), *z),
-                        _ => Self::insert_term(&mut map, left.mul(*right), Complex::ONE),
-                    }
-                },
-                 _ => Self::insert_term(&mut map, term, Complex::ONE),
-            }
-        }
-
-        let mut result = Vec::new();
-        for (var, coeff) in map {
-            if coeff == Complex::ZERO {
-                // remove this term
-                continue;
-            }
-            if coeff == Complex::ONE {
-                result.push(var);
-            } else {
-                result.push(Self::Number(coeff).mul(var));
-            }
-        }
-
-        result
-    }
-
-    /// Inserts a term with its coefficient into the list of combined terms.
-    ///
-    /// If a term with the same variable node already exists in `map`, its
-    /// coefficient is incremented by `coeff`. Otherwise, the `(var, coeff)`
-    /// pair is appended to the list.
-    ///
-    /// # Parameters
-    /// - `map`: A mutable vector of `(AstNode, Complex<f64>)` representing
-    ///   the accumulated variable nodes and their coefficients.
-    /// - `var`: The AST node representing the variable part of the term.
-    /// - `coeff`: The coefficient for this term.
-    ///
-    /// # Note
-    /// This function assumes that `var` equality can be checked with `==`
-    /// for combining like terms. Coefficients with value zero are not removed
-    /// here; that is handled later in `combine_same_terms`.
-    fn insert_term(map: &mut Vec<(Self, Complex<f64>)>, var: Self, coeff: Complex<f64>) {
-        for (v, c) in map.iter_mut() {
-            if *v == var {
-                *c += coeff;
-                return;
-            }
-        }
-        map.push((var, coeff))
-    }
-
-    /// Converts a subtraction expression into an addition with a negated right-hand side.
-    ///
-    /// This function recursively rewrites `left - right` as `left + (-1) * right`,
-    /// so that all subsequent optimizations (like constant folding and combining
-    /// like terms) can be applied uniformly using addition logic.
-    ///
-    /// # Parameters
-    /// - `left`: The left-hand operand of the subtraction.
-    /// - `right`: The right-hand operand of the subtraction.
-    ///
-    /// # Returns
-    /// A simplified [`AstNode`] representing the equivalent addition expressi
+    /// Rewrites `left - right` as `left + (-1)*right` and re-folds.
     fn fold_sub(left: Self, right: Self) -> Self {
-        Self::fold_binary(BinaryOperatorKind::Add, left, Self::Number(-Complex::ONE).mul(right))
+        Self::fold_binary(
+            BinaryOperatorKind::Add,
+            left,
+            Self::Number(-Complex::ONE).mul(right),
+        )
     }
 
-    /// Simplifies and folds multiplication expressions by normalizing factors.
-    ///
-    /// This function applies several optimizations:
-    /// - **Constant folding**: multiply numeric constants together.
-    /// - **Identity elimination**: remove factors equal to 1.
-    /// - **Zero elimination**: if any factor is 0, the whole product is 0.
-    /// - **Combine powers with same base**: x^a * x^b → x^(a+b)
-    ///
-    /// # Parameters
-    /// - `left`: Left-hand operand of the multiplication.
-    /// - `right`: Right-hand operand of the multiplication.
-    ///
-    /// # Returns
-    /// A simplified [`AstNode`] representing the optimized multiplication.
-    fn fold_mul(left: Self, right: Self) -> Self {
-        let mut factors = Vec::new();
+    // ── multiplication ───────────────────────────────────────────────────────
 
-        Self::collect_mul_terms(left, &mut factors);
+    /// `left * right` with flattening, constant-folding, and same-base power combining.
+    fn fold_mul(left: Self, right: Self) -> Self {
+        // 1. Flatten nested multiplications.
+        let mut factors = Vec::new();
+        Self::collect_mul_terms(left,  &mut factors);
         Self::collect_mul_terms(right, &mut factors);
 
-        let mut const_product = Complex::ONE;
-        let mut new_factors = Vec::new();
-        for factor in factors {
-            match factor {
-                Self::Number(z) => const_product *= z,
-                other => new_factors.push(other),
+        // 2. Pull out numeric constants.
+        let mut const_prod = Complex::ONE;
+        let mut sym_factors = Vec::new();
+        for f in factors {
+            match f {
+                Self::Number(z) => const_prod *= z,
+                other           => sym_factors.push(other),
             }
         }
 
-        if const_product == Complex::ZERO {
-            return Self::Number(Complex::ZERO);
+        if const_prod == Complex::ZERO {
+            return Self::zero();
         }
-        if const_product != Complex::ONE {
-            // constant factor always comes first
-            new_factors.insert(0,  Self::Number(const_product));
+        if const_prod != Complex::ONE {
+            sym_factors.insert(0, Self::Number(const_prod));
         }
 
-        factors =Self::combine_same_base_powers(new_factors);
-        match factors.len() {
-            0 => Self::Number(Complex::ONE),
-            1 => factors.into_iter().next().unwrap().simplify(), // use `into_iter().next().unwrap()` to avoid `clone()`
-            _ => {
-                let mut node = factors.remove(0);
-                for factor in factors.drain(..) {
-                    node = node.mul(factor);
-                }
-                node
-            }
-        }
+        // 3. Combine x^a * x^b → x^(a+b).
+        let factors = Self::combine_like_pow_terms(sym_factors);
+
+        // 4. Fold back.
+        Self::chain_mul(factors)
     }
 
-    /// Recursively collects terms from a nested multiplication expression into a flat list.
-    ///
-    /// This function traverses an `AstNode` and flattens any nested
-    /// multiplication nodes (`BinaryOperatorKind::Mul`) into individual terms.
-    /// Non-multiplication nodes are added directly to the `terms` vector.
-    ///
-    /// # Parameters
-    /// - `node`: The AST node to traverse and collect from.
-    /// - `terms`: A mutable vector where the flattened terms are appended.
-    fn collect_mul_terms(node: Self, terms: &mut Vec<Self>) {
+    fn collect_mul_terms(node: Self, out: &mut Vec<Self>) {
         match node {
-            AstNode::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
-                Self::collect_mul_terms(*left, terms);
-                Self::collect_mul_terms(*right, terms);
-            },
-            _ => terms.push(node),
+            Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
+                Self::collect_mul_terms(*left,  out);
+                Self::collect_mul_terms(*right, out);
+            }
+            other => out.push(other),
         }
     }
 
-    /// Combines powers with the same base: x^a * x^b → x^(a+b)
-    fn combine_same_base_powers(terms: Vec<Self>) -> Vec<Self> {
+    /// Combines `x^a * x^b → x^(a+b)`, removes zero-exponent terms.
+    fn combine_like_pow_terms(terms: Vec<Self>) -> Vec<Self> {
         let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
 
         for term in terms {
-            match term {
-                AstNode::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right } => {
-                    match (&*left, &*right) {
-                        (base, Self::Number(exp))
-                            => Self::insert_term(&mut map, base.clone(), *exp),
-                        _ => Self::insert_term(&mut map, left.pow(*right), Complex::ONE),
+            let (base, exp) = match term {
+                Self::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right } => {
+                    match *right {
+                        Self::Number(e) => (*left, e),
+                        r               => (left.pow(r), Complex::ONE),
                     }
-                },
-                AstNode::FunctionCall { kind, args }
-                    if (kind == FunctionKind::Pow) || (kind == FunctionKind::Powi) =>
-                {
-                    match (&args[0], &args[1]) {
-                        (base, Self::Number(exp))
-                            => Self::insert_term(&mut map, base.clone(), *exp),
-                        _ => Self::insert_term(
-                            &mut map,
-                            AstNode::FunctionCall { kind, args },
-                            Complex::ONE
-                        ),
+                }
+                Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, ref args } => {
+                    match &args[1] {
+                        Self::Number(e) => (args[0].clone(), *e),
+                        _               => (term, Complex::ONE),
                     }
-                },
-                _ => Self::insert_term(&mut map, term, Complex::ONE),
+                }
+                other => (other, Complex::ONE),
+            };
+            match map.iter_mut().find(|(b, _)| *b == base) {
+                Some((_, e)) => *e += exp,
+                None         => map.push((base, exp)),
             }
         }
 
-        let mut result = Vec::new();
-        for (base, exp) in map {
-            match exp {
-                Complex::ZERO => continue,
-                Complex::ONE => result.push(base),
-                _ => {
-                    if is_exp_compatible_with_i32(&exp) {
-                        result.push(base.powi(exp.re as i32))
-                    } else {
-                        result.push(base.pow(AstNode::Number(exp)))
-                    }
-                },
-            }
-        }
-
-        result
+        map.into_iter()
+            .filter(|(_, e)| *e != Complex::ZERO)
+            .map(|(base, exp)| {
+                if exp == Complex::ONE { base }
+                else if is_i32_compatible(&exp) { base.powi(exp.re as i32) }
+                else { base.pow(Self::Number(exp)) }
+            })
+            .collect()
     }
 
-    /// Converts a division expression into multiplication with a negative exponent.
-    ///
-    /// This function rewrites `left / right` as `left * right^-1`
-    /// so that all multiplication-related optimizations (like constant folding
-    /// and same-base exponent combination) can be applied uniformly.
-    ///
-    /// # Parameters
-    /// - `left`: The numerator AST node.
-    /// - `right`: The denominator AST node.
-    ///
-    /// # Returns
-    /// A simplified [`AstNode`] representing the equivalent multiplication.
+    fn chain_mul(factors: Vec<Self>) -> Self {
+        match factors.len() {
+            0 => Self::one(),
+            1 => factors.into_iter().next().unwrap().simplify(),
+            _ => factors.into_iter().reduce(|acc, f| acc.mul(f)).unwrap(),
+        }
+    }
+
+    // ── division ─────────────────────────────────────────────────────────────
+
+    /// Rewrites `left / right` as `left * right^-1` and re-folds.
     fn fold_div(left: Self, right: Self) -> Self {
         Self::fold_mul(left, right.powi(-1).simplify())
     }
 
+    // ── power ────────────────────────────────────────────────────────────────
+
     fn fold_pow(base: Self, exp: Self) -> Self {
         let mut base = base.simplify();
-        let mut exp = exp.simplify();
+        let mut exp  = exp.simplify();
 
-        while let Self::FunctionCall { kind: FunctionKind::Pow, mut args } |
-            Self::FunctionCall { kind: FunctionKind::Powi, mut args } = base
-        {
-            let inner_base = args.remove(0);
-            let inner_exp = args.remove(0);
-
-            exp = inner_exp.mul(exp).simplify();
-            base = inner_base.simplify();
+        // (x^a)^b → x^(a*b)
+        loop {
+            match base {
+                Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, mut args } => {
+                    let inner_base = args.remove(0);
+                    let inner_exp  = args.remove(0);
+                    exp  = inner_exp.mul(exp).simplify();
+                    base = inner_base.simplify();
+                }
+                other => { base = other; break; }
+            }
         }
 
-        if let Self::Number(z) = &exp {
-            if *z == Complex::ONE {
-                // x^1 -> x
-                return base;
-            }
-            if *z == Complex::ZERO {
-                // x^0 -> 1
-                return Self::one();
-            }
+        // x^1 → x, x^0 → 1
+        if let Self::Number(e) = &exp {
+            if *e == Complex::ONE  { return base; }
+            if *e == Complex::ZERO { return Self::one(); }
         }
 
         match (base, exp) {
-            (Self::Number(z), _) if z == Complex::ONE // 1^x -> 1
-                => Self::one(),
-            (Self::Number(z), Self::Number(e)) if (z == Complex::ZERO) && (e.re > 0.0) // 0^x -> 0 (x > 0)
-                => Self::zero(),
-            (Self::Number(b), Self::Number(e))
-                => Self::Number(b.powc(e)),
-            (b, e) => {
-                if let Self::Number(c) = &e
-                    && is_exp_compatible_with_i32(c)
-                {
-                    b.powi(c.re as i32)
-                } else {
-                    b.pow(e)
-                }
-            },
+            (Self::Number(b), _) if b == Complex::ONE  => Self::one(),
+            (Self::Number(b), Self::Number(e)) if b == Complex::ZERO && e.re > 0.0 => Self::zero(),
+            (Self::Number(b), Self::Number(e)) => Self::Number(b.powc(e)),
+            (b, Self::Number(e)) if is_i32_compatible(&e) => b.powi(e.re as i32),
+            (b, e) => b.pow(e),
         }
     }
 }
 
-/// AstNode helper impl to create new AstNode
+// ─── AstNode builder helpers ─────────────────────────────────────────────────
+
 impl AstNode {
-    /// Create a number 0.0 Ast node.
-    fn zero() -> Self {
-        AstNode::Number(Complex::ZERO)
-    }
+    fn zero() -> Self { Self::Number(Complex::ZERO) }
+    fn one()  -> Self { Self::Number(Complex::ONE)  }
 
-    /// Create a number 1.0 Ast node.
-    fn one() -> Self {
-        AstNode::Number(Complex::ONE)
-    }
+    fn add(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Box::new(self), right: Box::new(rhs) } }
+    fn sub(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Sub, left: Box::new(self), right: Box::new(rhs) } }
+    fn mul(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left: Box::new(self), right: Box::new(rhs) } }
+    fn div(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Div, left: Box::new(self), right: Box::new(rhs) } }
 
-    /// Internal helper to create an additional operator AST node `self + other`.
-    fn add(self, other: Self) -> Self {
-        Self::BinaryOperator {
-            kind: BinaryOperatorKind::Add,
-            left: Box::new(self),
-            right: Box::new(other),
-        }
-    }
+    fn negative(self) -> Self { Self::UnaryOperator { kind: UnaryOperatorKind::Negative, expr: Box::new(self) } }
 
-    /// internal helper to create a subtracted operator AST node `self - other`.
-    fn sub(self, other: Self) -> Self {
-        Self::BinaryOperator {
-            kind: BinaryOperatorKind::Sub,
-            left: Box::new(self),
-            right: Box::new(other),
-        }
-    }
+    fn sin(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Sin,  args: vec![self] } }
+    fn cos(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Cos,  args: vec![self] } }
+    fn sinh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sinh, args: vec![self] } }
+    fn cosh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Cosh, args: vec![self] } }
+    fn exp(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Exp,  args: vec![self] } }
+    fn sqrt(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self] } }
+    fn abs(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Abs,  args: vec![self] } }
 
-    /// Internal helper to create a multiplied operator AST node `self * other`.
-    fn mul(self, other: Self) -> Self {
-        Self::BinaryOperator {
-            kind: BinaryOperatorKind::Mul,
-            left: Box::new(self),
-            right: Box::new(other),
-        }
+    fn pow(self, exp: Self) -> Self {
+        Self::FunctionCall { kind: FunctionKind::Pow, args: vec![self, exp] }
     }
-
-    /// Internal helper to create a divided operator AST node `self / right`.
-    fn div(self, right: Self) -> Self {
-        Self::BinaryOperator {
-            kind: BinaryOperatorKind::Div,
-            left: Box::new(self),
-            right: Box::new(right),
-        }
-    }
-
-    /// Internal helper to create a negative AST node `-self`.
-    fn negative(self) -> Self {
-        Self::UnaryOperator {
-            kind: UnaryOperatorKind::Negative,
-            expr: Box::new(self),
-        }
-    }
-
-    /// Internal helper to create a sin AST node `sin(x)`.
-    fn sin(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sin, args: vec![self] }
-    }
-
-    /// Internal helper to create a cos AST node `cos(x)`.
-    fn cos(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Cos, args: vec![self] }
-    }
-
-    /// Internal helper to create a sinh AST node `sinh(x)`.
-    fn sinh(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sinh, args: vec![self] }
-    }
-
-    /// Internal helper to create a cosh AST node `cosh(x)`.
-    fn cosh(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Cosh, args: vec![self] }
-    }
-
-    /// Internal helper to create an exp AST node `exp(x)`.
-    fn exp(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Exp, args: vec![self] }
-    }
-
-    /// Internal helper to create a sqrt AST node `sqrt(x)`.
-    fn sqrt(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self] }
-    }
-
-    /// Internal helper to create an abs AST node `abs(x)`.
-    fn abs(self) -> Self {
-        AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![self] }
-    }
-
-    /// Internal helper to create `pow(self, expr)` AST node.
-    fn pow(self, expr: Self) -> Self {
-        Self::FunctionCall {
-            kind: FunctionKind::Pow,
-            args: vec![self, expr],
-        }
-    }
-
-    /// Internal helper to create `powi(self, expr)` AST node.
-    fn powi(self, expr: i32) -> Self {
-        Self::FunctionCall {
-            kind: FunctionKind::Powi,
-            args: vec![self, AstNode::Number(Complex::from(expr as f64))],
-        }
+    fn powi(self, n: i32) -> Self {
+        Self::FunctionCall { kind: FunctionKind::Powi, args: vec![self, Self::Number(Complex::from(n as f64))] }
     }
 }
 
-impl std::ops::Add<AstNode> for AstNode {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        self.add(rhs)
-    }
-}
+impl std::ops::Add for AstNode { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }
+impl std::ops::Sub for AstNode { type Output = Self; fn sub(self, rhs: Self) -> Self { self.sub(rhs) } }
+impl std::ops::Mul for AstNode { type Output = Self; fn mul(self, rhs: Self) -> Self { self.mul(rhs) } }
+impl std::ops::Div for AstNode { type Output = Self; fn div(self, rhs: Self) -> Self { self.div(rhs) } }
+impl std::ops::BitXor for AstNode { type Output = Self; fn bitxor(self, rhs: Self) -> Self { self.pow(rhs) } }
+impl std::ops::Neg for AstNode { type Output = Self; fn neg(self) -> Self { self.negative() } }
 
-impl std::ops::Sub<AstNode> for AstNode {
-    type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.sub(rhs)
-    }
-}
+// ─── differentiate ──────────────────────────────────────────────────────────
 
-impl std::ops::Mul<AstNode> for AstNode {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self::Output {
-        self.mul(rhs)
-    }
-}
-
-impl std::ops::Div<AstNode> for AstNode {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        self.div(rhs)
-    }
-}
-
-impl std::ops::BitXor<AstNode> for AstNode {
-    type Output = Self;
-    fn bitxor(self, rhs: Self) -> Self::Output {
-        self.pow(rhs)
-    }
-}
-
-impl std::ops::Neg for AstNode {
-    type Output = Self;
-    fn neg(self) -> Self::Output {
-        self.negative()
-    }
-}
-
-/// AstNode impl `differentiate` and its helpers
 impl AstNode {
-    /// Compute the derivative of an AST node with respect to a given variable.
-    ///
-    /// This function recursively differentiates an `AstNode` representing a mathematical
-    /// expression. It supports:
-    /// - Numbers and arguments,
-    /// - Unary and binary operators,
-    /// - Built-in functions,
-    /// - User-defined functions,
-    /// - Nested differential operators (`Differentive`) to handle higher-order derivatives.
-    ///
-    /// # Arguments
-    ///
-    /// * `var` - The index of the variable with respect to which the derivative is taken.
-    ///
-    /// # Returns
-    ///
-    /// A new `AstNode` representing the derivative of `self` with respect to the specified variable.
-    ///
-    /// # Panics
-    ///
-    /// - If a user-defined function does not have a derivative defined for the specified variable.
-    ///
-    /// # Notes
-    ///
-    /// - `BinaryOperator` nodes delegate to `diff_binary`.
-    /// - `FunctionCall` nodes delegate to `diff_function`.
-    /// - `UserFunctionCall` nodes require the user-defined function to provide a derivative.
-    /// - Nested `Differentive` nodes increment the order if differentiating with respect to the same variable.
-    pub fn differentiate(self, var: usize) -> Result<Self, String> {
+    /// Symbolically differentiates the AST with respect to argument `var`.
+    pub fn differentiate(self, var: usize) -> Result<Self, ParseError> {
         match self {
-            Self::Number(_) => Ok(Self::zero()),
-            Self::Argument(idx)
-                => if idx == var {
-                    Ok(Self::one())
-                } else {
-                    Ok(Self::zero())
-                },
-            Self::UnaryOperator { kind, expr }
-                => Ok(Self::UnaryOperator { kind, expr: Box::new(expr.differentiate(var)?) }),
+            Self::Number(_)    => Ok(Self::zero()),
+            Self::Argument(i)  => Ok(if i == var { Self::one() } else { Self::zero() }),
+
+            Self::UnaryOperator { kind, expr } => Ok(Self::UnaryOperator {
+                kind,
+                expr: Box::new(expr.differentiate(var)?),
+            }),
+
             Self::BinaryOperator { kind, left, right } => {
-                Self::diff_binary(kind, *left.clone(), *right.clone(), var)
-            },
+                Self::diff_binary(kind, *left, *right, var)
+            }
+
             Self::FunctionCall { kind, args } => {
                 Self::diff_function(kind, args, var)
-            },
-            Self::UserFunctionCall { func, args } => {
-                if func.arity() < var {
-                    return Err(format!("The deriv of {} for var[{}] is undefined", func.name(), var));
-                }
+            }
 
-                if let Some(deriv) = func.derivative(var) {
-                    Ok(AstNode::UserFunctionCall { func: deriv.clone(), args: args.clone() })
-                } else {
-                    // deriv is undefined
-                    Ok(AstNode::UserFunctionCall { func: func.numeric_deriv(var).unwrap(), args: args.clone() })
+            Self::UserFunctionCall { func, args } => {
+                if var >= func.arity() {
+                    return Err(ParseError::OutOfRange { func: func.name().into(), idx: var });
                 }
-            },
-            Self::Differentive { expr, var: inner_var, order } => {
-                if inner_var == var {
-                    // d/dx (d/dx f(x)) = d^2/dx^2 f(x)
-                    Ok(AstNode::Differentive { expr: expr.clone(), var, order: order + 1 })
+                if let Some(deriv) = func.derivative(var).cloned() {
+                    Ok(Self::UserFunctionCall { func: deriv, args })
                 } else {
-                    Ok(AstNode::Differentive {
-                        expr: Box::new(expr.differentiate(var)?),
-                        var: inner_var,
+                    Err(ParseError::DerivativeUndefined { func: func.name().into(), idx: var })
+                }
+            }
+
+            Self::Derivative { expr, var: inner_var, order } => {
+                if inner_var == var {
+                    Ok(Self::Derivative { expr, var, order: order + 1 })
+                } else {
+                    Ok(Self::Derivative {
+                        expr:  Box::new(expr.differentiate(var)?),
+                        var:   inner_var,
                         order,
                     })
                 }
@@ -1547,146 +722,33 @@ impl AstNode {
         }
     }
 
-    /// Differentiate a power expression with respect to a variable.
-    ///
-    /// Computes the derivative of the expression:
-    ///
-    /// ```text
-    /// d/dx [ u(x) ^ v(x) ] = u(x) ^ v(x) * ( v'(x) * ln(u(x)) + v(x) * u'(x) / u(x) )
-    /// ```
-    ///
-    /// This rule applies to the general case where both the base `u(x)` and the exponent
-    /// `v(x)` are functions of `x`.
-    ///
-    /// # Arguments
-    /// * `left` - The base expression `u(x)`.
-    /// * `right` - The exponent expression `v(x)`.
-    /// * `var` - The index of the variable with respect to which differentiation is performed.
-    ///
-    /// # Errors
-    /// Returns an error if differentiation of the subexpressions fails.
-    fn diff_pow(left: Self, right: Self, var: usize) -> Result<Self, String> {
-        // d/dx [u(x) ^ v(x)] = u^v * (v' * ln(u) + v * u' / u)
-        let u = left;
-        let v = right;
-        let du = u.clone().differentiate(var)?;
-        let dv = v.clone().differentiate(var)?;
-        let ln_u = Self::FunctionCall {
-            kind: FunctionKind::Ln,
-            args: vec![u.clone()],
-        };
-        Ok(u.clone().pow(v.clone()).mul((dv.mul(ln_u)).add(v.mul(du).div(u))))
-    }
-
-    /// Differentiate an integer power expression with respect to a variable.
-    ///
-    /// Computes the derivative of the expression:
-    ///
-    /// ```text
-    /// d/dx [ u(x) ^ n ] = n * u(x) ^ (n - 1) * u'(x)
-    /// ```
-    ///
-    /// where `n` is an integer constant (i.e., `powi` form).
-    ///
-    /// # Arguments
-    /// * `left` - The base expression `u(x)`.
-    /// * `right` - The integer exponent `n`.
-    /// * `var` - The index of the variable with respect to which differentiation is performed.
-    ///
-    /// # Errors
-    /// Returns an error if differentiation of the base fails.
-    fn diff_powi(left: Self, right: Self, var: usize) -> Result<Self, String> {
-        // d/dx [u(x) ^ n] = n * u(x) ^ (n-1) * u'(x)
-        let u = left;
-        let n = right;
-        let du = u.clone().differentiate(var)?;
-        Ok(
-            AstNode::FunctionCall {
-            kind: FunctionKind::Powi,
-            args: vec![u, n.clone().sub(Self::one())],
-        }.mul(n).mul(du))
-    }
-
-    /// Differentiate a binary operator expression with respect to a variable.
-    ///
-    /// Supports the following binary operators:
-    ///
-    /// - **Addition** and **Subtraction**:
-    ///   ```text
-    ///   d/dx [ u ± v ] = u' ± v'
-    ///   ```
-    /// - **Multiplication**:
-    ///   ```text
-    ///   d/dx [ u * v ] = u' * v + u * v'
-    ///   ```
-    /// - **Division**:
-    ///   ```text
-    ///   d/dx [ u / v ] = (u' * v - u * v') / v^2
-    ///   ```
-    /// - **Power**:
-    ///   Falls back to [`diff_pow`] for the general differentiation rule.
-    ///
-    /// # Arguments
-    /// * `kind` - The binary operator kind.
-    /// * `left` - The left-hand side expression `u(x)`.
-    /// * `right` - The right-hand side expression `v(x)`.
-    /// * `var` - The index of the variable with respect to which differentiation is performed.
-    ///
-    /// # Errors
-    /// Returns an error if differentiation of the subexpressions fails.
-    fn diff_binary(kind: BinaryOperatorKind, left: Self, right: Self, var:usize) -> Result<Self, String> {
+    fn diff_binary(
+        kind:  BinaryOperatorKind,
+        left:  Self,
+        right: Self,
+        var:   usize,
+    ) -> Result<Self, ParseError> {
         let dl = left.clone().differentiate(var)?;
         let dr = right.clone().differentiate(var)?;
         match kind {
-            BinaryOperatorKind::Add | BinaryOperatorKind::Sub
-                => Ok(Self::BinaryOperator { kind, left: Box::new(dl), right: Box::new(dr) }),
-            BinaryOperatorKind::Mul
-                => Ok(dl.mul(right).add(left.mul(dr))),
-            BinaryOperatorKind::Div
-                => Ok(dl.mul(right.clone()).sub(left.mul(dr)).div(right.powi(2))),
-            BinaryOperatorKind::Pow
-                => Self::diff_pow(left, right, var),
+            BinaryOperatorKind::Add | BinaryOperatorKind::Sub => {
+                Ok(Self::BinaryOperator { kind, left: Box::new(dl), right: Box::new(dr) })
+            }
+            BinaryOperatorKind::Mul => Ok(dl.mul(right).add(left.mul(dr))),
+            BinaryOperatorKind::Div => {
+                // (u/v)' = (u'v - uv') / v²
+                Ok(dl.mul(right.clone()).sub(left.mul(dr)).div(right.powi(2)))
+            }
+            BinaryOperatorKind::Pow => Self::diff_pow(left, right, var),
         }
     }
 
-    /// Differentiate a function call with respect to a variable.
-    ///
-    /// Implements the standard differentiation rules for elementary functions:
-    ///
-    /// - `sin(x)` → `cos(x) * x'`
-    /// - `cos(x)` → `-sin(x) * x'`
-    /// - `tan(x)` → `x' / cos(x)^2`
-    /// - `asin(x)` → `x' / sqrt(1 - x^2)`
-    /// - `acos(x)` → `-x' / sqrt(1 - x^2)`
-    /// - `atan(x)` → `x' / (1 + x^2)`
-    /// - `sinh(x)` → `cosh(x) * x'`
-    /// - `cosh(x)` → `sinh(x) * x'`
-    /// - `tanh(x)` → `x' / cosh(x)^2`
-    /// - `asinh(x)` → `x' / sqrt(x^2 + 1)`
-    /// - `acosh(x)` → `x' / sqrt(x^2 - 1)`
-    /// - `atanh(x)` → `x' / (1 - x^2)`
-    /// - `exp(x)` → `exp(x) * x'`
-    /// - `ln(x)` → `x' / x`
-    /// - `log10(x)` → `x' / (x * ln(10))`
-    /// - `sqrt(x)` → `x' / (2 * sqrt(x))`
-    /// - `abs(x)` → `(x / |x|) * x'` (undefined at `x = 0`)
-    ///
-    /// Special cases:
-    /// - `conj(z)` → Not differentiable in the complex domain; returns an error.
-    /// - `pow(u, v)` → Delegates to [`diff_pow`].
-    /// - `powi(u, n)` → Delegates to [`diff_powi`].
-    ///
-    /// # Arguments
-    /// * `kind` - The function kind.
-    /// * `args` - The argument expressions.
-    /// * `var` - The index of the variable with respect to which differentiation is performed.
-    ///
-    /// # Errors
-    /// Returns an error if:
-    /// - The function is not differentiable (`conj`).
-    /// - Differentiation of the argument fails.
-    fn diff_function(kind: FunctionKind, mut args: Vec<Self>, var: usize) -> Result<Self, String> {
-        let x = args.remove(0);
+    fn diff_function(
+        kind: FunctionKind,
+        mut args: Vec<Self>,
+        var:  usize,
+    ) -> Result<Self, ParseError> {
+        let x  = args.remove(0);
         let dx = x.clone().differentiate(var)?;
         match kind {
             FunctionKind::Sin   => Ok(x.cos().mul(dx)),
@@ -1703,290 +765,84 @@ impl AstNode {
             FunctionKind::Atanh => Ok(dx.div(Self::one().sub(x.powi(2)))),
             FunctionKind::Exp   => Ok(dx.mul(x.exp())),
             FunctionKind::Ln    => Ok(dx.div(x)),
-            FunctionKind::Log10 => Ok(dx.mul(AstNode::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
-            FunctionKind::Sqrt  => Ok(dx.mul(AstNode::Number(Complex::from(0.5))).div(x.sqrt())),
-            // TODO: d/dx |f(x)| should return NaN if f(x) = 0, but we have NOT been able to express yet.
+            FunctionKind::Log10 => Ok(dx.mul(Self::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
+            FunctionKind::Sqrt  => Ok(dx.mul(Self::Number(Complex::from(0.5))).div(x.sqrt())),
             FunctionKind::Abs   => Ok(x.clone().div(x.abs()).mul(dx)),
-            FunctionKind::Conj  => Err("The function `conj(z)` doesn't have any derivative functions at any coordinates.".into()),
-            FunctionKind::Pow   => Self::diff_pow(x, args.remove(0), var),
-            FunctionKind::Powi  => Self::diff_powi(x, args.remove(0), var),
+            FunctionKind::Conj  => Err(ParseError::InvalidFormula {
+                reason: "`conj(z)` is not differentiable in the complex domain".into(),
+            }),
+            FunctionKind::Pow  => Self::diff_pow(x, args.remove(0), var),
+            FunctionKind::Powi => Self::diff_powi(x, args.remove(0), var),
         }
+    }
+
+    /// d/dx [u^v] = u^v * (v'*ln(u) + v*u'/u)
+    fn diff_pow(u: Self, v: Self, var: usize) -> Result<Self, ParseError> {
+        let du   = u.clone().differentiate(var)?;
+        let dv   = v.clone().differentiate(var)?;
+        let ln_u = Self::FunctionCall { kind: FunctionKind::Ln, args: vec![u.clone()] };
+        Ok(u.clone().pow(v.clone()).mul(dv.mul(ln_u).add(v.mul(du).div(u))))
+    }
+
+    /// d/dx [u^n] = n * u^(n-1) * u'
+    fn diff_powi(u: Self, n: Self, var: usize) -> Result<Self, ParseError> {
+        let du = u.clone().differentiate(var)?;
+        Ok(Self::FunctionCall {
+            kind: FunctionKind::Powi,
+            args: vec![u, n.clone().sub(Self::one())],
+        }.mul(n).mul(du))
     }
 }
 
-/// AstNode impl `compile` and its helper impls
+// ─── compile ────────────────────────────────────────────────────────────────
+
 impl AstNode {
-    /// Internal helper to compile the AST into a sequence of executable tokens.
-    fn execute(&self, tokens: &mut Vec<Token>) {
+    /// Compiles the AST into a flat sequence of postfix `Token`s.
+    pub fn compile(&self) -> Vec<Token> {
+        let mut out = Vec::new();
+        self.compile_into(&mut out);
+        out
+    }
+
+    fn compile_into(&self, out: &mut Vec<Token>) {
         match self {
-            Self::Number(val) => tokens.push(Token::Number(*val)),
-            Self::Argument(i) => tokens.push(Token::Argument(*i)),
+            Self::Number(v)    => out.push(Token::Number(*v)),
+            Self::Argument(i)  => out.push(Token::Argument(*i)),
             Self::UnaryOperator { kind, expr } => {
-                Self::execute(expr, tokens);
-                tokens.push(Token::UnaryOperator(*kind));
-            },
+                expr.compile_into(out);
+                out.push(Token::UnaryOperator(*kind));
+            }
             Self::BinaryOperator { kind, left, right } => {
-                Self::execute(left, tokens);
-                Self::execute(right, tokens);
-                tokens.push(Token::BinaryOperator(*kind));
+                left.compile_into(out);
+                right.compile_into(out);
+                out.push(Token::BinaryOperator(*kind));
             }
             Self::FunctionCall { kind, args } => {
-                for arg in args {
-                    Self::execute(arg, tokens);
-                }
-                tokens.push(Token::Function(*kind));
-            },
+                for arg in args { arg.compile_into(out); }
+                out.push(Token::Function(*kind));
+            }
             Self::UserFunctionCall { func, args } => {
-                for arg in args {
-                    Self::execute(arg, tokens);
-                }
-                tokens.push(Token::UserFunction(func.clone()));
-            },
-            Self::Differentive {..} => unreachable!("AstNode should not include Differentive"),
-        }
-    }
-
-    /// Compiles the AST into a vector of `Token`s for evaluation.
-    ///
-    /// The resulting tokens can be used with a function list generated
-    /// by `make_function_list` to evaluate the expression.
-    pub fn compile(&self) -> Vec<Token> {
-        let mut tokens: Vec<Token> = Vec::new();
-        self.execute(&mut tokens);
-        tokens
-    }
-}
-
-#[cfg(test)]
-mod unary_operator_kind_tests {
-    use super::*;
-    #[test]
-    fn test_unary_operator_kind_from() {
-        assert_eq!(UnaryOperatorKind::from("+"), Some(UnaryOperatorKind::Positive));
-        assert_eq!(UnaryOperatorKind::from("-"), Some(UnaryOperatorKind::Negative));
-        assert_eq!(UnaryOperatorKind::from("*"), None);
-        assert_eq!(UnaryOperatorKind::from(""), None);
-        assert_eq!(UnaryOperatorKind::from("x"), None);
-    }
-}
-
-#[cfg(test)]
-mod binary_operator_kind_tests {
-    use super::*;
-
-    #[test]
-    fn test_binary_operator_kind_info() {
-        let add_info = BinaryOperatorKind::Add.info();
-        assert_eq!(add_info.precedence, 0);
-        assert!(add_info.is_left_assoc);
-
-        let sub_info = BinaryOperatorKind::Sub.info();
-        assert_eq!(sub_info.precedence, 0);
-        assert!(sub_info.is_left_assoc);
-
-        let mul_info = BinaryOperatorKind::Mul.info();
-        assert_eq!(mul_info.precedence, 1);
-        assert!(mul_info.is_left_assoc);
-
-        let div_info = BinaryOperatorKind::Div.info();
-        assert_eq!(div_info.precedence, 1);
-        assert!(div_info.is_left_assoc);
-
-        let pow_info = BinaryOperatorKind::Pow.info();
-        assert_eq!(pow_info.precedence, 2);
-        assert!(!pow_info.is_left_assoc);
-    }
-
-    #[test]
-    fn test_binary_operator_kind_from() {
-        assert_eq!(BinaryOperatorKind::from("+"), Some(BinaryOperatorKind::Add));
-        assert_eq!(BinaryOperatorKind::from("-"), Some(BinaryOperatorKind::Sub));
-        assert_eq!(BinaryOperatorKind::from("*"), Some(BinaryOperatorKind::Mul));
-        assert_eq!(BinaryOperatorKind::from("/"), Some(BinaryOperatorKind::Div));
-        assert_eq!(BinaryOperatorKind::from("^"), Some(BinaryOperatorKind::Pow));
-
-        assert_eq!(BinaryOperatorKind::from(""), None);
-        assert_eq!(BinaryOperatorKind::from("x"), None);
-        assert_eq!(BinaryOperatorKind::from("%"), None);
-    }
-}
-
-#[cfg(test)]
-mod function_kind_tests {
-    use super::*;
-
-    #[test]
-    fn test_function_kind_from() {
-        assert_eq!(FunctionKind::from("sin"), Some(FunctionKind::Sin));
-        assert_eq!(FunctionKind::from("cos"), Some(FunctionKind::Cos));
-        assert_eq!(FunctionKind::from("tan"), Some(FunctionKind::Tan));
-        assert_eq!(FunctionKind::from("asin"), Some(FunctionKind::Asin));
-        assert_eq!(FunctionKind::from("acos"), Some(FunctionKind::Acos));
-        assert_eq!(FunctionKind::from("atan"), Some(FunctionKind::Atan));
-        assert_eq!(FunctionKind::from("sinh"), Some(FunctionKind::Sinh));
-        assert_eq!(FunctionKind::from("cosh"), Some(FunctionKind::Cosh));
-        assert_eq!(FunctionKind::from("tanh"), Some(FunctionKind::Tanh));
-        assert_eq!(FunctionKind::from("asinh"), Some(FunctionKind::Asinh));
-        assert_eq!(FunctionKind::from("acosh"), Some(FunctionKind::Acosh));
-        assert_eq!(FunctionKind::from("atanh"), Some(FunctionKind::Atanh));
-        assert_eq!(FunctionKind::from("exp"), Some(FunctionKind::Exp));
-        assert_eq!(FunctionKind::from("ln"), Some(FunctionKind::Ln));
-        assert_eq!(FunctionKind::from("log10"), Some(FunctionKind::Log10));
-        assert_eq!(FunctionKind::from("sqrt"), Some(FunctionKind::Sqrt));
-        assert_eq!(FunctionKind::from("pow"), Some(FunctionKind::Pow));
-
-        assert_eq!(FunctionKind::from(""), None);
-        assert_eq!(FunctionKind::from("log"), None);
-        assert_eq!(FunctionKind::from("abc"), None);
-    }
-
-    #[test]
-    fn test_function_kind_arity() {
-        let single_arg_functions = [
-            FunctionKind::Sin,
-            FunctionKind::Cos,
-            FunctionKind::Tan,
-            FunctionKind::Asin,
-            FunctionKind::Acos,
-            FunctionKind::Atan,
-            FunctionKind::Sinh,
-            FunctionKind::Cosh,
-            FunctionKind::Tanh,
-            FunctionKind::Asinh,
-            FunctionKind::Acosh,
-            FunctionKind::Atanh,
-            FunctionKind::Exp,
-            FunctionKind::Ln,
-            FunctionKind::Log10,
-            FunctionKind::Sqrt,
-        ];
-
-        for func in &single_arg_functions {
-            assert_eq!(func.arity(), 1, "{:?} should have 1 argument", func);
-        }
-
-        let double_args_functions = [
-            FunctionKind::Pow,
-        ];
-
-        for func in &double_args_functions {
-            assert_eq!(func.arity(), 2, "{:?} should have 2 argument", func);
+                for arg in args { arg.compile_into(out); }
+                out.push(Token::UserFunction(func.clone()));
+            }
+            Self::Derivative { .. } => {
+                unreachable!("Derivative nodes must be resolved before compile()")
+            }
         }
     }
 }
 
-#[cfg(test)]
-mod token_tests {
-    use super::*;
-
-    #[test]
-    fn test_number_token() {
-        let lex = Lexeme::new("3.14", 0..4);
-        let constants = Constants::new();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(3.14, 0.0)),
-            _ => panic!("Expected Number token"),
-        }
-    }
-
-    #[test]
-    fn test_imaginary_number() {
-        let lex = Lexeme::new("2i", 0..2);
-        let constants = Constants::new();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(0.0, 2.0)),
-            _ => panic!("Expected Number token"),
-        }
-    }
-
-    #[test]
-    fn test_constant_token() {
-        let lex = Lexeme::new("PI", 0..2);
-        let constants = Constants::default();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(std::f64::consts::PI, 0.0)),
-            _ => panic!("Expected Number token"),
-        }
-    }
-
-    #[test]
-    fn test_argument_token() {
-        let lex = Lexeme::new("arg0", 0..4);
-        let constants = Constants::new();
-        let args = ["arg0"];
-        let users = UserDefinedTable::new();
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Argument(pos) => assert_eq!(pos, 0),
-            _ => panic!("Expected Argument token"),
-        }
-    }
-
-    #[test]
-    fn test_operator_token() {
-        let lex = Lexeme::new("+", 0..1);
-        let constants = Constants::new();
-        let args: [&str; 0] = [];
-        let users = UserDefinedTable::new();
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Operator(_) => {}, // OK
-            _ => panic!("Expected Operator token"),
-        }
-    }
-
-    #[test]
-    fn test_function_token() {
-        let lex = Lexeme::new("sin", 0..3);
-        let constants = Constants::new();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-        let token = Token::from(&lex, &args, &constants, &users).unwrap();
-        match token {
-            Token::Function(f) => assert_eq!(f, FunctionKind::Sin),
-            _ => panic!("Expected Function token"),
-        }
-    }
-
-    #[test]
-    fn test_parentheses_and_comma() {
-        let lex_l = Lexeme::new("(", 0..1);
-        let lex_r = Lexeme::new(")", 0..1);
-        let lex_c = Lexeme::new(",", 0..1);
-        let constants = Constants::new();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-
-        assert!(matches!(Token::from(&lex_l, &args, &constants, &users).unwrap(), Token::LParen(_)));
-        assert!(matches!(Token::from(&lex_r, &args, &constants, &users).unwrap(), Token::RParen(_)));
-        assert!(matches!(Token::from(&lex_c, &args, &constants, &users).unwrap(), Token::Comma(_)));
-    }
-
-    #[test]
-    fn test_unknown_string() {
-        let lex = Lexeme::new("unknown", 0..7);
-        let constants = Constants::new();
-        let users = UserDefinedTable::new();
-        let args: [&str; 0] = [];
-        let res = Token::from(&lex, &args, &constants, &users);
-        assert!(res.is_err());
-    }
-}
 
 #[cfg(test)]
 mod astnode_tests {
+    use std::collections::HashMap;
+
     use super::*;
-    use crate::{lexer, variable::UserDefinedFunction};
+    use crate::lexer;
+    use crate::functions::UserFn;
     use approx::assert_abs_diff_eq;
+
+    type UserFnTable = HashMap<String, UserFn>;
 
     macro_rules! assert_astnode_eq {
         ($left:expr, $right:expr) => {{
@@ -1994,8 +850,8 @@ mod astnode_tests {
                 let epsilon = 1.0e-12;
                 match (left, right) {
                     (AstNode::Number(l), AstNode::Number(r)) => {
-                        assert_abs_diff_eq!(l.re(), r.re(), epsilon = epsilon);
-                        assert_abs_diff_eq!(l.im(), r.im(), epsilon = epsilon);
+                        assert_abs_diff_eq!(l.re, r.re, epsilon = epsilon);
+                        assert_abs_diff_eq!(l.im, r.im, epsilon = epsilon);
                     }
                     (AstNode::Argument(l), AstNode::Argument(r)) => {
                         assert_eq!(l, r);
@@ -2028,7 +884,7 @@ mod astnode_tests {
     #[test]
     fn test_single_number_astnode() {
         let lexemes = lexer::from("42");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         match ast {
             AstNode::Number(val) => assert_eq!(val, Complex::new(42.0, 0.0)),
             _ => panic!("Expected Number AST node"),
@@ -2038,7 +894,7 @@ mod astnode_tests {
     #[test]
     fn test_unary_operator_negative_astnode() {
         let lexemes = lexer::from("- 3");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         match ast {
             AstNode::UnaryOperator { kind, expr } => {
                 assert_eq!(kind, UnaryOperatorKind::Negative);
@@ -2054,7 +910,7 @@ mod astnode_tests {
     #[test]
     fn test_binary_operator_precedence_astnode() {
         let lexemes = lexer::from("2 + 3 * 4");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         // expected: (2 + (3 * 4))
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -2076,7 +932,7 @@ mod astnode_tests {
     #[test]
     fn test_parentheses_override_precedence_astnode() {
         let lexemes = lexer::from("( 2 + 3 ) * 4");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         // expected: ((2 + 3) * 4)
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
@@ -2094,7 +950,7 @@ mod astnode_tests {
     #[test]
     fn test_function_single_arg_astnode() {
         let lexemes = lexer::from("sin ( 0 )");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Sin);
@@ -2108,7 +964,7 @@ mod astnode_tests {
     #[test]
     fn test_function_multiple_args_astnode() {
         let lexemes = lexer::from("pow ( 2 , 3 )");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -2120,7 +976,7 @@ mod astnode_tests {
         }
 
         let lexemes = lexer::from("pow ( sin(x) , 3 )");
-        let ast = AstNode::from(&lexemes, &["x"], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &["x"], &Constants::new(), &UserFnTable::new()).unwrap();
         match ast {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
@@ -2138,14 +994,14 @@ mod astnode_tests {
     #[test]
     fn test_imaginary_number_astnode() {
         let lexemes = lexer::from("5i");
-        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new()).unwrap();
+        let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_eq!(ast, AstNode::Number(Complex::new(0.0, 5.0)));
     }
 
     #[test]
     fn test_unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
-        let res = AstNode::from(&lexemes, &[], &Constants::new(), &UserDefinedTable::new());
+        let res = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new());
         assert!(res.is_err());
     }
 
@@ -2367,17 +1223,13 @@ mod astnode_tests {
 
 
     // Dummy user-defined function
-    fn sum_func(args: &[Complex<f64>]) -> Complex<f64> {
-        args.iter().copied().sum()
+    fn sum_func(args: [Complex<f64>; 2]) -> Complex<f64> {
+        args[0] + args[1]
     }
 
     #[test]
     fn test_simplify_user_function_call_with_numbers() {
-        let func = UserDefinedFunction::new(
-            "sum",
-            sum_func,
-            2,
-        );
+        let func = UserFn::new("sum", sum_func);
 
         let node = AstNode::UserFunctionCall {
             func,
@@ -2395,11 +1247,7 @@ mod astnode_tests {
 
     #[test]
     fn test_simplify_user_function_call_with_no_numbers() {
-        let func = UserDefinedFunction::new(
-            "sum",
-            sum_func,
-            2,
-        );
+        let func = UserFn::new("sum", sum_func);
 
         let node = AstNode::UserFunctionCall {
             func,
@@ -2541,8 +1389,8 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_differentive_order() {
-        let node = AstNode::Differentive {
+    fn test_differentiate_derivative_order() {
+        let node = AstNode::Derivative {
             expr: Box::new(AstNode::Argument(0)),
             var: 0,
             order: 1,
@@ -2551,7 +1399,7 @@ mod differentiate_tests {
         // d/dx (d/dx x) = d^2/dx^2 x
         assert_eq!(
             diff,
-            AstNode::Differentive {
+            AstNode::Derivative {
                 expr: Box::new(AstNode::Argument(0)),
                 var: 0,
                 order: 2,

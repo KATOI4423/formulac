@@ -9,13 +9,13 @@ fn bench_analyze_liner(c: &mut Criterion) {
     for n in [1, 10, 100, 1000] {
         let formula = make_much_operand(n);
         c.bench_function(&format!("compile {} operands", n), |b| {
-            b.iter(|| { let _ = Builder::new(&formula, &["x"]).compile(); } )
+            b.iter(|| { let _ = Builder::new(&formula, ["x"]).compile(); } )
         });
 
-        let expr = Builder::new(&formula, &["x"]).compile().unwrap();
+        let expr = Builder::new(&formula, ["x"]).compile().unwrap();
         let x = Complex::ONE;
         c.bench_function(&format!("exec {} operands", n), |b| {
-            b.iter(|| expr(&[x]))
+            b.iter(|| expr([x]))
         });
     }
 }
@@ -31,13 +31,13 @@ fn bench_analyze_nested(c: &mut Criterion) {
     for n in [1, 10, 100, 1000] {
         let formula = make_much_nested(n);
         c.bench_function(&format!("compile {} nested", n), |b| {
-            b.iter(|| { let _ = Builder::new(&formula, &["x"]).compile(); })
+            b.iter(|| { let _ = Builder::new(&formula, ["x"]).compile(); })
         });
 
-        let expr = Builder::new(&formula, &["x"]).compile().unwrap();
+        let expr = Builder::new(&formula, ["x"]).compile().unwrap();
         let x = Complex::ONE;
         c.bench_function(&format!("exec {} nested", n), |b| {
-            b.iter(|| expr(&[x]))
+            b.iter(|| expr([x]))
         });
     }
 }
@@ -50,13 +50,13 @@ fn bench_analyze_literal(c: &mut Criterion) {
     for n in [1, 10, 100, 1000] {
         let formula = make_much_order(n);
         c.bench_function(&format!("compile {} order literal", n), |b| {
-            b.iter(|| { let _ =Builder::new(&formula, &["x"]).compile(); })
+            b.iter(|| { let _ =Builder::new(&formula, ["x"]).compile(); })
         });
 
-        let expr = Builder::new(&formula, &["x"]).compile().unwrap();
+        let expr = Builder::new(&formula, ["x"]).compile().unwrap();
         let x = Complex::ONE;
         c.bench_function(&format!("exec {} order literal", n), |b| {
-            b.iter(|| expr(&[x]))
+            b.iter(|| expr([x]))
         });
     }
 }
@@ -68,42 +68,41 @@ fn bench_analyze_paren(c: &mut Criterion) {
 
     let formula = "(a+b)*(c-d)/(e+f)";
     c.bench_function(&format!("compile with paren '{}'", formula), |b| {
-        b.iter(|| Builder::new(&formula, &[]).with_constants(consts.clone()))
+        b.iter(|| Builder::new(&formula, []).with_constants(consts.clone()))
     });
 
-    let expr = Builder::new(&formula, &["x"]).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, ["x"]).with_constants(consts.clone()).compile().unwrap();
     let x = Complex::ONE;
     c.bench_function(&format!("exec with paren '{}'", formula), |b| {
-        b.iter(|| expr(&[x]))
+        b.iter(|| expr([x]))
     });
 
     let formula = "a+b*c-d/e+f";
     c.bench_function(&format!("compile without paren '{}'", formula), |b| {
-        b.iter(|| Builder::new(&formula, &[]).with_constants(consts.clone()))
+        b.iter(|| Builder::new(&formula, []).with_constants(consts.clone()))
     });
 
-    let expr = Builder::new(&formula, &["x"]).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, ["x"]).with_constants(consts.clone()).compile().unwrap();
     let x = Complex::ONE;
     c.bench_function(&format!("exec with paren '{}'", formula), |b| {
-        b.iter(|| expr(&[x]))
+        b.iter(|| expr([x]))
     });
 }
 
 fn bench_analyze_many_vars(c: &mut Criterion) {
-    let consts_names: Vec<String> = (1..=100).map(|i| format!("a{}", i)).collect();
-    let consts_refs: Vec<&str> = consts_names.iter().map(|s| s.as_str()).collect();
+    let consts_names: [String; 100] = std::array::from_fn(|i| format!("a{}", i+1)); // 1~100
     let consts: Vec<(&String, Complex<f64>)> = consts_names.iter().map(|name| (name, Complex::ONE)).collect();
 
     // a1 + a2 + ... + a100
     let formula = consts_names.join(" + ");
 
     c.bench_function("compile many vars (100)", |b| {
-        b.iter(|| { let _ = Builder::new(&formula, &consts_refs).with_constants(consts.clone()).compile(); })
+        b.iter(|| { let _ = Builder::new(&formula, []).with_constants(consts.clone()).compile(); })
     });
 
-    let expr = Builder::new(&formula, &consts_refs).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, []).with_constants(consts.clone()).compile().unwrap();
     c.bench_function("exec many vars (100)", |b| {
-        b.iter(|| expr(&[]))
+        b.iter(|| expr([]))
     });
 }
 
@@ -118,13 +117,13 @@ fn bench_analyze_diff(c: &mut Criterion) {
 
     for formula in &formulas {
         c.bench_function(&format!("compile diff '{}'", formula), |b| {
-            b.iter(|| { let _ = Builder::new(&formula, &["x"]).compile(); })
+            b.iter(|| { let _ = Builder::new(&formula, ["x"]).compile(); })
         });
 
-        let expr = Builder::new(&formula, &["x"]).compile().unwrap();
+        let expr = Builder::new(&formula, ["x"]).compile().unwrap();
         let x = Complex::new(0.7, 0.1);
         c.bench_function(&format!("exec diff '{}'", formula), |b| {
-            b.iter(|| expr(&[x]))
+            b.iter(|| expr([x]))
         });
     }
 }
@@ -140,7 +139,7 @@ fn bench_analyze_invalid(c: &mut Criterion) {
     for formula in &invalid_formulas {
         c.bench_function(&format!("compile invalid: {}", formula), |b| {
             b.iter(|| {
-                let _ = Builder::new(formula, &["x"]).compile();
+                let _ = Builder::new(formula, ["x"]).compile();
             })
         });
     }
@@ -167,13 +166,13 @@ fn bench_practical_polynomial(c: &mut Criterion) {
 
     let formula = "a0 + a1*x + a2*x^2 + a3*x^3 + a4*x^4";
     c.bench_function(&format!("compile polynomial '{}'", formula), |b| {
-        b.iter(|| { let _ = Builder::new(&formula, &["x"]).with_constants(consts.clone()).compile(); })
+        b.iter(|| { let _ = Builder::new(&formula, ["x"]).with_constants(consts.clone()).compile(); })
     });
 
-    let expr = Builder::new(&formula, &["x"]).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, ["x"]).with_constants(consts.clone()).compile().unwrap();
     let x = Complex::new(0.05, 2.4);
     c.bench_function(&format!("exec polynomial '{}'", formula), |b| {
-        b.iter(|| expr(&[x]))
+        b.iter(|| expr([x]))
     });
 }
 
@@ -187,13 +186,13 @@ fn bench_practical_wafe_function(c: &mut Criterion) {
 
     let formula = "A*sin(w*t + phy) + B*cos(w*t + phy)";
     c.bench_function(&format!("compile wave function '{}'", formula), |b| {
-        b.iter(|| { let _ = Builder::new(&formula, &["t"]).with_constants(consts.clone()).compile(); })
+        b.iter(|| { let _ = Builder::new(&formula, ["t"]).with_constants(consts.clone()).compile(); })
     });
 
-    let expr = Builder::new(&formula, &["t"]).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, ["t"]).with_constants(consts.clone()).compile().unwrap();
     let t = Complex::new(0.3, 0.0);
     c.bench_function(&format!("exec wave function '{}'", formula), |b| {
-        b.iter(|| expr(&[t]))
+        b.iter(|| expr([t]))
     });
 }
 
@@ -206,13 +205,13 @@ fn bench_practical_exponential_decay(c: &mut Criterion) {
 
     let formula = "A*exp(-λ*t) + B";
     c.bench_function(&format!("compile exponential decay '{}'", formula), |b| {
-        b.iter(|| { let _ = Builder::new(&formula, &["t"]).with_constants(consts.clone()).compile(); })
+        b.iter(|| { let _ = Builder::new(&formula, ["t"]).with_constants(consts.clone()).compile(); })
     });
 
-    let expr = Builder::new(&formula, &["t"]).with_constants(consts.clone()).compile().unwrap();
+    let expr = Builder::new(&formula, ["t"]).with_constants(consts.clone()).compile().unwrap();
     let t = Complex::new(0.3, 0.0);
     c.bench_function(&format!("exec exponential decay '{}'", formula), |b| {
-        b.iter(|| expr(&[t]))
+        b.iter(|| expr([t]))
     });
 }
 
@@ -233,9 +232,9 @@ macro_rules! compares_one_arity_functions {
                         b.iter(|| x.$variant())
                     });
 
-                    let expr = Builder::new(concat!(stringify!($variant), "(x)"), &["x"]).compile().unwrap();
+                    let expr = Builder::new(concat!(stringify!($variant), "(x)"), ["x"]).compile().unwrap();
                     c.bench_function(concat!("parsed \"", stringify!($variant), "(x)\""), |b| {
-                        b.iter(|| expr(&[x]))
+                        b.iter(|| expr([x]))
                     });
                 }
             )*
@@ -260,9 +259,9 @@ pub fn bench_compares_pow(c: &mut Criterion) {
         b.iter(|| x.powc(y))
     });
 
-    let expr = Builder::new("pow(x, y)", &["x", "y"]).compile().unwrap();
+    let expr = Builder::new("pow(x, y)", ["x", "y"]).compile().unwrap();
     c.bench_function(r#"parsed "pow(x, y)""#, |b| {
-        b.iter(|| expr(&[x, y]))
+        b.iter(|| expr([x, y]))
     });
 }
 
@@ -274,9 +273,9 @@ pub fn bench_compares_powi(c: &mut Criterion) {
         b.iter(|| x.powi(y.re() as i32))
     });
 
-    let expr = Builder::new("powi(x, y)", &["x", "y"]).compile().unwrap();
+    let expr = Builder::new("powi(x, y)", ["x", "y"]).compile().unwrap();
     c.bench_function(r#"parsed "powi(x, y)""#, |b| {
-        b.iter(|| expr(&[x, y]))
+        b.iter(|| expr([x, y]))
     });
 }
 
