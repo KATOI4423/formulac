@@ -701,10 +701,11 @@ impl AstNode {
                 if var >= func.arity() {
                     return Err(ParseError::OutOfRange { func: func.name().into(), idx: var });
                 }
-                let deriv_func = func.derivative(var)
-                    .cloned()
-                    .unwrap_or_else(|| func.numeric_deriv(var).unwrap());
-                Ok(Self::UserFunctionCall { func: deriv_func, args })
+                if let Some(deriv) = func.derivative(var).cloned() {
+                    Ok(Self::UserFunctionCall { func: deriv, args })
+                } else {
+                    Err(ParseError::DerivativeUndefined { func: func.name().into(), idx: var })
+                }
             }
 
             Self::Derivative { expr, var: inner_var, order } => {
@@ -1222,20 +1223,13 @@ mod astnode_tests {
 
 
     // Dummy user-defined function
-    fn sum_func(args: FunctionArgs) -> Complex<f64> {
-        let FunctionArgs::Binary(x, y) = args else {
-            unreachable!()
-        };
-        x + y
+    fn sum_func(args: [Complex<f64>; 2]) -> Complex<f64> {
+        args[0] + args[1]
     }
 
     #[test]
     fn test_simplify_user_function_call_with_numbers() {
-        let func = UserFn::new(
-            "sum",
-            sum_func,
-            2,
-        );
+        let func = UserFn::new("sum", sum_func);
 
         let node = AstNode::UserFunctionCall {
             func,
@@ -1253,11 +1247,7 @@ mod astnode_tests {
 
     #[test]
     fn test_simplify_user_function_call_with_no_numbers() {
-        let func = UserFn::new(
-            "sum",
-            sum_func,
-            2,
-        );
+        let func = UserFn::new("sum", sum_func);
 
         let node = AstNode::UserFunctionCall {
             func,

@@ -32,6 +32,26 @@ impl FunctionArgs {
     }
 }
 
+trait FromFunctionArgs<const N: usize> {
+    fn from_args(args: FunctionArgs) -> Self;
+}
+
+impl FromFunctionArgs<1> for [Complex<f64>; 1] {
+    fn from_args(args: FunctionArgs) -> Self
+    {
+        let FunctionArgs::Unary(x) = args else { unreachable!("arity mismatch") };
+        [x]
+    }
+}
+
+impl FromFunctionArgs<2> for [Complex<f64>; 2] {
+    fn from_args(args: FunctionArgs) -> Self
+    {
+        let FunctionArgs::Binary(x, y) = args else { unreachable!("arity mismatch") };
+        [x, y]
+    }
+}
+
 /// A trait representing a callable mathematical function.
 ///
 /// This trait is implemented by types that can be called with a fixed number
@@ -248,17 +268,20 @@ impl UserFn {
     /// # Arguments
     ///
     /// * `name`  - The name of the function.
-    /// * `func`  - A closure that receives [`FunctionArgs`] and returns `Complex<f64>`.
-    /// * `arity` - The number of arguments the function expects.
-    pub fn new<F, S>(name: S, func: F, arity: usize) -> Self
+    /// * `func`  - A closure that receives `[Complex<f64>; N]` and returns `Complex<f64>`.
+    pub fn new<F, S, const N: usize>(name: S, func: F) -> Self
     where
-        F: Fn(FunctionArgs) -> Complex<f64> + Send + Sync + 'static,
+        F: Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static,
         S: Into<String>,
+        [Complex<f64>; N]: FromFunctionArgs<N>,
     {
         Self {
-            func: Arc::new(func),
+            func: Arc::new(move |args| {
+                let arr = <[Complex<f64>; N]>::from_args(args);
+                func(arr)
+            }),
             deriv: Vec::new(),
-            arity,
+            arity: N,
             name: name.into(),
         }
     }
@@ -271,27 +294,15 @@ impl UserFn {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::functions::{
-    ///     UserFn,
-    ///     FunctionArgs,
-    ///     FunctionCall,
-    /// };
+    /// use formulac::functions::UserFn;
     ///
     /// let df = UserFn::new(
     ///     "square_deriv",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         Complex::new(2.0, 0.0) * x
-    ///     },
-    ///     1,
+    ///     |[x]| Complex::new(2.0, 0.0) * x,
     /// );
     /// let f = UserFn::new(
     ///     "square",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         x * x
-    ///     },
-    ///     1,
+    ///     |[x]| x * x,
     /// ).with_derivative(vec![df]);
     /// ```
     pub fn with_derivative(mut self, diffs: impl IntoIterator<Item = Self>) -> Self {
@@ -313,27 +324,15 @@ impl UserFn {
     ///
     /// ```rust
     /// use num_complex::Complex;
-    /// use formulac::functions::{
-    ///     UserFn,
-    ///     FunctionArgs,
-    ///     FunctionCall,
-    /// };
+    /// use formulac::functions::UserFn;
     ///
     /// let df = UserFn::new(
     ///     "deriv",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         Complex::new(2.0, 0.0) * x
-    ///     },
-    ///     1,
+    ///     |[x]| Complex::new(2.0, 0.0) * x,
     /// );
     /// let f = UserFn::new(
     ///     "square",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         x * x
-    ///     },
-    ///     1,
+    ///     |[x]| x * x,
     /// ).with_derivative(vec![df]);
     ///
     /// assert!(f.derivative(0).is_some());
@@ -341,67 +340,6 @@ impl UserFn {
     /// ```
     pub fn derivative(&self, var: usize) -> Option<&Self> {
         self.deriv.get(var)
-    }
-
-    /// Returns a new `UserFn` that numerically differentiates
-    /// this function with respect to argument `var` using the central difference method.
-    ///
-    /// Falls back to this when no analytic derivative is registered.
-    /// Returns `None` if `var >= arity`.
-    ///
-    /// The step size `dh` is chosen as `args[var] * 1e-6` to scale with the input.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use num_complex::Complex;
-    /// use formulac::functions::{
-    ///     UserFn,
-    ///     FunctionArgs,
-    ///     FunctionCall,
-    /// };
-    ///
-    /// // f(x) = x^3, f'(x) ≈ 3x^2
-    /// let f = UserFn::new(
-    ///     "cube",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         x * x * x
-    ///     },
-    ///     1,
-    /// );
-    ///
-    /// let ndf = f.numeric_deriv(0).unwrap();
-    /// let result = ndf.apply(FunctionArgs::Unary(Complex::new(2.0, 0.0)));
-    /// // f'(2) ≈ 12.0
-    /// assert!((result.re - 12.0).abs() < 1e-6);
-    /// ```
-    pub fn numeric_deriv(&self, var: usize) -> Option<Self> {
-        if var >= self.arity {
-            return None;
-        }
-
-        let func  = self.func.clone();
-        let arity = self.arity;
-        let name  = format!("{}_num_diff_arg{}", self.name, var);
-
-        Some(UserFn::new(
-            &name,
-            move |args| {
-                // FunctionArgs を &[Complex<f64>] に展開して中央差分を計算する
-                let mut argv: Vec<Complex<f64>> = match args {
-                    FunctionArgs::Unary(x)       => vec![x],
-                    FunctionArgs::Binary(x, y)   => vec![x, y],
-                };
-                let dh = argv[var] * 1.0e-6;
-                argv[var] += dh;
-                let plus  = func(FunctionArgs::from(argv.clone()));
-                argv[var] -= dh * 2.0;
-                let minus = func(FunctionArgs::from(argv));
-                (plus - minus) / (dh * 2.0)
-            },
-            arity,
-        ))
     }
 }
 
@@ -442,11 +380,7 @@ mod userfn_tests {
     fn apply_unary() {
         let f = UserFn::new(
             "inc",
-            |args| {
-                let FunctionArgs::Unary(x) = args else { unreachable!() };
-                x + Complex::ONE
-            },
-            1,
+            |[x]| x + Complex::ONE,
         );
         assert_eq!(f.apply(FunctionArgs::Unary(Complex::ZERO)), Complex::ONE);
     }
@@ -455,11 +389,7 @@ mod userfn_tests {
     fn apply_binary() {
         let f = UserFn::new(
             "add",
-            |args| {
-                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
-                x + y
-            },
-            2,
+            |[x, y]| x + y,
         );
         assert_eq!(
             f.apply(FunctionArgs::Binary(c(1.0, 0.0), c(2.0, 0.0))),
@@ -468,20 +398,11 @@ mod userfn_tests {
     }
 
     #[test]
-    fn arity() {
-        let f = UserFn::new("f", |args| {
-            let FunctionArgs::Binary(x, y) = args else { unreachable!() };
-            x + y
-        }, 2);
-        assert_eq!(f.arity(), 2);
-    }
-
-    #[test]
     fn partial_eq() {
-        let f1 = UserFn::new("f", |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x }, 1);
-        let f2 = UserFn::new("f", |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x + x }, 1);
-        let f3 = UserFn::new("g", |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x }, 1);
-        let f4 = UserFn::new("f", |args| { let FunctionArgs::Binary(x, y) = args else { unreachable!() }; x + y }, 2);
+        let f1 = UserFn::new("f", |[x]| x);
+        let f2 = UserFn::new("f", |[x]| x + x);
+        let f3 = UserFn::new("g", |[x]| x);
+        let f4 = UserFn::new("f", |[x, y]| x + y);
         assert_eq!(f1, f2);
         assert_ne!(f1, f3);
         assert_ne!(f1, f4);
@@ -489,7 +410,7 @@ mod userfn_tests {
 
     #[test]
     fn without_derivative() {
-        let f = UserFn::new("f", |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x * x }, 1);
+        let f = UserFn::new("f", |[x]| x * x);
         assert!(f.derivative(0).is_none());
     }
 
@@ -497,16 +418,11 @@ mod userfn_tests {
     fn with_analytic_derivative() {
         let df = UserFn::new(
             "square_deriv",
-            |args| {
-                let FunctionArgs::Unary(x) = args else { unreachable!() };
-                c(2.0, 0.0) * x
-            },
-            1,
+            |[x]| c(2.0, 0.0) * x,
         );
         let f = UserFn::new(
             "square",
-            |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x * x },
-            1,
+            |[x]| x * x,
         ).with_derivative(vec![df]);
 
         let deriv = f.derivative(0).expect("should exist");
@@ -516,35 +432,10 @@ mod userfn_tests {
     }
 
     #[test]
-    fn numeric_deriv_cube() {
-        // f(x) = x^3, f'(x) = 3x^2, f'(2) = 12
-        let f = UserFn::new(
-            "cube",
-            |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x * x * x },
-            1,
-        );
-        let ndf = f.numeric_deriv(0).unwrap();
-        let result = ndf.apply(FunctionArgs::Unary(c(2.0, 0.0)));
-        assert_abs_diff_eq!(result.re, 12.0, epsilon = 1e-5);
-        assert_abs_diff_eq!(result.im,  0.0, epsilon = 1e-5);
-    }
-
-    #[test]
-    fn numeric_deriv_out_of_range() {
-        let f = UserFn::new(
-            "f",
-            |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x },
-            1,
-        );
-        assert!(f.numeric_deriv(1).is_none());
-    }
-
-    #[test]
     fn debug_contains_name_and_arity() {
         let f = UserFn::new(
             "mul",
-            |args| { let FunctionArgs::Unary(x) = args else { unreachable!() }; x * x },
-            1,
+            |[x]| x * x,
         );
         let s = format!("{:?}", f);
         assert!(s.contains("mul"));

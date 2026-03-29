@@ -37,6 +37,10 @@ pub enum ParseError {
     #[error("Missing left operand for {operator}")]
     MissingLeftOperator { operator: String },
 
+    /// Derivative undefined for X_i
+    #[error("Undefined derivative of {func} for {idx}")]
+    DerivativeUndefined { func: String, idx: usize },
+
     /// Invalid derivation use
     #[error("Invalid derivative: {lexeme}: {reason}")]
     InvalidDerivative { lexeme: Lexeme, reason: String },

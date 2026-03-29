@@ -114,14 +114,7 @@ impl<const N: usize> Builder<N>
     /// use formulac::functions::{FunctionArgs, UserFn};
     /// use num_complex::Complex;
     ///
-    /// let func = UserFn::new(
-    ///     "double",
-    ///     |args| {
-    ///         let FunctionArgs::Unary(x) = args else { unreachable!() };
-    ///         x * Complex::new(2.0, 0.0)
-    ///     },
-    ///     1,
-    /// );
+    /// let func = UserFn::new("double", |[x]| x * Complex::new(2.0, 0.0));
     ///
     /// let builder = Builder::new("double(x)", ["x"])
     ///     .with_user_functions([func]);
@@ -340,24 +333,11 @@ mod compile_test {
     #[test]
     fn test_differentiate_with_userfn() {
         // Define df(x) = 2*x
-        let deriv = UserFn::new(
-            "df",
-            |args| {
-                    let FunctionArgs::Unary(x) = args else { unreachable!() };
-                    Complex::new(2.0, 0.0) * x
-            },
-            1
-        );
+        let deriv = UserFn::new("df", |[x]| Complex::new(2.0, 0.0) * x);
 
         // Define f(x) = x^2
-        let func = UserFn::new(
-            "f",
-            |args| {
-                    let FunctionArgs::Unary(x) = args else { unreachable!() };
-                    x * x
-                },
-            1,
-        ).with_derivative(vec![deriv]);
+        let func = UserFn::new("f", |[x]| x * x)
+            .with_derivative(vec![deriv]);
 
         let expr = Builder::new("diff(f(x), x)", ["x"])
             .with_user_functions([func])
@@ -371,33 +351,13 @@ mod compile_test {
     #[test]
     fn test_differentiate_with_partial_derivative() {
         // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
-        let dg_dx = UserFn::new(
-            "dgdx",
-            |args| {
-                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
-                Complex::new(2.0, 0.0) * x * y
-            },
-            2,
-        );
+        let dg_dx = UserFn::new("dgdx", |[x, y]| Complex::new(2.0, 0.0) * x * y);
         // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-        let dg_dy = UserFn::new(
-            "dgdy",
-            |args| {
-                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
-                x * x + Complex::new(3.0, 0.0) * y * y
-            },
-            2,
-        );
+        let dg_dy = UserFn::new("dgdy", |[x, y]| x * x + Complex::new(3.0, 0.0) * y * y);
 
         // Define g(x, y) = x^2 * y + y^3
-        let func = UserFn::new(
-            "g",
-            |args| {
-                let FunctionArgs::Binary(x, y) = args else { unreachable!() };
-                x * x * y + y * y * y
-            },
-            2,
-        ).with_derivative(vec![dg_dx, dg_dy]);
+        let func = UserFn::new("g", |[x, y]| x * x * y + y * y * y)
+            .with_derivative(vec![dg_dx, dg_dy]);
 
         let x = Complex::new(2.0, 0.0);
         let y = Complex::new(3.0, 0.0);
@@ -421,50 +381,9 @@ mod compile_test {
     }
 
     #[test]
-    fn test_differentiate_with_userfn_numerical() {
-        // Define f(x) = x^2 without specifying derivative (uses numerical differentiation)
-        let func = UserFn::new(
-            "f",
-            |args| {
-                let FunctionArgs::Unary(x) = args else { unreachable!() };
-                x * x
-            },
-            1,
-        );
-
-        let expr = Builder::new("diff(f(x), x)", ["x"])
-            .with_user_functions([func])
-            .compile().unwrap();
-
-        let x = Complex::new(3.0, 0.0);
-        let result = expr([x]); // evaluates numerical derivative of f at x=3
-        let expected = 2.0 * x; // analytical derivative: 2x
-        // Allow some tolerance due to numerical differentiation
-        assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-5);
-        assert_abs_diff_eq!(result.im, expected.im, epsilon=1e-5);
-    }
-
-    #[test]
-    fn test_differentiate_with_userfn_numerical_complex() {
-        // Define f(z) = z^2 (complex)
-        let func = UserFn::new(
-            "f",
-            |args| {
-                let FunctionArgs::Unary(x) = args else { unreachable!() };
-                x * x
-            },
-            1,
-        );
-
-        let expr = Builder::new("diff(f(z), z)",  ["z"])
-            .with_user_functions([func])
-            .compile().unwrap();
-
-        let z = Complex::new(1.0, 2.0);
-        let result = expr([z]);
-        let expected = 2.0 * z; // d/dz (z^2) = 2z
-        assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-4);
-        assert_abs_diff_eq!(result.im, expected.im, epsilon=1e-4);
+    fn test_differentiate_undefined() {
+        let func = UserFn::new("f", |[x]| x);
+        assert!(Builder::new("diff(f(x), x)", ["x"]).with_user_functions([func]).compile().is_err());
     }
 
     #[test]
@@ -476,10 +395,7 @@ mod compile_test {
             Builder::new("f(x + a)",  ["x"])
                 .with_constants(constants)
                 .with_user_functions([
-                    UserFn::new("f", |args| {
-                        let FunctionArgs::Unary(x) = args else { unreachable!() };
-                        x.conj()
-                    }, 1)
+                    UserFn::new("f", |[x]| x.conj()),
                 ])
                 .compile().unwrap()
         };
