@@ -14,7 +14,7 @@ macro_rules! unary_operator_kind {
     ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
         /// Represents a unary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum UnaryOperatorKind {
+        pub enum UnaryOperatorKind {
             $($name),*
         }
 
@@ -68,7 +68,7 @@ macro_rules! binary_operators {
     }),* $(,)?) => {
         /// Represents a binary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum BinaryOperatorKind {
+        pub enum BinaryOperatorKind {
             $($name),*
         }
 

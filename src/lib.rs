@@ -37,23 +37,26 @@
 //!
 //! ## Example: Retrieving All Names
 //! ```rust
-//! use formulac::constants;
+//! use formulac::constants::Constants;
+//! use formulac::operators::{UnaryOperatorKind, BinaryOperatorKind};
+//! use formulac::functions::FunctionKind;
+//!
 //!
 //! // Constants
-//! // let constant_names: Vec<String> = constants::names();
-//! // println!("Constants: {:?}", constant_names);
+//! let constant_names: Vec<_> = Constants::symbols().collect();
+//! println!("Constants: {:?}", constant_names);
 //!
 //! // Unary operators
-//! //let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
-//! //println!("Unary Operators: {:?}", unary_names);
+//! let unary_names = UnaryOperatorKind::symbols();
+//! println!("Unary Operators: {:?}", unary_names);
 //!
 //! // Binary operators
-//! //let binary_names: Vec<&'static str> = BinaryOperatorKind::names();
-//! //println!("Binary Operators: {:?}", binary_names);
+//! let binary_names = BinaryOperatorKind::symbols();
+//! println!("Binary Operators: {:?}", binary_names);
 //!
 //! // Functions
-//! //let function_names: Vec<&'static str> = FunctionKind::names();
-//! //println!("Functions: {:?}", function_names);
+//! let function_names = FunctionKind::symbols();
+//! println!("Functions: {:?}", function_names);
 //! ```
 //!
 //! ## When to Use

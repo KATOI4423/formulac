@@ -84,7 +84,7 @@ macro_rules! functions {
     }, )*) => {
         /// Represents a built-in mathematical function.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum FunctionKind {
+        pub enum FunctionKind {
             $( $variant, )*
         }
 
