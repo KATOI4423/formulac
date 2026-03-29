@@ -302,7 +302,7 @@ impl UserFn {
     /// let f = UserFn::new(
     ///     "square",
     ///     |[x]| x * x,
-    /// ).with_derivative(vec![df]);
+    /// ).with_derivative([df]);
     /// ```
     pub fn with_derivative(mut self, diffs: impl IntoIterator<Item = Self>) -> Self {
         let diffs: Vec<Self> = diffs.into_iter().collect();

@@ -7,12 +7,13 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
 ## Features
 
 - **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
+- **Const-generic API** — Function argument arity is encoded in the type system (`Builder<N>`), eliminating runtime argument length checks.
 - **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
 - **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
   See `src/astnode.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols.
 - **Unary & Binary operators** — Unary operators (`+`, `-`) and binary operators (`+`, `-`, `*`, `/`, `^`) are represented as `UnaryOperatorKind` and `BinaryOperatorKind`.
 - **Abstract Syntax Tree (AST)** — Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures.
-- **User-defined functions** — Easily register custom functions or constants at runtime using a simple API (`UserDefinedTable`).
+- **User-defined functions** — Easily register custom functions via `Builder::with_user_functions`.
 - **Differentiation support** — Parse and evaluate differential expressions using the `diff` operator (e.g., `diff(sin(x), x)`).
 - **Safe and dependency-light** — No use of unsafe Rust or heavyweight external parsers.
 
@@ -30,58 +31,50 @@ cargo add formulac
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable};
+use formulac::Builder;
 
 fn main() {
-    let formula = "sin(z) + a * cos(z)";
-    let expr = Builder::new(formula, &["z"])
+    // 1 argument: z
+    let expr = Builder::<1>::new("sin(z) + a * cos(z)", ["z"])
         .with_constants([("a", Complex::new(3.0, 2.0))])
         .compile()
-        .expect("Failed to compile formula");
+        .unwrap();
 
-    let result = expr(&[Complex::new(1.0, 2.0)]); // evaluates 'sin(1+2i) + (3+2i) * cos(1+2i)'
+    let result = expr([Complex::new(1.0, 2.0)]);
     println!("Result = {}", result);
 }
 ```
 
 ### Registering a Custom Function
 
-You can use `UserDefinedTable::register` (check the function conflict) or `UserDefinedTable::insert` (overwrite the conflict function)
+You can register custom functions using `Builder::with_user_functions`.
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserFn};
 
 fn main() {
     // Define a function f(x) = x^2 + 1
-    let func = UserDefinedFunction::new(
-        "f",
-        |args: &[Complex<f64>]| args[0] * args[0] + Complex::new(1.0, 0.0),
-        1,
-    );
+    let func = UserFn::new("f", |[x]: [Complex<f64>; 1]| x * x + Complex::new(1.0, 0.0));
 
-    // Create user-defined function table
-    let users = UserDefinedTable::default()
-        .register(func).unwrap();
-
-    let builder = Builder::new("f(3)", &[])
-        .with_user_defined_functions(users.clone()); // use it again later
+    let builder = Builder::<1>::new("f(3)", [])
+        .with_user_functions([func]);
 
     let expr = builder.compile()
-        .expect("Failed to compile formula with UserDefinedFunction");
+        .expect("Failed to compile formula with UserFn");
 
-    assert_eq!(expr(&[]), Complex::new(10.0, 0.0));
+    assert_eq!(expr([]), Complex::new(10.0, 0.0));
 
-    let users = users.insert(UserDefinedFunction::new(
+    let func2 = UserFn::new(
         "f", // it conflicts the above function.
-        |args: &[Complex<f64>] args[0] + Complex::new(2.0, 1.0),
-        1,
-    ));
+        |[x]: [Complex<f64>; 1]| x + Complex::new(2.0, 1.0),
+    );
 
-    let expr = builder.with_user_defined_functions(users)
+    // If multiple functions with the same name are provided, the later one overrides the former.
+    let expr = builder.with_user_functions([func2])
         .compile().unwrap();
 
-    assert_eq!(expr(&[]), Complex::new(5.0, 1.0));
+    assert_eq!(expr([]), Complex::new(5.0, 1.0));
 }
 ```
 
@@ -92,6 +85,7 @@ fn main() {
 `formulac` can represent **derivative expressions** in the AST.
 Built-in functions (e.g. `sin`, `cos`, `exp`, `log`, …) already have derivative rules,
 but **user-defined functions require the user to explicitly register their derivative form**.
+If no derivative is provided, `diff(...)` will result in an error at compile time (during `compile()`).
 
 **Note on Differential Order:**
 
@@ -104,16 +98,16 @@ You can directly write differentiation expressions using the `diff` operator:
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable};
+use formulac::{Builder, UserFn};
 
 fn main() {
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x)";
-    let expr = Builder::new(formula, &["x"])
+    let expr = Builder::<1>::new(formula, ["x"])
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr(&[Complex::new(1.0, 0.0)]); // evaluates cos(1)
+    let result = expr([Complex::new(1.0, 0.0)]); // evaluates cos(1)
     println!("Result = {}", result);
 }
 ```
@@ -122,16 +116,16 @@ When computing derivatives of order 2 or higher, specify the order:
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable};
+use formulac::{Builder, UserFn};
 
 fn main() {
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x, 2)";
-    let expr = Builder::new(formula, &["x"])
+    let expr = Builder::<1>::new(formula, ["x"])
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr(&[Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
+    let result = expr([Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
     println!("Result = {}", result);
 }
 ```
@@ -142,65 +136,19 @@ You can define your own functions and provide derivatives for them. The derivati
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserFn};
 
 fn main() {
     // Define f(x) = x^2, derivative f'(x) = 2x
-    let deriv = UserDefinedFunction::new(
-        "df",
-        |args: &[Complex<f64>] Complex::new(2.0, 0.0) * args[0],
-        1,
-    );
-    let func = UserDefinedFunction::new(
-        "f",
-        |args: &[Complex<f64>]| args[0] * args[0],
-        1,
-    ).with_derivative(vec![deriv]);
+    let deriv = UserFn::new("df", |[x]: [Complex<f64>; 1]| Complex::new(2.0, 0.0) * x);
+    let func = UserFn::new("f", |[x]: [Complex<f64>; 1]| x * x).with_derivative([deriv]);
 
-    let users = UserDefinedTable::default()
-        .register(func).unwrap();
-
-    let expr = Builder::new("diff(f(x), x)", &["x"])
-        .with_user_defined_functions(users)
+    let expr = Builder::<1>::new("diff(f(x), x)", ["x"])
+        .with_user_functions([func])
         .compile()
-        .expect("Failed to compile formula with UserDefinedFunction");
+        .expect("Failed to compile formula with UserFn");
 
-    let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
-    println!("Result: {}", result);
-}
-```
-
-### User-defined function without derivative
-
-You can also define your own functions without providing derivatives for them. In the case, the derivatives will be calculated automatically by numerical differentiation.
-
-The step size is determined automatically used by the argument value:
-
-$$
-dh = x_i \times 10^{-6}
-$$
-
-Note: Numerical differentiation is an aproximation, so it may be less accurate than analytical derivatives.
-
-```rust
-use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
-
-fn main() {
-    // Define f(x) = x^2 without derivative
-    let users = UserDefinedTable::default()
-        .register(UserDefinedFunction::new(
-           "f",
-            |args: &[Complex<f64>]| args[0] * args[0],
-            1,
-        )).unwrap();
-
-    let expr = Builder::new("diff(f(x), x)", &["x"])
-        .with_user_defined_functions(users)
-        .compile()
-        .expect("Failed to compile formula with UserDefinedFunction");
-
-    let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) ≈ 6
+    let result = expr([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
     println!("Result: {}", result);
 }
 ```
@@ -211,43 +159,30 @@ For functions with multiple variables, you can register partial derivatives with
 
 ```rust
 use num_complex::Complex;
-use formulac::{Builder, UserDefinedTable, UserDefinedFunction};
+use formulac::{Builder, UserFn};
 
 fn main() {
     // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
-    let deriv_x = UserDefinedFunction::new(
-        "dg_dx",
-        |args: &[Complex<f64>]| Complex::new(2.0, 0.0) * args[0] * args[1],
-        2,
-    );
+    let deriv_x = UserFn::new("dg_dx", |[x, y]: [Complex<f64>; 2]| Complex::new(2.0, 0.0) * x * y);
     // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-    let deriv_y = UserDefinedFunction::new(
-        "dg_dy",
-        |args: &[Complex<f64>]| args[0]*args[0] + Complex::new(3.0, 0.0)*args[1]*args[1],
-        2,
-    );
+    let deriv_y = UserFn::new("dg_dy", |[x, y]: [Complex<f64>; 2]| x * x + Complex::new(3.0, 0.0) * y * y);
     // Define g(x, y) = x^2 * y + y^3
-    let func = UserDefinedFunction::new(
-        "g",
-        |args: &[Complex<f64>]| args[0]*args[0]*args[1] + args[1]*args[1]*args[1],
-        2,
-    ).with_derivative(vec![deriv_x, deriv_y]);
+    let func = UserFn::new("g", |[x, y]: [Complex<f64>; 2]| x * x * y  + y * y * y)
+        .with_derivative([deriv_x, deriv_y]);
 
-    let users = UserDefinedTable::default()
-        .register(func).unwrap();
-
-    let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
-        .with_user_defined_functions(users.clone()) // use it again later
+    // 2 arguments: x and y
+    let expr_dx = Builder::<2>::new("diff(g(x, y), x)", ["x", "y"])
+        .with_user_functions([func.clone()]) // use it again later
         .compile()
         .unwrap();
-    let result_dx = expr_dx(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dx = expr_dx([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂x at (2, 3) = {}", result_dx); // 12
 
-    let expr_dy = Builder::new("diff(g(x, y), y)", &["x", "y"])
-        .with_user_defined_functions(users)
+    let expr_dy = Builder::<2>::new("diff(g(x, y), y)", ["x", "y"])
+        .with_user_functions([func])
         .compile()
         .unwrap();
-    let result_dy = expr_dy(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dy = expr_dy([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂y at (2, 3) = {}", result_dy); // 31
 }
 ```
@@ -255,10 +190,11 @@ fn main() {
 ## Core Types & API Overview
 
 - **`compile`**
-  Compiles a formula string into a Rust closure `Fn(&[Complex<f64>]) -> Complex<f64>` that evaluates the expression for given variable values.
+  Compiles a formula string into a Rust closure `Fn([Complex<f64>; N]) -> Complex<f64>` that evaluates the expression for given variable values.
 
-- **`UserDefinedTable`**
-  Allows registration of custom functions under user-defined names for use in expressions.
+- **`UserFn`**
+  Represents a user-defined function.
+  Accepts a fixed-size array `[Complex<f64>; N]` as arguments.
 
 ### Available mathematical constants
 
@@ -374,7 +310,7 @@ Both `compile` and `exec` times are measured. Criterion generates detailed stati
 Open the generated HTML report in a browser to view benchmark results and comparisons:
 
 ``` bash
-open target/criterion/report/index.html
+xdg-open target/criterion/report/index.html
 ```
 
 ---

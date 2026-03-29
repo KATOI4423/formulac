@@ -24,7 +24,7 @@
 //! ## Example
 //! ```rust
 //! use num_complex::Complex;
-//! use formulac::builder::Builder;
+//! use formulac::Builder;
 //!
 //! let expr = Builder::new("sin(z) + a * cos(z)", ["z"])
 //!     .with_constants([("a", Complex::new(3.0, 2.0))])
@@ -73,3 +73,6 @@ pub mod token;
 pub mod builder;
 pub mod constants;
 pub mod functions;
+
+pub type Builder<const N: usize> = builder::Builder<N>;
+pub type UserFn = functions::UserFn;
