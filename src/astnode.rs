@@ -156,7 +156,6 @@ impl AstNode {
         ops:    &mut Vec<Token>,
         lex:    Lexeme,
     ) -> Result<(), ParseError> {
-        use std::str::FromStr;
         let oper = BinaryOperatorKind::try_from(lex.clone())
             .map_err(|_| ParseError::InvalidFormula {
                 reason: format!("unknown binary operator '{}'", lex.text()),

@@ -4,7 +4,6 @@
 //! It provides enums for operator kinds, precedence information, and application logic.
 
 use num_complex::Complex;
-use std::str::FromStr;
 
 use crate::err::ParseError;
 use crate::lexer::Lexeme;
