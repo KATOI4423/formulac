@@ -31,7 +31,7 @@ impl FunctionArgs {
     }
 }
 
-trait FromFunctionArgs<const N: usize> {
+pub trait FromFunctionArgs<const N: usize> {
     fn from_args(args: FunctionArgs) -> Self;
 }
 
