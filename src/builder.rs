@@ -19,15 +19,15 @@ use crate::token::{
 };
 
 
-pub struct Builder
+pub struct Builder<const N: usize>
 {
     formula: String,
-    args: Vec<String>,
+    args: [String; N],
     constants: Constants,
     usrs: UserFnTable,
 }
 
-impl Builder
+impl<const N: usize> Builder<N>
 {
     /// Creates a new `Builder` instance with the given formula and argument names.
     ///
@@ -48,16 +48,16 @@ impl Builder
     /// use formulac::builder::Builder;
     /// use num_complex::Complex;
     ///
-    /// let builder = Builder::new("x + 1", &["x"]);
+    /// let builder = Builder::new("x + 1", ["x"]);
     /// let func = builder.compile()
     ///     .expect("Failed to compile 'x + 1'");
-    /// println!("{} + 1 = {}", 3, func(&[Complex::new(3.0, 0.0)]));
+    /// println!("{} + 1 = {}", 3, func([Complex::new(3.0, 0.0)]));
     /// ```
-    pub fn new(formula: &str, arg_names: &[&str]) -> Self
+    pub fn new(formula: &str, arg_names: [&str; N]) -> Self
     {
         Self {
             formula: formula.to_string(),
-            args: arg_names.to_vec().iter().map(|arg| arg.to_string()).collect(),
+            args: arg_names.map(|arg| arg.to_string()),
             constants: Constants::default(),
             usrs: UserFnTable::new(),
         }
@@ -79,7 +79,7 @@ impl Builder
     /// use formulac::builder::Builder;
     /// use num_complex::Complex;
     ///
-    /// let builder = Builder::new("a + x", &["x"])
+    /// let builder = Builder::new("a + x", ["x"])
     ///     .with_constants([
     ///         ("a", Complex::new(1.0, 0.0)),
     ///         ("b", Complex::new(-1.0, 2.5))
@@ -123,7 +123,7 @@ impl Builder
     ///     1,
     /// );
     ///
-    /// let builder = Builder::new("double(x)", &["x"])
+    /// let builder = Builder::new("double(x)", ["x"])
     ///     .with_user_functions([func]);
     /// ```
     pub fn with_user_functions<I>(mut self, user_functions: I) -> Self
@@ -147,13 +147,10 @@ impl Builder
         Ok(tokens)
     }
 
-    fn build_executor(tokens: Vec<Token>, expected_arity: usize)
-        -> impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static
+    fn build_executor(tokens: Vec<Token>)
+        -> impl Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static
     {
-        move |arg_values: &[Complex<f64>]| {
-            // check arity only debug build
-            debug_assert_eq!(arg_values.len(), expected_arity);
-
+        move |arg_values: [Complex<f64>; N]| {
             let mut stack: Vec<Complex<f64>> = Vec::new();
             for token in tokens.iter() {
                 match token {
@@ -207,13 +204,11 @@ impl Builder
     /// On success, returns a closure of type:
     ///
     /// ```rust,ignore
-    /// Fn(&[Complex<f64>]) -> Complex<f64>
+    /// Fn([Complex<f64>]) -> Complex<f64>
     /// ```
     ///
     /// - The closure takes a slice of complex argument values corresponding to `arg_names`.
     /// - Returns `Complex<f64>` if evaluation succeeds.
-    /// - Panics if the number of arguments provided does not match `arg_names.len()`.
-    ///   So check it with debug build.
     ///
     /// On failure, returns an error enum describing the parsing or compilation error.
     ///
@@ -222,24 +217,23 @@ impl Builder
     /// use num_complex::Complex;
     /// use formulac::builder::Builder;
     ///
-    /// let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
+    /// let expr = Builder::new("sin(z) + a * cos(z)", ["z"])
     ///     .with_constants([("a", Complex::new(3.0, 2.0))])
     ///     .compile()
     ///     .expect("Failed to compile formula");
     ///
-    /// let result = expr(&[Complex::new(1.0, 2.0)]);
+    /// let result = expr([Complex::new(1.0, 2.0)]);
     /// println!("Result = {}", result);
     /// ```
     ///
     /// # Notes
     /// - This function does not evaluate immediately; instead, it produces
     ///   a reusable compiled closure for efficient repeated evaluation.
-    pub fn compile(&self) -> Result<impl Fn(&[Complex<f64>]) -> Complex<f64> + Send + Sync + 'static, ParseError>
+    pub fn compile(&self) -> Result<impl Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static, ParseError>
     {
         let tokens = self.build_tokens()?;
-        let expected_arity = self.args.len();
 
-        Ok(Self::build_executor(tokens, expected_arity))
+        Ok(Self::build_executor(tokens))
     }
 }
 
@@ -256,44 +250,44 @@ mod compile_test {
 
     #[test]
     fn test_constant_number() {
-        let f = Builder::new("42", &[])
+        let f = Builder::new("42", [])
             .compile().unwrap();
-        let result = f(&[]);
+        let result = f([]);
         assert_eq!(result, Complex::new(42.0, 0.0));
     }
 
     #[test]
     fn test_constant_str() {
-        let f = Builder::new("PI", &[])
+        let f = Builder::new("PI", [])
             .compile().unwrap();
-        let result = f(&[]);
+        let result = f([]);
         assert_eq!(result, Complex::from(std::f64::consts::PI));
     }
 
     #[test]
     fn test_argument() {
-        let f = Builder::new("x", &["x"])
+        let f = Builder::new("x", ["x"])
             .compile().unwrap();
-        let result = f(&[Complex::new(3.0, 0.0)]);
+        let result = f([Complex::new(3.0, 0.0)]);
         assert_eq!(result, Complex::new(3.0, 0.0));
     }
 
     #[test]
     fn test_addition() {
-        let f = Builder::new("x + y", &["x", "y"])
+        let f = Builder::new("x + y", ["x", "y"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
         let y = Complex::new(3.0, 5.0);
-        let result = f(&[x, y]);
+        let result = f([x, y]);
         assert_abs_diff_eq!(result.re, (x + y).re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, (x + y).im, epsilon=1.0e-12);
     }
 
     #[test]
     fn test_nested_expression() {
-        let f = Builder::new("sin(x + 1)", &["x"])
+        let f = Builder::new("sin(x + 1)", ["x"])
             .compile().unwrap();
-        let result = f(&[Complex::new(0.0, 1.0)]);
+        let result = f([Complex::new(0.0, 1.0)]);
         let expected = Complex::new(1.0, 1.0).sin();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -301,9 +295,9 @@ mod compile_test {
 
     #[test]
     fn test_binary_operator_precedence() {
-        let f = Builder::new("2 + 3 * 4", &[])
+        let f = Builder::new("2 + 3 * 4", [])
             .compile().unwrap();
-        let result = f(&[]);
+        let result = f([]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -311,11 +305,11 @@ mod compile_test {
 
     #[test]
     fn test_function_with_two_args() {
-        let f = Builder::new("pow(a, b)", &["a", "b"])
+        let f = Builder::new("pow(a, b)", ["a", "b"])
             .compile().unwrap();
         let a = Complex::new(2.0, 1.0);
         let b = Complex::new(-2.0, 3.0);
-        let result = f(&[a, b]);
+        let result = f([a, b]);
         let expected = a.powc(b);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -323,10 +317,10 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_without_order() {
-        let f = Builder::new("diff(x^2, x)", &["x"])
+        let f = Builder::new("diff(x^2, x)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f(&[x]);
+        let result = f([x]);
         let expected = 2.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -334,10 +328,10 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_with_order() {
-        let f = Builder::new("diff(x^3, x, 2)", &["x"])
+        let f = Builder::new("diff(x^3, x, 2)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f(&[x]);
+        let result = f([x]);
         let expected = 6.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -365,11 +359,11 @@ mod compile_test {
             1,
         ).with_derivative(vec![deriv]);
 
-        let expr = Builder::new("diff(f(x), x)", &["x"])
+        let expr = Builder::new("diff(f(x), x)", ["x"])
             .with_user_functions([func])
             .compile().unwrap();
 
-        let result = expr(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+        let result = expr([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
         assert_abs_diff_eq!(result.re, 6.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
     }
@@ -408,19 +402,19 @@ mod compile_test {
         let x = Complex::new(2.0, 0.0);
         let y = Complex::new(3.0, 0.0);
 
-        let expr_dx = Builder::new("diff(g(x, y), x)", &["x", "y"])
+        let expr_dx = Builder::new("diff(g(x, y), x)", ["x", "y"])
             .with_user_functions([func.clone()])
             .compile()
             .unwrap();
-        let result_dx = expr_dx(&[x, y]);
+        let result_dx = expr_dx([x, y]);
         let expect_dx = 2.0 * x * y;
         assert_abs_diff_eq!(result_dx.re, expect_dx.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dx.im, expect_dx.im, epsilon=1.0e-12);
 
-        let expr_dy = Builder::new("diff(g(x, y), y)", &["x", "y"])
+        let expr_dy = Builder::new("diff(g(x, y), y)", ["x", "y"])
             .with_user_functions([func.clone()])
             .compile().unwrap();
-        let result_dy = expr_dy(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+        let result_dy = expr_dy([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
         let expect_dy = x * x + 3.0 * y * y;
         assert_abs_diff_eq!(result_dy.re, expect_dy.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dy.im, expect_dy.im, epsilon=1.0e-12);
@@ -438,12 +432,12 @@ mod compile_test {
             1,
         );
 
-        let expr = Builder::new("diff(f(x), x)", &["x"])
+        let expr = Builder::new("diff(f(x), x)", ["x"])
             .with_user_functions([func])
             .compile().unwrap();
 
         let x = Complex::new(3.0, 0.0);
-        let result = expr(&[x]); // evaluates numerical derivative of f at x=3
+        let result = expr([x]); // evaluates numerical derivative of f at x=3
         let expected = 2.0 * x; // analytical derivative: 2x
         // Allow some tolerance due to numerical differentiation
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-5);
@@ -462,44 +456,15 @@ mod compile_test {
             1,
         );
 
-        let expr = Builder::new("diff(f(z), z)", &["z"])
+        let expr = Builder::new("diff(f(z), z)",  ["z"])
             .with_user_functions([func])
             .compile().unwrap();
 
         let z = Complex::new(1.0, 2.0);
-        let result = expr(&[z]);
+        let result = expr([z]);
         let expected = 2.0 * z; // d/dz (z^2) = 2z
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1e-4);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1e-4);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_too_less_args_length() {
-        let f = Builder::new("x + 1", &["x"])
-            .compile().unwrap();
-        f(&[]);
-        // Too much arguments
-        f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
-    }
-
-    #[cfg(debug_assertions)]
-    #[test]
-    #[should_panic]
-    fn test_too_much_args_length() {
-        let f = Builder::new("x + 1", &["x"])
-            .compile().unwrap();
-        f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
-    }
-
-    #[cfg(not(debug_assertions))]
-    #[test]
-    fn test_too_much_args_length() {
-        let f = Builder::new("x + 1", &["x"])
-            .compile().unwrap();
-        let result = f(&[Complex::new(1.0, 0.0), Complex::new(2.0, 0.0)]);
-        assert_abs_diff_eq!(result.re, 2.0, epsilon=1.0e-12);
-        assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
     }
 
     #[test]
@@ -508,7 +473,7 @@ mod compile_test {
         let x = Complex::new(2.0, -1.0);
         let f = {
             let constants = [("a", a.clone())];
-            Builder::new("f(x + a)", &["x"])
+            Builder::new("f(x + a)",  ["x"])
                 .with_constants(constants)
                 .with_user_functions([
                     UserFn::new("f", |args| {
@@ -519,7 +484,7 @@ mod compile_test {
                 .compile().unwrap()
         };
 
-        let result = f(&[x]);
+        let result = f([x]);
         let expected = (x + a).conj();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -539,24 +504,24 @@ mod issue_test {
     fn test_issue_1() {
         let z = Complex::new(1.0, 3.0);
 
-        let expr_1 = Builder::new("sin(z) + z",&["z"])
+        let expr_1 = Builder::new("sin(z) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_1 = expr_1(&[z]);
+        let result_1 = expr_1([z]);
         let expect_1 = z.sin() + z;
 
         assert_abs_diff_eq!(result_1.re, expect_1.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_1.im, expect_1.im, epsilon=1.0e-12);
 
-        let expr_2 = Builder::new("sin(z + z)",&["z"])
+        let expr_2 = Builder::new("sin(z + z)", ["z"])
             .compile().expect("failed to compile formula");
-        let result_2 = expr_2(&[z]);
+        let result_2 = expr_2([z]);
         let expect_2 = (z+z).sin();
         assert_abs_diff_eq!(result_2.re, expect_2.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_2.im, expect_2.im, epsilon=1.0e-12);
 
-        let expr_3 = Builder::new("(sin(z)) + z",&["z"])
+        let expr_3 = Builder::new("(sin(z)) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_3 = expr_3(&[z]);
+        let result_3 = expr_3([z]);
         let expect_3 = (z.sin()) + z;
         assert_abs_diff_eq!(result_3.re, expect_3.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_3.im, expect_3.im, epsilon=1.0e-12);

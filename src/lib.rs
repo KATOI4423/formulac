@@ -26,12 +26,12 @@
 //! use num_complex::Complex;
 //! use formulac::builder::Builder;
 //!
-//! let expr = Builder::new("sin(z) + a * cos(z)", &["z"])
+//! let expr = Builder::new("sin(z) + a * cos(z)", ["z"])
 //!     .with_constants([("a", Complex::new(3.0, 2.0))])
 //!     .compile()
 //!     .expect("Failed to compile formula");
 //!
-//! let result = expr(&[Complex::new(1.0, 2.0)]);
+//! let result = expr([Complex::new(1.0, 2.0)]);
 //! println!("Result = {}", result);
 //! ```
 //!
@@ -40,8 +40,8 @@
 //! use formulac::constants;
 //!
 //! // Constants
-//! let constant_names: Vec<String> = constants::names();
-//! println!("Constants: {:?}", constant_names);
+//! // let constant_names: Vec<String> = constants::names();
+//! // println!("Constants: {:?}", constant_names);
 //!
 //! // Unary operators
 //! //let unary_names: Vec<&'static str> = UnaryOperatorKind::names();
