@@ -233,7 +233,6 @@ impl<const N: usize> Builder<N>
 #[cfg(test)]
 mod compile_test {
     use crate::functions::{
-        FunctionArgs,
         UserFn,
     };
 

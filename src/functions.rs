@@ -4,7 +4,6 @@
 //! and custom functions at runtime, which can be used in expression parsing and evaluation.
 
 use num_complex::{Complex, ComplexFloat};
-use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::err::ParseError;
