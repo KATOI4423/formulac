@@ -7,11 +7,8 @@ use num_complex::{Complex, ComplexFloat};
 use std::str::FromStr;
 use std::sync::Arc;
 
-/// Error type for parsing function strings.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ParseFunctionError {
-    Unknown,
-}
+use crate::err::ParseError;
+use crate::lexer::Lexeme;
 
 /// Typed arguments passed to a built-in function.
 ///
@@ -72,12 +69,12 @@ macro_rules! functions {
             $( $variant, )*
         }
 
-        impl FromStr for FunctionKind {
-            type Err = ParseFunctionError;
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                match s {
+        impl TryFrom<Lexeme> for FunctionKind {
+            type Error = ParseError;
+            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
+                match s.text() {
                     $( $name => Ok(Self::$variant), )*
-                    _ => Err(ParseFunctionError::Unknown),
+                    _ => Err(ParseError::UnknownToken(s)),
                 }
             }
         }
@@ -161,18 +158,18 @@ mod function_tests {
     fn eq(a: Complex<f64>, b: Complex<f64>) -> bool { (a - b).norm() < 1e-10 }
 
     #[test]
-    fn from_str_valid() {
-        assert_eq!("sin".parse::<FunctionKind>(),  Ok(FunctionKind::Sin));
-        assert_eq!("cos".parse::<FunctionKind>(),  Ok(FunctionKind::Cos));
-        assert_eq!("pow".parse::<FunctionKind>(),  Ok(FunctionKind::Pow));
-        assert_eq!("powi".parse::<FunctionKind>(), Ok(FunctionKind::Powi));
+    fn try_from_valid() {
+        assert_eq!(FunctionKind::try_from(Lexeme::new("sin", 0..4)), Ok(FunctionKind::Sin));
+        assert_eq!(FunctionKind::try_from(Lexeme::new("cos", 0..4)), Ok(FunctionKind::Cos));
+        assert_eq!(FunctionKind::try_from(Lexeme::new("pow", 0..4)), Ok(FunctionKind::Pow));
+        assert_eq!(FunctionKind::try_from(Lexeme::new("powi", 0..5)), Ok(FunctionKind::Powi));
     }
 
     #[test]
-    fn from_str_invalid() {
-        assert_eq!("SIN".parse::<FunctionKind>(), Err(ParseFunctionError::Unknown));
-        assert_eq!("".parse::<FunctionKind>(),    Err(ParseFunctionError::Unknown));
-        assert_eq!("log".parse::<FunctionKind>(), Err(ParseFunctionError::Unknown));
+    fn try_from_invalid() {
+        assert!(FunctionKind::try_from(Lexeme::new("SIN", 0..4)).is_err());
+        assert!(FunctionKind::try_from(Lexeme::new("", 0..1)).is_err());
+        assert!(FunctionKind::try_from(Lexeme::new("log", 0..4)).is_err());
     }
 
     #[test]

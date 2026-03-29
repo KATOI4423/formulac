@@ -4,7 +4,6 @@
 //! Tokens are classified from `Lexeme`s and consumed by the AST builder.
 
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use num_complex::Complex;
 
@@ -124,7 +123,7 @@ impl Token {
         }
 
         // 5. Built-in function
-        if let Ok(func_kind) = FunctionKind::from_str(text) {
+        if let Ok(func_kind) = FunctionKind::try_from(lexeme.clone()) {
             return Ok(Token::Function(func_kind));
         }
 
