@@ -43,7 +43,7 @@
 //!
 //!
 //! // Constants
-//! let constant_names: Vec<_> = Constants::symbols().collect();
+//! let constant_names = Constants::<f64>::symbols();
 //! println!("Constants: {:?}", constant_names);
 //!
 //! // Unary operators

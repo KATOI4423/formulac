@@ -8,27 +8,32 @@
 use num_complex::Complex;
 use std::collections::HashMap;
 
+use crate::core::Real;
+
 /// A collection of named mathematical constants.
 ///
-/// `Constants` maintains a mapping from constant names (`String`) to values (`Complex<f64>`),
+/// `Constants` maintains a mapping from constant names (`String`) to values (`Complex<T>`),
 /// allowing expressions to reference these values by name during parsing or evaluation.
 #[derive(Debug, PartialEq)]
-pub struct Constants
+pub struct Constants<T: Real>
 {
-    map: HashMap<String, Complex<f64>>,
+    map: HashMap<String, Complex<T>>,
 }
 
-impl Constants
+impl<T: Real> Constants<T>
 {
     /// Creates an empty `Constants` table.
     pub fn new() -> Self { Self { map: HashMap::new() } }
+
+    /// Creates a `Constants` table with builtin-constants
+    pub fn with_builtins() -> Self { Self::default() }
 
     /// Constructs a `Constants` table from an iterator of key-value pairs.
     pub fn from<I, S, V>(items: I) -> Self
     where
         I: IntoIterator<Item = (S, V)>,
         S: Into<String>,
-        Complex<f64>: From<V>,
+        Complex<T>: From<V>,
     {
         let mut consts = Self::new();
         for (key, val) in items {
@@ -41,7 +46,7 @@ impl Constants
     pub fn insert<S, V>(&mut self, key: S, value: V)
     where
         S: Into<String>,
-        Complex<f64>: From<V>,
+        Complex<T>: From<V>,
     {
         self.map.insert(key.into(), Complex::from(value));
     }
@@ -49,17 +54,17 @@ impl Constants
     /// Checks if a constant with the given name exists in the table.
     pub fn contains<S>(&self, key: S) -> bool
     where
-        S: Into<String>,
+        S: AsRef<str>,
     {
-        self.map.contains_key(key.into().as_str())
+        self.map.contains_key(key.as_ref())
     }
 
     /// Retrieves a reference to the value of a constant by name.
-    pub fn get<S>(&self, key: S) -> Option<&Complex<f64>>
+    pub fn get<S>(&self, key: S) -> Option<&Complex<T>>
     where
-        S: Into<String>,
+        S: AsRef<str>,
     {
-        self.map.get(key.into().as_str())
+        self.map.get(key.as_ref())
     }
 
     /// Clears all constants from the table.
@@ -78,23 +83,22 @@ impl Constants
     }
 
     /// Returns a list of strings that can be specified by default.
-    pub fn symbols() -> impl Iterator<Item = &'static str>
+    pub fn symbols() -> &'static [&'static str]
     {
-        BUILTIN_CONSTANTS.iter().map(|(key, _)| *key)
+        BUILTIN_CONSTANT_NAMES
     }
 
-
     /// Returns an iterator over the constants.
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &Complex<f64>)>
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &Complex<T>)>
     {
         self.map.iter()
     }
 }
 
-impl<S, V> FromIterator<(S, V)> for Constants
+impl<S, V, R: Real> FromIterator<(S, V)> for Constants<R>
 where
     S: Into<String>,
-    Complex<f64>: From<V>,
+    Complex<R>: From<V>,
 {
     fn from_iter<T: IntoIterator<Item = (S, V)>>(iter: T) -> Self
     {
@@ -102,33 +106,57 @@ where
     }
 }
 
-pub const BUILTIN_CONSTANTS: &[(&'static str, f64)] = &[
-    ("E", std::f64::consts::E),
-    ("FRAC_1_PI", std::f64::consts::FRAC_1_PI),
-    ("FRAC_1_SQRT_2", std::f64::consts::FRAC_1_SQRT_2),
-    ("FRAC_2_PI", std::f64::consts::FRAC_2_PI),
-    ("FRAC_2_SQRT_PI", std::f64::consts::FRAC_2_SQRT_PI),
-    ("FRAC_PI_2", std::f64::consts::FRAC_PI_2),
-    ("FRAC_PI_3", std::f64::consts::FRAC_PI_3),
-    ("FRAC_PI_4", std::f64::consts::FRAC_PI_4),
-    ("FRAC_PI_6", std::f64::consts::FRAC_PI_6),
-    ("FRAC_PI_8", std::f64::consts::FRAC_PI_8),
-    ("LN_2", std::f64::consts::LN_2),
-    ("LN_10", std::f64::consts::LN_10),
-    ("LOG2_10", std::f64::consts::LOG2_10),
-    ("LOG2_E", std::f64::consts::LOG2_E),
-    ("LOG10_2", std::f64::consts::LOG10_2),
-    ("LOG10_E", std::f64::consts::LOG10_E),
-    ("PI", std::f64::consts::PI),
-    ("SQRT_2", std::f64::consts::SQRT_2),
-    ("TAU", std::f64::consts::TAU),
-];
+macro_rules! define_builtin_constants {
+    ($( $name:expr => $func:ident ),* $(,)? ) => {
+        pub const BUILTIN_CONSTANT_NAMES: &'static [&'static str] = &[
+            $( $name, )*
+        ];
 
-impl Default for Constants
+        impl<T: Real> Constants<T> {
+            /// Helper to build builtin constants
+            fn resolve_builtin(name: &str) -> Option<T>
+            {
+                match name {
+                    $( $name => Some(T::$func()), )*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+
+define_builtin_constants! {
+    "E" => e,
+    "FRAC_1_PI" => frac_1_pi,
+    "FRAC_1_SQRT_2" => frac_1_sqrt_2,
+    "FRAC_2_PI" => frac_2_pi,
+    "FRAC_2_SQRT_PI" => frac_2_sqrt_pi,
+    "FRAC_PI_2" => frac_pi_2,
+    "FRAC_PI_3" => frac_pi_3,
+    "FRAC_PI_4" => frac_pi_4,
+    "FRAC_PI_6" => frac_pi_6,
+    "FRAC_PI_8" => frac_pi_8,
+    "LN_2" => ln_2,
+    "LN_10" => ln_10,
+    "LOG2_10" => log2_10,
+    "LOG2_E" => log2_e,
+    "LOG10_2" => log10_2,
+    "LOG10_E" => log10_e,
+    "PI" => pi,
+    "SQRT_2" => sqrt_2,
+    "TAU" => tau,
+}
+
+impl<T: Real> Default for Constants<T>
 {
     fn default() -> Self
     {
-        Self::from(BUILTIN_CONSTANTS.iter().copied())
+        BUILTIN_CONSTANT_NAMES
+            .iter()
+            .filter_map(|&name| {
+                Self::resolve_builtin(name).map(|v| (name, v))
+            })
+            .collect()
     }
 }
 
@@ -162,14 +190,14 @@ mod tests {
             ("A", Complex::new(1.0, 0.5)),
             ("B", Complex::from(2.0f64)),
         ];
-        let c2: Constants = vec.into_iter().collect();
+        let c2: Constants<f64> = vec.into_iter().collect();
         assert!(c2.contains("A"));
         assert!(c2.contains("B"));
     }
 
     #[test]
     fn test_keys_iter_and_names_len() {
-        let consts = Constants::default();
+        let consts = Constants::<f64>::default();
         let keys: Vec<&str> = consts.keys().collect();
         assert!(keys.contains(&"PI"));
         assert!(keys.contains(&"E"));
@@ -198,7 +226,7 @@ mod tests {
 
     #[test]
     fn test_owned_keys_conversion() {
-        let consts = Constants::default();
+        let consts = Constants::<f64>::default();
         let owned: Vec<String> = consts.keys().map(|s| s.to_string()).collect();
         assert!(owned.contains(&"PI".to_string()));
     }
