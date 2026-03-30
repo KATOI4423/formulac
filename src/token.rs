@@ -4,10 +4,11 @@
 //! Tokens are classified from `Lexeme`s and consumed by the AST builder.
 
 use std::collections::HashMap;
-
+use std::str::FromStr;
 use num_complex::Complex;
 
 use crate::constants::Constants;
+use crate::core::Real;
 use crate::err::ParseError;
 use crate::functions::{
     FunctionKind,
@@ -23,15 +24,15 @@ use crate::operators::{
 };
 
 pub const DIFFERENTIAL_OPERATOR_STR: &str = "diff";
-pub(crate) type UserFnTable = HashMap<String, UserFn>;
+pub(crate) type UserFnTable<T: Real> = HashMap<String, UserFn<T>>;
 
 /// Represents a parsed token in a mathematical expression.
 ///
 /// Tokens are produced from `Lexeme`s and consumed by the AST builder.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Token {
+pub(crate) enum Token<T: Real> {
     /// Resolved numeric value (literal, constant, or imaginary).
-    Number(Complex<f64>),
+    Number(Complex<T>),
 
     /// Function argument by position index.
     Argument(usize),
@@ -52,7 +53,7 @@ pub(crate) enum Token {
     Function(FunctionKind),
 
     /// User-defined function.
-    UserFunction(UserFn),
+    UserFunction(UserFn<T>),
 
     /// Left parenthesis `(`.
     LParen(Lexeme),
@@ -64,19 +65,25 @@ pub(crate) enum Token {
     Comma(Lexeme),
 }
 
-impl Token {
+impl<T: Real> Token<T> {
     /// Attempts to parse a string as a real number.
-    fn parse_real(s: &str) -> Option<Complex<f64>> {
-        s.parse::<f64>().ok().map(Complex::from)
+    fn parse_real(s: &str) -> Option<Complex<T>>
+    where
+        T: FromStr,
+    {
+        s.parse::<T>().ok().map(|v| Complex::new(v, T::zero()))
     }
 
     /// Attempts to parse a string as an imaginary number (e.g. `"3i"`, `"i"`).
-    fn parse_imaginary(s: &str) -> Option<Complex<f64>> {
+    fn parse_imaginary(s: &str) -> Option<Complex<T>>
+    where
+        T: FromStr,
+    {
         let num_part = s.strip_suffix(IMAGINARY_UNIT)?;
         if num_part.is_empty() {
-            return Some(Complex::I);
+            return Some(Complex::new(T::zero(), T::one()));
         }
-        num_part.parse::<f64>().ok().map(|v| Complex::new(0.0, v))
+        num_part.parse::<T>().ok().map(|v| Complex::new(T::zero(), v))
     }
 
     /// Classifies a `Lexeme` into a `Token`.
@@ -92,15 +99,18 @@ impl Token {
     pub fn try_from(
         lexeme: &Lexeme,
         args: &[&str],
-        constants: &Constants,
-        users: &UserFnTable,
-    ) -> Result<Self, ParseError> {
+        constants: &Constants<T>,
+        users: &UserFnTable<T>,
+    ) -> Result<Self, ParseError>
+    where
+        T: FromStr,
+    {
         let text = lexeme.text();
 
         // 1. Number or constant
         if let Some(val) = Self::parse_real(text)
             .or_else(|| Self::parse_imaginary(text))
-            .or_else(|| constants.get(text).copied())
+            .or_else(|| constants.get(text).cloned())
         {
             return Ok(Token::Number(val));
         }
@@ -170,6 +180,13 @@ mod token_tests {
             Token::Number(val) => assert_eq!(val, Complex::new(0.0, 2.0)),
             _ => panic!("Expected Number token"),
         }
+
+        let lex = Lexeme::new("i", 0..2);
+        let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
+        match token {
+            Token::Number(val) => assert_eq!(val, Complex::new(0.0, 1.0)),
+            _ => panic!("Expected Number token"),
+        }
     }
 
     #[test]
@@ -188,7 +205,7 @@ mod token_tests {
     #[test]
     fn test_argument_token() {
         let lex = Lexeme::new("arg0", 0..4);
-        let constants = Constants::new();
+        let constants = Constants::<f64>::new();
         let args = ["arg0"];
         let users = UserFnTable::new();
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
@@ -201,7 +218,7 @@ mod token_tests {
     #[test]
     fn test_operator_token() {
         let lex = Lexeme::new("+", 0..1);
-        let constants = Constants::new();
+        let constants = Constants::<f64>::new();
         let args: [&str; 0] = [];
         let users = UserFnTable::new();
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
@@ -214,7 +231,7 @@ mod token_tests {
     #[test]
     fn test_function_token() {
         let lex = Lexeme::new("sin", 0..3);
-        let constants = Constants::new();
+        let constants = Constants::<f64>::new();
         let users = UserFnTable::new();
         let args: [&str; 0] = [];
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
@@ -229,7 +246,7 @@ mod token_tests {
         let lex_l = Lexeme::new("(", 0..1);
         let lex_r = Lexeme::new(")", 0..1);
         let lex_c = Lexeme::new(",", 0..1);
-        let constants = Constants::new();
+        let constants = Constants::<f64>::new();
         let users = UserFnTable::new();
         let args: [&str; 0] = [];
 
@@ -241,7 +258,7 @@ mod token_tests {
     #[test]
     fn test_unknown_string() {
         let lex = Lexeme::new("unknown", 0..7);
-        let constants = Constants::new();
+        let constants = Constants::<f64>::new();
         let users = UserFnTable::new();
         let args: [&str; 0] = [];
         let res = Token::try_from(&lex, &args, &constants, &users);
