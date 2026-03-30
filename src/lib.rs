@@ -71,6 +71,7 @@
 pub mod astnode;
 pub mod builder;
 pub mod constants;
+pub mod core;
 pub mod functions;
 pub mod err;
 pub mod lexer;

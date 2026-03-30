@@ -3,9 +3,13 @@
 //! This module defines built-in mathematical functions used in expressions,
 //! and custom functions at runtime, which can be used in expression parsing and evaluation.
 
-use num_complex::{Complex, ComplexFloat};
+use num_complex::Complex;
 use std::sync::Arc;
 
+use crate::core::{
+    ComplexMath,
+    Real,
+};
 use crate::err::ParseError;
 use crate::lexer::Lexeme;
 
@@ -14,39 +18,44 @@ use crate::lexer::Lexeme;
 /// Enforces at the type level that unary and binary functions
 /// receive the correct number of arguments.
 #[derive(Clone, Debug, PartialEq)]
-pub enum FunctionArgs {
-    Unary(Complex<f64>),
-    Binary(Complex<f64>, Complex<f64>),
+pub enum FunctionArgs<T: Real>
+{
+    Unary(Complex<T>),
+    Binary(Complex<T>, Complex<T>),
 }
 
-impl FunctionArgs {
+impl<T: Real> FunctionArgs<T>
+{
     /// Constructs `FunctionArgs` from a slice, based on length.
-    pub(crate) fn from(args: impl IntoIterator<Item = Complex<f64>>) -> Self {
-        let args: Vec<_> = args.into_iter().collect();
-        match args.len() {
-            1 => Self::Unary(args[0]),
-            2 => Self::Binary(args[0], args[1]),
-            n => unreachable!("unsupported arity: {}", n),
+    pub(crate) fn from(args: impl IntoIterator<Item = Complex<T>>) -> Self {
+        let mut args = args.into_iter();
+        match (args.next(), args.next()) {
+            (Some(a), None) => Self::Unary(a),
+            (Some(a), Some(b)) => Self::Binary(a, b),
+            _ => unreachable!("unsupported arity"),
         }
     }
 }
 
-pub trait FromFunctionArgs<const N: usize> {
-    fn from_args(args: FunctionArgs) -> Self;
+pub trait FromFunctionArgs<T: Real, const N: usize>
+{
+    fn from_args(args: FunctionArgs<T>) -> Self;
 }
 
-impl FromFunctionArgs<1> for [Complex<f64>; 1] {
-    fn from_args(args: FunctionArgs) -> Self
+impl<T: Real> FromFunctionArgs<T, 1> for [Complex<T>; 1]
+{
+    fn from_args(args: FunctionArgs<T>) -> Self
     {
-        let FunctionArgs::Unary(x) = args else { unreachable!("arity mismatch") };
+        let FunctionArgs::<T>::Unary(x) = args else { unreachable!("arity mismatch") };
         [x]
     }
 }
 
-impl FromFunctionArgs<2> for [Complex<f64>; 2] {
-    fn from_args(args: FunctionArgs) -> Self
+impl<T: Real> FromFunctionArgs<T, 2> for [Complex<T>; 2]
+{
+    fn from_args(args: FunctionArgs<T>) -> Self
     {
-        let FunctionArgs::Binary(x, y) = args else { unreachable!("arity mismatch") };
+        let FunctionArgs::<T>::Binary(x, y) = args else { unreachable!("arity mismatch") };
         [x, y]
     }
 }
@@ -54,22 +63,33 @@ impl FromFunctionArgs<2> for [Complex<f64>; 2] {
 /// A trait representing a callable mathematical function.
 ///
 /// This trait is implemented by types that can be called with a fixed number
-/// of arguments and return a `Complex<f64>` result. It is used in the AST
+/// of arguments and return a `Complex<T>` result. It is used in the AST
 /// for evaluating both built-in functions (like `sin`, `cos`, `pow`) and
 /// user-defined functions.
 ///
 /// # Methods
 ///
-/// - `apply(&self, args: FunctionArgs) -> Complex<f64>`
+/// - `apply(&self, args: FunctionArgs<T>) -> Complex<T>`
 ///   Evaluates the function with the given arguments. The length of `args`
 ///   must match the function's arity.
 ///
 /// - `arity(&self) -> usize`
 ///   Returns the number of arguments the function expects.
-pub trait FunctionCall {
-    /// Evaluates the function with the given arguments.
-    fn apply(&self, arg: FunctionArgs) -> Complex<f64>;
+pub trait FunctionCall<T: Real>: Apply<T> + Arity {}
 
+impl<T: Real, U> FunctionCall<T> for U
+where
+    U: Apply<T> + Arity,
+{}
+
+pub trait Apply<T: Real>
+{
+    /// Evaluates the function with the given arguments.
+    fn apply(&self, arg: FunctionArgs<T>) -> Complex<T>;
+}
+
+pub trait Arity
+{
     /// Returns the number of arguments this function expects.
     fn arity(&self) -> usize;
 }
@@ -105,14 +125,18 @@ macro_rules! functions {
             }
         }
 
-        impl FunctionCall for FunctionKind {
+        impl Arity for FunctionKind
+        {
             fn arity(&self) -> usize {
                 match self {
                     $( Self::$variant => functions!(@arity $kind), )*
                 }
             }
+        }
 
-            fn apply(&self, args: FunctionArgs) -> Complex<f64> {
+        impl<T: Real> Apply<T> for FunctionKind
+        {
+            fn apply(&self, args: FunctionArgs<T>) -> Complex<T> {
                 match self {
                     $( Self::$variant => {
                         functions!(@destructure $kind, args, $( $arg ),+);
@@ -166,7 +190,7 @@ functions! {
     Abs   => { name: "abs",   arity: Unary, apply: |x| Complex::from(x.abs()) },
     Conj  => { name: "conj",  arity: Unary, apply: |x| x.conj() },
     Pow   => { name: "pow",   arity: Binary, apply: |x, y| x.powc(y) },
-    Powi  => { name: "powi",  arity: Binary, apply: |x, y| x.powi(y.re as i32) },
+    Powi  => { name: "powi",  arity: Binary, apply: |x, y| x.powi(y.re.to_i32()) },
 }
 
 #[cfg(test)]
@@ -251,17 +275,18 @@ mod function_tests {
 }
 
 /// Tye closure type for user-defined custom functions.
-type FuncType = dyn Fn(FunctionArgs) -> Complex<f64> + Send + Sync;
+type FuncType<T> = dyn Fn(FunctionArgs<T>) -> Complex<T> + Send + Sync;
 
 #[derive(Clone)]
-pub struct UserFn {
-    func: Arc<FuncType>,
-    deriv: Vec<UserFn>,
+pub struct UserFn<T: Real>
+{
+    func: Arc<FuncType<T>>,
+    deriv: Vec<UserFn<T>>,
     arity: usize,
     name: String,
 }
 
-impl UserFn {
+impl<T: Real> UserFn<T> {
     /// Creates a new `UserFn`.
     ///
     /// # Arguments
@@ -270,13 +295,13 @@ impl UserFn {
     /// * `func`  - A closure that receives `[Complex<f64>; N]` and returns `Complex<f64>`.
     pub fn new<F, S, const N: usize>(name: S, func: F) -> Self
     where
-        F: Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static,
+        F: Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
         S: Into<String>,
-        [Complex<f64>; N]: FromFunctionArgs<N>,
+        [Complex<T>; N]: FromFunctionArgs<T, N>,
     {
         Self {
             func: Arc::new(move |args| {
-                let arr = <[Complex<f64>; N]>::from_args(args);
+                let arr = <[Complex<T>; N]>::from_args(args);
                 func(arr)
             }),
             deriv: Vec::new(),
@@ -342,17 +367,20 @@ impl UserFn {
     }
 }
 
-impl FunctionCall for UserFn {
-    fn apply(&self, args: FunctionArgs) -> Complex<f64> {
-        (self.func)(args)
-    }
-
+impl<T: Real> Arity for UserFn<T>
+{
     fn arity(&self) -> usize {
         self.arity
     }
 }
 
-impl std::fmt::Debug for UserFn {
+impl<T: Real> Apply<T> for UserFn<T> {
+    fn apply(&self, args: FunctionArgs<T>) -> Complex<T> {
+        (self.func)(args)
+    }
+}
+
+impl<T: Real> std::fmt::Debug for UserFn<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UserFn")
             .field("name",  &self.name)
@@ -361,7 +389,7 @@ impl std::fmt::Debug for UserFn {
     }
 }
 
-impl PartialEq for UserFn {
+impl<T: Real> PartialEq for UserFn<T> {
     /// Equality is based on `name` and `arity` only (closure cannot be compared).
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.arity == other.arity
@@ -379,7 +407,7 @@ mod userfn_tests {
     fn apply_unary() {
         let f = UserFn::new(
             "inc",
-            |[x]| x + Complex::ONE,
+            |[x] : [Complex<f64>; 1]| x + Complex::ONE,
         );
         assert_eq!(f.apply(FunctionArgs::Unary(Complex::ZERO)), Complex::ONE);
     }
@@ -398,10 +426,10 @@ mod userfn_tests {
 
     #[test]
     fn partial_eq() {
-        let f1 = UserFn::new("f", |[x]| x);
-        let f2 = UserFn::new("f", |[x]| x + x);
-        let f3 = UserFn::new("g", |[x]| x);
-        let f4 = UserFn::new("f", |[x, y]| x + y);
+        let f1 = UserFn::new("f", |[x] : [Complex<f64>; 1]| x);
+        let f2 = UserFn::new("f", |[x] : [Complex<f64>; 1]| x + x);
+        let f3 = UserFn::new("g", |[x] : [Complex<f64>; 1]| x);
+        let f4 = UserFn::new("f", |[x, y] : [Complex<f64>; 2]| x + y);
         assert_eq!(f1, f2);
         assert_ne!(f1, f3);
         assert_ne!(f1, f4);
@@ -409,7 +437,7 @@ mod userfn_tests {
 
     #[test]
     fn without_derivative() {
-        let f = UserFn::new("f", |[x]| x * x);
+        let f = UserFn::new("f", |[x] : [Complex<f64>; 1]| x * x);
         assert!(f.derivative(0).is_none());
     }
 
@@ -434,7 +462,7 @@ mod userfn_tests {
     fn debug_contains_name_and_arity() {
         let f = UserFn::new(
             "mul",
-            |[x]| x * x,
+            |[x] : [Complex<f64>; 1]| x * x,
         );
         let s = format!("{:?}", f);
         assert!(s.contains("mul"));
