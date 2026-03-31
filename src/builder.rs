@@ -3,13 +3,21 @@
 //! This module provides structures and utilities for building function object.
 
 use num_complex::Complex;
+use num_traits::Zero;
+use std::ops::{
+    AddAssign,
+    MulAssign,
+};
+use std::str::FromStr;
 
 use crate::astnode;
+use crate::core::Real;
 use crate::constants::Constants;
 use crate::err::ParseError;
 use crate::functions::{
+    Arity,
+    Apply,
     FunctionArgs,
-    FunctionCall,
     UserFn,
 };
 use crate::lexer;
@@ -19,15 +27,15 @@ use crate::token::{
 };
 
 
-pub struct Builder<const N: usize>
+pub struct Builder<T: Real, const N: usize>
 {
     formula: String,
     args: [String; N],
-    constants: Constants,
-    usrs: UserFnTable,
+    constants: Constants<T>,
+    usrs: UserFnTable<T>,
 }
 
-impl<const N: usize> Builder<N>
+impl<T: Real, const N: usize> Builder<T, N>
 {
     /// Creates a new `Builder` instance with the given formula and argument names.
     ///
@@ -79,7 +87,7 @@ impl<const N: usize> Builder<N>
     /// use formulac::builder::Builder;
     /// use num_complex::Complex;
     ///
-    /// let builder = Builder::new("a + x", ["x"])
+    /// let builder = Builder::<f64, _>::new("a + x", ["x"])
     ///     .with_constants([
     ///         ("a", Complex::new(1.0, 0.0)),
     ///         ("b", Complex::new(-1.0, 2.5))
@@ -89,7 +97,7 @@ impl<const N: usize> Builder<N>
     where
         I: IntoIterator<Item = (S, V)>,
         String: From<S>,
-        Complex<f64>: From<V>,
+        Complex<T>: From<V>,
     {
         for (key, value) in constants {
             self.constants.insert(key, value);
@@ -114,14 +122,14 @@ impl<const N: usize> Builder<N>
     /// use formulac::functions::{FunctionArgs, UserFn};
     /// use num_complex::Complex;
     ///
-    /// let func = UserFn::new("double", |[x]| x * Complex::new(2.0, 0.0));
+    /// let func = UserFn::<f64>::new("double", |[x]| x * Complex::new(2.0, 0.0));
     ///
-    /// let builder = Builder::new("double(x)", ["x"])
+    /// let builder = Builder::<f64, _>::new("double(x)", ["x"])
     ///     .with_user_functions([func]);
     /// ```
     pub fn with_user_functions<I>(mut self, user_functions: I) -> Self
     where
-        I: IntoIterator<Item = UserFn>,
+        I: IntoIterator<Item = UserFn<T>>,
     {
         for func in user_functions.into_iter() {
             self.usrs.insert(func.name().into(), func);
@@ -129,7 +137,10 @@ impl<const N: usize> Builder<N>
         self
     }
 
-    fn build_tokens(&self) -> Result<Vec<Token>, ParseError>
+    fn build_tokens(&self) -> Result<Vec<Token<T>>, ParseError>
+    where
+        T: FromStr,
+        Complex<T>: AddAssign + MulAssign,
     {
         let lexemes = lexer::from(&self.formula);
         let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
@@ -140,15 +151,17 @@ impl<const N: usize> Builder<N>
         Ok(tokens)
     }
 
-    fn build_executor(tokens: Vec<Token>)
-        -> impl Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static
+    fn build_executor(tokens: Vec<Token<T>>)
+        -> impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static
+    where
+        T: Send + Sync + 'static,
     {
-        move |arg_values: [Complex<f64>; N]| {
-            let mut stack: Vec<Complex<f64>> = Vec::new();
+        move |arg_values: [Complex<T>; N]| {
+            let mut stack: Vec<Complex<T>> = Vec::new();
             for token in tokens.iter() {
                 match token {
-                    Token::Number(val) => stack.push(*val),
-                    Token::Argument(idx) => stack.push(arg_values[*idx]),
+                    Token::Number(val) => stack.push(val.clone()),
+                    Token::Argument(idx) => stack.push(arg_values[*idx].clone()),
                     Token::UnaryOperator(oper) => {
                         let expr = stack.pop().unwrap();
                         stack.push(oper.apply(expr));
@@ -160,7 +173,7 @@ impl<const N: usize> Builder<N>
                     },
                     Token::Function(func) => {
                         let n = func.arity();
-                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
+                        let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
                         for _ in 0..n {
                             args.push(stack.pop().unwrap())
                         }
@@ -169,8 +182,8 @@ impl<const N: usize> Builder<N>
                     },
                     Token::UserFunction(func) => {
                         let n = func.arity();
-                        let mut args: Vec<Complex<f64>> = Vec::with_capacity(n);
-                        args.resize(n, Complex::new(0.0, 0.0));
+                        let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
+                        args.resize(n, Complex::zero());
 
                         for i in (0..n).rev() {
                             args[i] = stack.pop().unwrap();
@@ -222,7 +235,10 @@ impl<const N: usize> Builder<N>
     /// # Notes
     /// - This function does not evaluate immediately; instead, it produces
     ///   a reusable compiled closure for efficient repeated evaluation.
-    pub fn compile(&self) -> Result<impl Fn([Complex<f64>; N]) -> Complex<f64> + Send + Sync + 'static, ParseError>
+    pub fn compile(&self) -> Result<impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static, ParseError>
+    where
+        T: FromStr + Send + Sync + 'static,
+        Complex<T>: AddAssign + MulAssign,
     {
         let tokens = self.build_tokens()?;
 
@@ -287,7 +303,7 @@ mod compile_test {
 
     #[test]
     fn test_binary_operator_precedence() {
-        let f = Builder::new("2 + 3 * 4", [])
+        let f = Builder::<f64, _>::new("2 + 3 * 4", [])
             .compile().unwrap();
         let result = f([]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
@@ -381,7 +397,7 @@ mod compile_test {
 
     #[test]
     fn test_differentiate_undefined() {
-        let func = UserFn::new("f", |[x]| x);
+        let func = UserFn::<f64>::new("f", |[x]| x);
         assert!(Builder::new("diff(f(x), x)", ["x"]).with_user_functions([func]).compile().is_err());
     }
 

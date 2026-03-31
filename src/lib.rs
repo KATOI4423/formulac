@@ -78,5 +78,5 @@ pub mod lexer;
 pub mod operators;
 pub mod token;
 
-pub type Builder<const N: usize> = builder::Builder<N>;
-pub type UserFn = functions::UserFn;
+pub type Builder<T, const N: usize> = builder::Builder<T, N>;
+pub type UserFn<T> = functions::UserFn<T>;
