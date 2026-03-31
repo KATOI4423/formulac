@@ -285,8 +285,8 @@ impl<T: Real> ComplexMath for Complex<T> {
 
     fn log10(self) -> Self
     {
-        // log10(z) = ln(z) / log10(e)
-        self.ln() / T::log10_e()
+        // log10(z) = ln(z) * log10(e)
+        self.ln() * T::log10_e()
     }
 
     fn sqrt(self) -> Self {
