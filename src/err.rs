@@ -2,7 +2,6 @@
 //!
 //!
 
-use num_complex::Complex;
 use thiserror::Error;
 
 use crate::lexer::Lexeme;
@@ -47,7 +46,7 @@ pub enum ParseError {
 
     /// The order of a derivative must be an integer
     #[error("Invalid derivative order {order} for {target}")]
-    InvalidDerivativeOrder { target: Lexeme, order: Complex<f64> },
+    InvalidDerivativeOrder { target: Lexeme, order: String },
 
     /// The argument index of function, derivate is out of range
     #[error("Argument Index for {func} is out of range: {idx}")]

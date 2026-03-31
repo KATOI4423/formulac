@@ -7,29 +7,48 @@
 //! built-in functions, user-defined functions, and symbolic differentiation.
 
 use num_complex::Complex;
+use num_traits::{
+    One,
+    Zero,
+};
+use std::fmt::Debug;
+use std::ops::{
+    AddAssign,
+    MulAssign,
+};
+use std::str::FromStr;
 
 use crate::constants::Constants;
+use crate::core::{
+    ComplexMath,
+    Real,
+};
 use crate::err::ParseError;
-use crate::functions::{FunctionArgs, FunctionCall, FunctionKind, UserFn};
+use crate::functions::{
+    Arity,
+    FunctionArgs,
+    FunctionCall,
+    FunctionKind,
+    UserFn
+};
 use crate::lexer::Lexeme;
 use crate::operators::{BinaryOperatorKind, UnaryOperatorKind};
 use crate::token::{Token, UserFnTable};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-fn is_i32_compatible(z: &Complex<f64>) -> bool {
-    z.im == 0.0
-        && z.re.fract() == 0.0
-        && (i32::MIN as f64..=i32::MAX as f64).contains(&z.re)
+fn is_i32_compatible<T: Real>(z: &Complex<T>) -> bool {
+    z.im.is_zero() && z.re.clone().fract().is_zero()
+        && (T::from_f64(i32::MIN as f64)..=T::from_f64(i32::MAX as f64)).contains(&z.re)
 }
 
 // ─── AstNode ────────────────────────────────────────────────────────────────
 
 /// Abstract Syntax Tree node representing a mathematical expression.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum AstNode {
+pub(crate) enum AstNode<T: Real> {
     /// Numeric literal.
-    Number(Complex<f64>),
+    Number(Complex<T>),
 
     /// Function argument by index.
     Argument(usize),
@@ -37,19 +56,19 @@ pub(crate) enum AstNode {
     /// Unary operator applied to an expression.
     UnaryOperator {
         kind: UnaryOperatorKind,
-        expr: Box<AstNode>,
+        expr: Box<AstNode<T>>,
     },
 
     /// Binary operator applied to left and right expressions.
     BinaryOperator {
         kind: BinaryOperatorKind,
-        left: Box<AstNode>,
-        right: Box<AstNode>,
+        left: Box<AstNode<T>>,
+        right: Box<AstNode<T>>,
     },
 
     /// Derivative node: `diff(expr, var, order)`.
     Derivative {
-        expr: Box<AstNode>,
+        expr: Box<AstNode<T>>,
         var: usize,
         order: usize,
     },
@@ -57,28 +76,31 @@ pub(crate) enum AstNode {
     /// Built-in function call.
     FunctionCall {
         kind: FunctionKind,
-        args: Vec<AstNode>,
+        args: Vec<AstNode<T>>,
     },
 
     /// User-defined function call.
     UserFunctionCall {
-        func: UserFn,
-        args: Vec<AstNode>,
+        func: UserFn<T>,
+        args: Vec<AstNode<T>>,
     },
 }
 
 // ─── parse ──────────────────────────────────────────────────────────────────
 
-impl AstNode {
+impl<T: Real> AstNode<T> {
     /// Parses a slice of `Lexeme`s into an AST using a shunting-yard algorithm.
     pub fn from(
         lexemes:   &[Lexeme],
         args:      &[&str],
-        constants: &Constants,
-        users:     &UserFnTable,
-    ) -> Result<Self, ParseError> {
+        constants: &Constants<T>,
+        users:     &UserFnTable<T>,
+    ) -> Result<Self, ParseError>
+    where
+        T: FromStr,
+    {
         let mut output: Vec<Self>  = Vec::new();
-        let mut ops:    Vec<Token> = Vec::new();
+        let mut ops:    Vec<Token<T>> = Vec::new();
         // Tracks whether the previous token produced a value,
         // used to distinguish unary from binary operators.
         let mut prev_is_value = false;
@@ -141,7 +163,7 @@ impl AstNode {
     // ── shunting-yard helpers ────────────────────────────────────────────────
 
     /// Pushes a unary operator onto the op stack.
-    fn push_unary_op(ops: &mut Vec<Token>, lex: Lexeme) -> Result<(), ParseError> {
+    fn push_unary_op(ops: &mut Vec<Token<T>>, lex: Lexeme) -> Result<(), ParseError> {
         let kind = UnaryOperatorKind::try_from(lex.clone())
             .map_err(|_| ParseError::InvalidFormula {
                 reason: format!("unknown unary operator '{}'", lex.text()),
@@ -153,7 +175,7 @@ impl AstNode {
     /// Pops higher-precedence binary operators from the stack, then pushes the new one.
     fn push_binary_op(
         output: &mut Vec<Self>,
-        ops:    &mut Vec<Token>,
+        ops:    &mut Vec<Token<T>>,
         lex:    Lexeme,
     ) -> Result<(), ParseError> {
         let oper = BinaryOperatorKind::try_from(lex.clone())
@@ -180,7 +202,7 @@ impl AstNode {
     /// pending function/diff call sitting just below the `(`.
     fn flush_until_lparen(
         output: &mut Vec<Self>,
-        ops:    &mut Vec<Token>,
+        ops:    &mut Vec<Token<T>>,
         lex:    &Lexeme,
     ) -> Result<(), ParseError> {
         loop {
@@ -207,7 +229,7 @@ impl AstNode {
     /// Like `flush_until_lparen`, but leaves the `(` on the stack (used for `,`).
     fn flush_until_lparen_keep(
         output: &mut Vec<Self>,
-        ops:    &mut Vec<Token>,
+        ops:    &mut Vec<Token<T>>,
         lex:    &Lexeme,
     ) -> Result<(), ParseError> {
         loop {
@@ -227,7 +249,7 @@ impl AstNode {
     /// Drains the entire op stack at end-of-input.
     fn flush_all(
         output: &mut Vec<Self>,
-        ops:    &mut Vec<Token>,
+        ops:    &mut Vec<Token<T>>,
     ) -> Result<(), ParseError> {
         while let Some(token) = ops.pop() {
             match token {
@@ -245,7 +267,7 @@ impl AstNode {
     // ── token application ────────────────────────────────────────────────────
 
     /// Dispatches a single token to the appropriate `apply_*` function.
-    fn apply_token(output: &mut Vec<Self>, token: Token) -> Result<(), ParseError> {
+    fn apply_token(output: &mut Vec<Self>, token: Token<T>) -> Result<(), ParseError> {
         match token {
             Token::UnaryOperator(op)  => Self::apply_unary(output, op),
             Token::BinaryOperator(op) => Self::apply_binary(output, op),
@@ -293,7 +315,7 @@ impl AstNode {
         Ok(())
     }
 
-    fn parse_diff_args(output: &mut Vec<Self>, lexeme: &Lexeme) -> Result<(AstNode, usize, usize), ParseError>
+    fn parse_diff_args(output: &mut Vec<Self>, lexeme: &Lexeme) -> Result<(AstNode<T>, usize, usize), ParseError>
     {
         let top = output.pop().ok_or(ParseError::InvalidDerivative {
             lexeme: lexeme.clone(),
@@ -303,12 +325,12 @@ impl AstNode {
         let (var_idx, order) = match top {
             // diff(f, x, n) — explicit order
             Self::Number(z) => {
-                if z.im != 0.0 || z.re.fract() != 0.0 {
-                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: z });
+                if !z.im.is_zero() || !z.re.clone().fract().is_zero() {
+                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: format!("{:?}", z) });
                 }
-                let order = z.re as usize;
-                if order > i8::MAX as usize {
-                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: z });
+                let order = z.re.clone().to_i32();
+                if order > i8::MAX as i32 {
+                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: format!("{:?}", z) });
                 }
                 let var = match output.pop() {
                     Some(Self::Argument(idx)) => idx,
@@ -337,7 +359,7 @@ impl AstNode {
             reason: "missing expression to differentiate".into(),
         })?;
 
-        Ok((expr, var_idx, order))
+        Ok((expr, var_idx, order as usize))
     }
 
     fn apply_diff(output: &mut Vec<Self>, lexeme: Lexeme) -> Result<(), ParseError> {
@@ -353,9 +375,12 @@ impl AstNode {
 
 // ─── simplify ───────────────────────────────────────────────────────────────
 
-impl AstNode {
+impl<T: Real> AstNode<T> {
     /// Simplifies the AST by constant-folding and algebraic normalization.
-    pub fn simplify(self) -> Self {
+    pub fn simplify(self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         match self {
             Self::UnaryOperator { kind, expr } => {
                 let expr = expr.simplify();
@@ -386,16 +411,17 @@ impl AstNode {
     // ── fold helpers ─────────────────────────────────────────────────────────
 
     /// Evaluates a function call if all arguments are numeric literals.
-    fn fold_generic_fn<T, F>(func: T, args: Vec<Self>, make_node: F) -> Self
+    fn fold_generic_fn<F, G>(func: F, args: Vec<Self>, make_node: G) -> Self
     where
-        T: FunctionCall,
-        F: FnOnce(T, Vec<Self>) -> Self,
+        F: FunctionCall<T>,
+        G: FnOnce(F, Vec<Self>) -> Self,
+        Complex<T>: AddAssign + MulAssign,
     {
         let args: Vec<_> = args.into_iter().map(Self::simplify).collect();
         let all_numbers  = args.iter().all(|a| matches!(a, Self::Number(_)));
         if all_numbers {
-            let nums: Vec<Complex<f64>> = args.iter()
-                .map(|a| if let Self::Number(v) = a { *v } else { unreachable!() })
+            let nums: Vec<Complex<T>> = args.iter()
+                .map(|a| if let Self::Number(v) = a { v.clone() } else { unreachable!() })
                 .collect();
             Self::Number(func.apply(FunctionArgs::from(nums)))
         } else {
@@ -403,13 +429,16 @@ impl AstNode {
         }
     }
 
-    fn fold_binary(kind: BinaryOperatorKind, left: Self, right: Self) -> Self {
+    fn fold_binary(kind: BinaryOperatorKind, left: Self, right: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         let left  = left.simplify();
         let right = right.simplify();
 
         // Both sides are numbers → evaluate immediately.
         if let (Self::Number(l), Self::Number(r)) = (&left, &right) {
-            return Self::Number(kind.apply(*l, *r));
+            return Self::Number(kind.apply(l.clone(), r.clone()));
         }
 
         match kind {
@@ -424,14 +453,17 @@ impl AstNode {
     // ── addition ─────────────────────────────────────────────────────────────
 
     /// `left + right` with flattening, constant-folding, and like-term combining.
-    fn fold_add(left: Self, right: Self) -> Self {
+    fn fold_add(left: Self, right: Self) -> Self
+    where
+        Complex<T>: AddAssign,
+    {
         // 1. Flatten nested additions into a single term list.
         let mut terms = Vec::new();
         Self::collect_add_terms(left,  &mut terms);
         Self::collect_add_terms(right, &mut terms);
 
         // 2. Separate numeric constants from symbolic terms.
-        let mut const_sum = Complex::ZERO;
+        let mut const_sum = Complex::zero();
         let mut sym_terms = Vec::new();
         for t in terms {
             match t {
@@ -439,7 +471,7 @@ impl AstNode {
                 other           => sym_terms.push(other),
             }
         }
-        if const_sum != Complex::ZERO {
+        if !const_sum.is_zero() {
             sym_terms.push(Self::Number(const_sum));
         }
 
@@ -461,9 +493,12 @@ impl AstNode {
     }
 
     /// Combines `a*x + b*x → (a+b)*x`, removes zero-coefficient terms.
-    fn combine_like_add_terms(terms: Vec<Self>) -> Vec<Self> {
+    fn combine_like_add_terms(terms: Vec<Self>) -> Vec<Self>
+    where
+        Complex<T>: AddAssign,
+    {
         // Map: (variable node) → accumulated coefficient
-        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
+        let mut map: Vec<(Self, Complex<T>)> = Vec::new();
 
         for term in terms {
             let (var, coeff) = match term {
@@ -471,10 +506,10 @@ impl AstNode {
                     match (*left, *right) {
                         (Self::Number(z), v) => (v, z),
                         (v, Self::Number(z)) => (v, z),
-                        (l, r)               => (l.mul(r), Complex::ONE),
+                        (l, r)               => (l.mul(r), Complex::one()),
                     }
                 }
-                other => (other, Complex::ONE),
+                other => (other, Complex::one()),
             };
             match map.iter_mut().find(|(v, _)| *v == var) {
                 Some((_, c)) => *c += coeff,
@@ -483,9 +518,9 @@ impl AstNode {
         }
 
         map.into_iter()
-            .filter(|(_, c)| *c != Complex::ZERO)
+            .filter(|(_, c)| !(*c).is_zero())
             .map(|(var, coeff)| {
-                if coeff == Complex::ONE { var }
+                if coeff.is_one() { var }
                 else { Self::Number(coeff).mul(var) }
             })
             .collect()
@@ -502,25 +537,31 @@ impl AstNode {
     // ── subtraction ──────────────────────────────────────────────────────────
 
     /// Rewrites `left - right` as `left + (-1)*right` and re-folds.
-    fn fold_sub(left: Self, right: Self) -> Self {
+    fn fold_sub(left: Self, right: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         Self::fold_binary(
             BinaryOperatorKind::Add,
             left,
-            Self::Number(-Complex::ONE).mul(right),
+            Self::Number(-Complex::one()).mul(right),
         )
     }
 
     // ── multiplication ───────────────────────────────────────────────────────
 
     /// `left * right` with flattening, constant-folding, and same-base power combining.
-    fn fold_mul(left: Self, right: Self) -> Self {
+    fn fold_mul(left: Self, right: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         // 1. Flatten nested multiplications.
         let mut factors = Vec::new();
         Self::collect_mul_terms(left,  &mut factors);
         Self::collect_mul_terms(right, &mut factors);
 
         // 2. Pull out numeric constants.
-        let mut const_prod = Complex::ONE;
+        let mut const_prod = Complex::one();
         let mut sym_factors = Vec::new();
         for f in factors {
             match f {
@@ -529,10 +570,10 @@ impl AstNode {
             }
         }
 
-        if const_prod == Complex::ZERO {
+        if const_prod.is_zero() {
             return Self::zero();
         }
-        if const_prod != Complex::ONE {
+        if !const_prod.is_one() {
             sym_factors.insert(0, Self::Number(const_prod));
         }
 
@@ -554,24 +595,27 @@ impl AstNode {
     }
 
     /// Combines `x^a * x^b → x^(a+b)`, removes zero-exponent terms.
-    fn combine_like_pow_terms(terms: Vec<Self>) -> Vec<Self> {
-        let mut map: Vec<(Self, Complex<f64>)> = Vec::new();
+    fn combine_like_pow_terms(terms: Vec<Self>) -> Vec<Self>
+    where
+        Complex<T>: AddAssign,
+    {
+        let mut map: Vec<(Self, Complex<T>)> = Vec::new();
 
         for term in terms {
             let (base, exp) = match term {
                 Self::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right } => {
                     match *right {
                         Self::Number(e) => (*left, e),
-                        r               => (left.pow(r), Complex::ONE),
+                        r               => (left.pow(r), Complex::one()),
                     }
                 }
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, ref args } => {
                     match &args[1] {
-                        Self::Number(e) => (args[0].clone(), *e),
-                        _               => (term, Complex::ONE),
+                        Self::Number(e) => (args[0].clone(), e.clone()),
+                        _ => (term, Complex::one()),
                     }
                 }
-                other => (other, Complex::ONE),
+                other => (other, Complex::one()),
             };
             match map.iter_mut().find(|(b, _)| *b == base) {
                 Some((_, e)) => *e += exp,
@@ -580,16 +624,19 @@ impl AstNode {
         }
 
         map.into_iter()
-            .filter(|(_, e)| *e != Complex::ZERO)
+            .filter(|(_, e)| !(*e).is_zero())
             .map(|(base, exp)| {
-                if exp == Complex::ONE { base }
-                else if is_i32_compatible(&exp) { base.powi(exp.re as i32) }
+                if exp.is_one() { base }
+                else if is_i32_compatible(&exp) { base.powi(exp.re.to_i32()) }
                 else { base.pow(Self::Number(exp)) }
             })
             .collect()
     }
 
-    fn chain_mul(factors: Vec<Self>) -> Self {
+    fn chain_mul(factors: Vec<Self>) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         match factors.len() {
             0 => Self::one(),
             1 => factors.into_iter().next().unwrap().simplify(),
@@ -600,13 +647,19 @@ impl AstNode {
     // ── division ─────────────────────────────────────────────────────────────
 
     /// Rewrites `left / right` as `left * right^-1` and re-folds.
-    fn fold_div(left: Self, right: Self) -> Self {
+    fn fold_div(left: Self, right: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         Self::fold_mul(left, right.powi(-1).simplify())
     }
 
     // ── power ────────────────────────────────────────────────────────────────
 
-    fn fold_pow(base: Self, exp: Self) -> Self {
+    fn fold_pow(base: Self, exp: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         let mut base = base.simplify();
         let mut exp  = exp.simplify();
 
@@ -625,15 +678,15 @@ impl AstNode {
 
         // x^1 → x, x^0 → 1
         if let Self::Number(e) = &exp {
-            if *e == Complex::ONE  { return base; }
-            if *e == Complex::ZERO { return Self::one(); }
+            if (*e).is_one()  { return base; }
+            if (*e).is_zero() { return Self::one(); }
         }
 
         match (base, exp) {
-            (Self::Number(b), _) if b == Complex::ONE  => Self::one(),
-            (Self::Number(b), Self::Number(e)) if b == Complex::ZERO && e.re > 0.0 => Self::zero(),
+            (Self::Number(b), _) if b.is_one() => Self::one(),
+            (Self::Number(b), Self::Number(e)) if b.is_zero() && e.re > T::zero() => Self::zero(),
             (Self::Number(b), Self::Number(e)) => Self::Number(b.powc(e)),
-            (b, Self::Number(e)) if is_i32_compatible(&e) => b.powi(e.re as i32),
+            (b, Self::Number(e)) if is_i32_compatible(&e) => b.powi(e.re.to_i32()),
             (b, e) => b.pow(e),
         }
     }
@@ -641,9 +694,9 @@ impl AstNode {
 
 // ─── AstNode builder helpers ─────────────────────────────────────────────────
 
-impl AstNode {
-    fn zero() -> Self { Self::Number(Complex::ZERO) }
-    fn one()  -> Self { Self::Number(Complex::ONE)  }
+impl<T: Real> AstNode<T> {
+    fn zero() -> Self { Self::Number(Complex::zero()) }
+    fn one()  -> Self { Self::Number(Complex::one()) }
 
     fn add(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Box::new(self), right: Box::new(rhs) } }
     fn sub(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Sub, left: Box::new(self), right: Box::new(rhs) } }
@@ -664,20 +717,20 @@ impl AstNode {
         Self::FunctionCall { kind: FunctionKind::Pow, args: vec![self, exp] }
     }
     fn powi(self, n: i32) -> Self {
-        Self::FunctionCall { kind: FunctionKind::Powi, args: vec![self, Self::Number(Complex::from(n as f64))] }
+        Self::FunctionCall { kind: FunctionKind::Powi, args: vec![self, Self::Number(Complex::from(T::from_f64(n as f64)))] }
     }
 }
 
-impl std::ops::Add for AstNode { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }
-impl std::ops::Sub for AstNode { type Output = Self; fn sub(self, rhs: Self) -> Self { self.sub(rhs) } }
-impl std::ops::Mul for AstNode { type Output = Self; fn mul(self, rhs: Self) -> Self { self.mul(rhs) } }
-impl std::ops::Div for AstNode { type Output = Self; fn div(self, rhs: Self) -> Self { self.div(rhs) } }
-impl std::ops::BitXor for AstNode { type Output = Self; fn bitxor(self, rhs: Self) -> Self { self.pow(rhs) } }
-impl std::ops::Neg for AstNode { type Output = Self; fn neg(self) -> Self { self.negative() } }
+impl<T: Real> std::ops::Add for AstNode<T> { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }
+impl<T: Real> std::ops::Sub for AstNode<T> { type Output = Self; fn sub(self, rhs: Self) -> Self { self.sub(rhs) } }
+impl<T: Real> std::ops::Mul for AstNode<T> { type Output = Self; fn mul(self, rhs: Self) -> Self { self.mul(rhs) } }
+impl<T: Real> std::ops::Div for AstNode<T> { type Output = Self; fn div(self, rhs: Self) -> Self { self.div(rhs) } }
+impl<T: Real> std::ops::BitXor for AstNode<T> { type Output = Self; fn bitxor(self, rhs: Self) -> Self { self.pow(rhs) } }
+impl<T: Real> std::ops::Neg for AstNode<T> { type Output = Self; fn neg(self) -> Self { self.negative() } }
 
 // ─── differentiate ──────────────────────────────────────────────────────────
 
-impl AstNode {
+impl<T: Real> AstNode<T> {
     /// Symbolically differentiates the AST with respect to argument `var`.
     pub fn differentiate(self, var: usize) -> Result<Self, ParseError> {
         match self {
@@ -765,8 +818,8 @@ impl AstNode {
             FunctionKind::Atanh => Ok(dx.div(Self::one().sub(x.powi(2)))),
             FunctionKind::Exp   => Ok(dx.mul(x.exp())),
             FunctionKind::Ln    => Ok(dx.div(x)),
-            FunctionKind::Log10 => Ok(dx.mul(Self::Number(Complex::from(std::f64::consts::LOG10_E))).div(x)),
-            FunctionKind::Sqrt  => Ok(dx.mul(Self::Number(Complex::from(0.5))).div(x.sqrt())),
+            FunctionKind::Log10 => Ok(dx.mul(Self::Number(Complex::from(T::log10_e()))).div(x)),
+            FunctionKind::Sqrt  => Ok(dx.mul(Self::Number(Complex::from(T::from_f64(0.5)))).div(x.sqrt())),
             FunctionKind::Abs   => Ok(x.clone().div(x.abs()).mul(dx)),
             FunctionKind::Conj  => Err(ParseError::InvalidFormula {
                 reason: "`conj(z)` is not differentiable in the complex domain".into(),
@@ -796,17 +849,17 @@ impl AstNode {
 
 // ─── compile ────────────────────────────────────────────────────────────────
 
-impl AstNode {
+impl<T: Real> AstNode<T> {
     /// Compiles the AST into a flat sequence of postfix `Token`s.
-    pub fn compile(&self) -> Vec<Token> {
+    pub fn compile(&self) -> Vec<Token<T>> {
         let mut out = Vec::new();
         self.compile_into(&mut out);
         out
     }
 
-    fn compile_into(&self, out: &mut Vec<Token>) {
+    fn compile_into(&self, out: &mut Vec<Token<T>>) {
         match self {
-            Self::Number(v)    => out.push(Token::Number(*v)),
+            Self::Number(v)    => out.push(Token::Number(v.clone())),
             Self::Argument(i)  => out.push(Token::Argument(*i)),
             Self::UnaryOperator { kind, expr } => {
                 expr.compile_into(out);
@@ -842,16 +895,16 @@ mod astnode_tests {
     use crate::functions::UserFn;
     use approx::assert_abs_diff_eq;
 
-    type UserFnTable = HashMap<String, UserFn>;
+    type UserFnTable<T> = HashMap<String, UserFn<T>>;
 
     macro_rules! assert_astnode_eq {
         ($left:expr, $right:expr) => {{
-            fn inner(left: &AstNode, right: &AstNode) {
+            fn inner<T: Real>(left: &AstNode<T>, right: &AstNode<T>) {
                 let epsilon = 1.0e-12;
                 match (left, right) {
                     (AstNode::Number(l), AstNode::Number(r)) => {
-                        assert_abs_diff_eq!(l.re, r.re, epsilon = epsilon);
-                        assert_abs_diff_eq!(l.im, r.im, epsilon = epsilon);
+                        assert!((l.re.clone() - r.re.clone()).abs() < T::from_f64(epsilon));
+                        assert!((l.im.clone() - r.im.clone()).abs() < T::from_f64(epsilon));
                     }
                     (AstNode::Argument(l), AstNode::Argument(r)) => {
                         assert_eq!(l, r);
@@ -1001,7 +1054,7 @@ mod astnode_tests {
     #[test]
     fn test_unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
-        let res = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new());
+        let res = AstNode::from(&lexemes, &[], &Constants::<f64>::new(), &UserFnTable::new());
         assert!(res.is_err());
     }
 
@@ -1048,8 +1101,8 @@ mod astnode_tests {
     #[test]
     fn test_fold_add_zero_terms() {
         // x + 0 → x
-        let x = AstNode::Argument(0);
-        let zero = AstNode::Number(Complex::ZERO);
+        let x = AstNode::<f64>::Argument(0);
+        let zero = AstNode::Number(Complex::<f64>::zero());
         let result = AstNode::fold_add(x.clone(), zero);
         assert_astnode_eq!(result, x);
     }
@@ -1057,8 +1110,8 @@ mod astnode_tests {
     #[test]
     fn test_fold_sub_basic() {
         // x - y → x + (-1) * y
-        let x = AstNode::Argument(0);
-        let y = AstNode::Argument(1);
+        let x = AstNode::<f64>::Argument(0);
+        let y = AstNode::<f64>::Argument(1);
         let result = AstNode::fold_sub(x.clone(), y.clone());
         let expected = AstNode::fold_add(x, AstNode::Number(-Complex::ONE).mul(y));
         assert_astnode_eq!(result, expected);
@@ -1084,15 +1137,15 @@ mod astnode_tests {
     #[test]
     fn test_mul_with_zero() {
         let expr = AstNode::fold_mul(
-            AstNode::Number(Complex::ZERO),
+            AstNode::Number(Complex::<f64>::zero()),
             AstNode::Argument(0));
-        assert_astnode_eq!(expr, AstNode::Number(Complex::ZERO));
+        assert_astnode_eq!(expr, AstNode::Number(Complex::zero()));
     }
 
     #[test]
     fn test_mul_with_one() {
         let expr = AstNode::fold_mul(
-            AstNode::Number(Complex::ONE),
+            AstNode::Number(Complex::<f64>::one()),
             AstNode::Argument(0));
         assert_astnode_eq!(expr, AstNode::Argument(0));
     }
@@ -1100,12 +1153,12 @@ mod astnode_tests {
     #[test]
     fn test_div_to_mul_pow_neg1() {
         let expr = AstNode::fold_div(
-            AstNode::Argument(0),
-            AstNode::Argument(1));
+            AstNode::<f64>::Argument(0),
+            AstNode::<f64>::Argument(1));
         // should become x * y^-1
-        let expected = AstNode::fold_mul(
-            AstNode::Argument(0),
-            AstNode::Argument(1).powi(-1));
+        let expected = AstNode::<f64>::fold_mul(
+            AstNode::<f64>::Argument(0),
+            AstNode::<f64>::Argument(1).powi(-1));
         assert_astnode_eq!(expr, expected);
     }
 
@@ -1208,7 +1261,7 @@ mod astnode_tests {
 
     #[test]
     fn test_simplify_function_call_partial() {
-        let node = AstNode::Argument(0).pow(AstNode::Argument(1)).simplify();
+        let node = AstNode::<f64>::Argument(0).pow(AstNode::Argument(1)).simplify();
         assert_astnode_eq!(
             node,
             AstNode::Argument(0).pow(AstNode::Argument(1))
@@ -1271,7 +1324,7 @@ mod astnode_tests {
 
     #[test]
     fn test_compile_argument() {
-        let ast = AstNode::Argument(1);
+        let ast = AstNode::<f64>::Argument(1);
         let tokens = ast.compile();
         assert_eq!(tokens, vec![Token::Argument(1)]);
     }
@@ -1352,7 +1405,7 @@ mod differentiate_tests {
 
     #[test]
     fn test_differentiate_argument() {
-        let node = AstNode::Argument(1);
+        let node = AstNode::<f64>::Argument(1);
         let diff = node.clone().differentiate(1).unwrap();
         assert_eq!(diff, AstNode::Number(Complex::ONE));
         let diff_other = node.differentiate(0).unwrap();
@@ -1361,7 +1414,7 @@ mod differentiate_tests {
 
     #[test]
     fn test_differentiate_unary_operator() {
-        let node = -AstNode::Argument(0);
+        let node = -AstNode::<f64>::Argument(0);
         let diff = node.differentiate(0).unwrap();
         assert_eq!(diff, -AstNode::Number(Complex::ONE));
     }
@@ -1379,7 +1432,7 @@ mod differentiate_tests {
 
     #[test]
     fn test_differentiate_function_sin() {
-        let node = AstNode::Argument(0).sin();
+        let node = AstNode::<f64>::Argument(0).sin();
         let diff = node.differentiate(0).unwrap();
         // d/dx sin(x) = cos(x) * 1
         assert_eq!(
@@ -1391,7 +1444,7 @@ mod differentiate_tests {
     #[test]
     fn test_differentiate_derivative_order() {
         let node = AstNode::Derivative {
-            expr: Box::new(AstNode::Argument(0)),
+            expr: Box::new(AstNode::<f64>::Argument(0)),
             var: 0,
             order: 1,
         };
