@@ -5,6 +5,10 @@
 
 use num_complex::Complex;
 
+use crate::core::{
+    ComplexMath,
+    Real,
+};
 use crate::err::ParseError;
 use crate::lexer::Lexeme;
 
@@ -30,7 +34,7 @@ macro_rules! unary_operator_kind {
 
         impl UnaryOperatorKind {
             /// Applies the unary operator to a complex number.
-            pub fn apply(&self, x: Complex<f64>) -> Complex<f64> {
+            pub fn apply<T: Real>(&self, x: Complex<T>) -> Complex<T> {
                 match self {
                     $( Self::$name => $apply(x), )*
                 }
@@ -53,8 +57,8 @@ macro_rules! unary_operator_kind {
 }
 
 unary_operator_kind! {
-    Positive => { symbol: "+", apply: |x: Complex<f64>| x },
-    Negative => { symbol: "-", apply: |x: Complex<f64>| -x },
+    Positive => { symbol: "+", apply: |x| x },
+    Negative => { symbol: "-", apply: |x: Complex<_>| -x },
 }
 
 #[doc(hidden)]
@@ -99,7 +103,7 @@ macro_rules! binary_operators {
 
             /// Applies the operator to two complex numbers.
             #[inline]
-            pub fn apply(&self, l: Complex<f64>, r: Complex<f64>) -> Complex<f64> {
+            pub fn apply<T: Real>(&self, l: Complex<T>, r: Complex<T>) -> Complex<T> {
                 match self {
                     $(Self::$name => $apply(l, r),)*
                 }
@@ -122,11 +126,11 @@ macro_rules! binary_operators {
 }
 
 binary_operators! {
-    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l + r },
-    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l - r },
-    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l * r },
-    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l: Complex<f64>, r: Complex<f64>| l / r },
-    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<f64>, r: Complex<f64>| l.powc(r) },
+    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l, r| l + r },
+    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l, r| l - r },
+    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l, r| l * r },
+    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l, r| l / r },
+    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<T>, r: Complex<T>| l.powc(r) },
 }
 
 #[cfg(test)]
