@@ -11,7 +11,7 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
 {
     // Basic
     fn from_f64(v: f64) -> Self;
-    fn to_i32(self) -> i32;
+    fn to_i32(&self) -> i32;
     fn fract(self) -> Self;
     fn trunc(self) -> Self;
 
@@ -70,7 +70,7 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
 
 impl Real for f64 {
     fn from_f64(v: f64) -> Self { v }
-    fn to_i32(self) -> i32
+    fn to_i32(&self) -> i32
     {
         if !self.is_finite() {
             return 0;
@@ -135,7 +135,7 @@ impl Real for f64 {
     fn powi(self, n: i32) -> Self { self.powi(n) }
 }
 
-pub trait ComplexMath<T: Real> {
+pub trait ComplexMath {
     // Trigonometric functions
     fn sin(self) -> Self;
     fn cos(self) -> Self;
@@ -167,7 +167,7 @@ pub trait ComplexMath<T: Real> {
     fn powi(self, n: i32) -> Self;
 }
 
-impl<T: Real> ComplexMath<T> for Complex<T> {
+impl<T: Real> ComplexMath for Complex<T> {
     fn sin(self) -> Self
     {
         // sin(a + bi) = sin(a) cosh(b) + i cos(a) sinh(b)
