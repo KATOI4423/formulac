@@ -1,21 +1,34 @@
 # formulac
 
 `formulac` is a Rust library for parsing, evaluating, and differentiating mathematical expressions.
-It supports complex numbers, user-defined functions, and higher-order derivatives.
+It supports complex numbers, user-defined functions, higher-order derivatives, and generic numeric types.
 Ideal for symbolic computation, mathematical simulations, and evaluating formulas in Rust applications.
 
 ## Features
 
-- **Complex number support** — Evaluate expressions involving real and imaginary components using `num_complex::Complex<f64>`.
-- **Const-generic API** — Function argument arity is encoded in the type system (`Builder<N>`), eliminating runtime argument length checks.
-- **Reverse Polish Notation (RPN)** — Converts infix expressions to RPN using the Shunting-Yard algorithm for efficient evaluation.
-- **Built-in mathematical operators & functions** — Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more.
-  See `src/astnode.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols.
-- **Unary & Binary operators** — Unary operators (`+`, `-`) and binary operators (`+`, `-`, `*`, `/`, `^`) are represented as `UnaryOperatorKind` and `BinaryOperatorKind`.
-- **Abstract Syntax Tree (AST)** — Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures.
-- **User-defined functions** — Easily register custom functions via `Builder::with_user_functions`.
-- **Differentiation support** — Parse and evaluate differential expressions using the `diff` operator (e.g., `diff(sin(x), x)`).
-- **Safe and dependency-light** — No use of unsafe Rust or heavyweight external parsers.
+- **Generic numeric backend (T: Real)**
+  - Supports `f64` as well as custom numeric types (e.g., arbitrary precision floats)
+  - Designed without requiring `Copy`, enabling efficient use of non-trivial numeric types
+- **Complex number support**
+  - Built on `num_complex::Complex<T>`.
+- **Const-generic API**
+  - Function argument arity is encoded in the type system (`Builder<T, N>`)
+  - Eliminates runtime argument length checks and enables compile-time optimization
+- **Reverse Polish Notation (RPN)**
+  - Converts infix expressions to RPN using the Shunting-Yard algorithm
+- **Built-in mathematical operators & functions**
+  - Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more
+  - See `src/astnode.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols
+- **Abstract Syntax Tree (AST)**
+  - Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures
+- **User-defined functions**
+  - Easily register custom functions via `Builder::with_user_functions`
+- **Symbolic differentiation**
+  - Supports `diff(...)` operator
+  - Higher-order derivatives supported
+- **Safe and dependency-light**
+  - No `unsafe`
+  - Minimal dependencies
 
 ---
 
@@ -34,8 +47,8 @@ use num_complex::Complex;
 use formulac::Builder;
 
 fn main() {
-    // 1 argument: z
-    let expr = Builder::<1>::new("sin(z) + a * cos(z)", ["z"])
+    // 1 argument: z for T = f64
+    let expr = Builder::<f64, 1>::new("sin(z) + a * cos(z)", ["z"])
         .with_constants([("a", Complex::new(3.0, 2.0))])
         .compile()
         .unwrap();
@@ -44,6 +57,38 @@ fn main() {
     println!("Result = {}", result);
 }
 ```
+
+### Using Custom Numeric Types
+
+`formulac` is generic over numeric type `T`.
+
+```rust
+Builder::<f64, 1>::new(...)
+```
+
+can be replaced with other types implementing `Real`.
+
+#### Requirements for `T`
+
+`T` must implement the crate-defined `Real` trait, which is used throughout the library
+as the underlying numeric type for `Complex<T>`.
+
+It provides:
+
+- Basic arithmetic operations
+- Conversion from primitive numeric types
+- Mathematical constants and functions
+
+This design allows integration with:
+
+- arbitrary precision floats
+- domain-specific numeric types
+
+Note:
+- `T` is not required to implement `Copy`
+- Values are handled via `Clone` internally
+
+For full details, see `crate::core::Real`.
 
 ### Registering a Custom Function
 
@@ -55,9 +100,9 @@ use formulac::{Builder, UserFn};
 
 fn main() {
     // Define a function f(x) = x^2 + 1
-    let func = UserFn::new("f", |[x]: [Complex<f64>; 1]| x * x + Complex::new(1.0, 0.0));
+    let func = UserFn::<f64>::new("f", |[x]| x * x + Complex::new(1.0, 0.0));
 
-    let builder = Builder::<1>::new("f(3)", [])
+    let builder = Builder::<f64, 1>::new("f(3)", [])
         .with_user_functions([func]);
 
     let expr = builder.compile()
@@ -65,9 +110,9 @@ fn main() {
 
     assert_eq!(expr([]), Complex::new(10.0, 0.0));
 
-    let func2 = UserFn::new(
+    let func2 = UserFn::<f64>::new(
         "f", // it conflicts the above function.
-        |[x]: [Complex<f64>; 1]| x + Complex::new(2.0, 1.0),
+        |[x]| x + Complex::new(2.0, 1.0),
     );
 
     // If multiple functions with the same name are provided, the later one overrides the former.
@@ -103,7 +148,7 @@ use formulac::{Builder, UserFn};
 fn main() {
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x)";
-    let expr = Builder::<1>::new(formula, ["x"])
+    let expr = Builder::<f64, 1>::new(formula, ["x"])
         .compile()
         .expect("Failed to compile formula");
 
@@ -121,7 +166,7 @@ use formulac::{Builder, UserFn};
 fn main() {
     // Differentiate sin(x) with respect to x
     let formula = "diff(sin(x), x, 2)";
-    let expr = Builder::<1>::new(formula, ["x"])
+    let expr = Builder::<f64, 1>::new(formula, ["x"])
         .compile()
         .expect("Failed to compile formula");
 
@@ -140,10 +185,10 @@ use formulac::{Builder, UserFn};
 
 fn main() {
     // Define f(x) = x^2, derivative f'(x) = 2x
-    let deriv = UserFn::new("df", |[x]: [Complex<f64>; 1]| Complex::new(2.0, 0.0) * x);
-    let func = UserFn::new("f", |[x]: [Complex<f64>; 1]| x * x).with_derivative([deriv]);
+    let deriv = UserFn::<f64>::new("df", |[x]| Complex::new(2.0, 0.0) * x);
+    let func = UserFn::<f64>::new("f", |[x]| x * x).with_derivative([deriv]);
 
-    let expr = Builder::<1>::new("diff(f(x), x)", ["x"])
+    let expr = Builder::<f64, 1>::new("diff(f(x), x)", ["x"])
         .with_user_functions([func])
         .compile()
         .expect("Failed to compile formula with UserFn");
@@ -163,22 +208,22 @@ use formulac::{Builder, UserFn};
 
 fn main() {
     // Define a partial derivative w.r.t x: ∂g/∂x = 2*x*y
-    let deriv_x = UserFn::new("dg_dx", |[x, y]: [Complex<f64>; 2]| Complex::new(2.0, 0.0) * x * y);
+    let deriv_x = UserFn::<f64>::new("dg_dx", |[x, y]| Complex::new(2.0, 0.0) * x * y);
     // Define a partial derivative w.r.t y: ∂g/∂y = x^2 + 3*y^2
-    let deriv_y = UserFn::new("dg_dy", |[x, y]: [Complex<f64>; 2]| x * x + Complex::new(3.0, 0.0) * y * y);
+    let deriv_y = UserFn::<f64>::new("dg_dy", |[x, y]| x * x + Complex::new(3.0, 0.0) * y * y);
     // Define g(x, y) = x^2 * y + y^3
-    let func = UserFn::new("g", |[x, y]: [Complex<f64>; 2]| x * x * y  + y * y * y)
+    let func = UserFn::<f64>::new("g", |[x, y]| x * x * y  + y * y * y)
         .with_derivative([deriv_x, deriv_y]);
 
     // 2 arguments: x and y
-    let expr_dx = Builder::<2>::new("diff(g(x, y), x)", ["x", "y"])
+    let expr_dx = Builder::<f64, 2>::new("diff(g(x, y), x)", ["x", "y"])
         .with_user_functions([func.clone()]) // use it again later
         .compile()
         .unwrap();
     let result_dx = expr_dx([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂x at (2, 3) = {}", result_dx); // 12
 
-    let expr_dy = Builder::<2>::new("diff(g(x, y), y)", ["x", "y"])
+    let expr_dy = Builder::<f64, 2>::new("diff(g(x, y), y)", ["x", "y"])
         .with_user_functions([func])
         .compile()
         .unwrap();
@@ -189,12 +234,27 @@ fn main() {
 
 ## Core Types & API Overview
 
-- **`compile`**
-  Compiles a formula string into a Rust closure `Fn([Complex<f64>; N]) -> Complex<f64>` that evaluates the expression for given variable values.
+- **`Builder<T, const N: usize>`**
+  Compiles a formula string into a Rust closure `Fn([Complex<T>; N]) -> Complex<T>` that evaluates the expression for given variable values.
 
-- **`UserFn`**
+- **`UserFn<T>`**
   Represents a user-defined function.
-  Accepts a fixed-size array `[Complex<f64>; N]` as arguments.
+  Accepts a fixed-size array `[Complex<T>; N]` as arguments.
+
+### Notes on Design
+
+- `T` is **not required to implement `Copy`**
+  - Enables support for heavy numeric types (e.g., arbitrary precision floats)
+- Values are handled via `Clone`
+  - Cost depends on the underlying type
+  - For small types (e.g., `f64`), this is negligible
+  - For large types, this trades performance for flexibility
+- Closure require:
+  ```rust
+  T: Send + Sync + 'static
+  ```
+  - This is needed because the compiled function captures owned data
+  - Enables safe reuse across threads
 
 ### Available mathematical constants
 
