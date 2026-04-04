@@ -110,7 +110,7 @@ impl<T: Real> Token<T> {
         // 1. Number or constant
         if let Some(val) = Self::parse_real(text)
             .or_else(|| Self::parse_imaginary(text))
-            .or_else(|| constants.get(text).cloned())
+            .or_else(|| constants.get(text))
         {
             return Ok(Token::Number(val));
         }

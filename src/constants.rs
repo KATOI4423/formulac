@@ -22,8 +22,10 @@ pub struct Constants<T: Real>
 
 impl<T: Real> Constants<T>
 {
-    /// Creates an empty `Constants` table.
-    pub fn new() -> Self { Self { map: HashMap::new() } }
+    /// Creates a default `Constants` table.
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Creates a `Constants` table with builtin-constants
     pub fn with_builtins() -> Self { Self::default() }
@@ -60,11 +62,14 @@ impl<T: Real> Constants<T>
     }
 
     /// Retrieves a reference to the value of a constant by name.
-    pub fn get<S>(&self, key: S) -> Option<&Complex<T>>
+    pub fn get<S>(&self, key: S) -> Option<Complex<T>>
     where
         S: AsRef<str>,
     {
-        self.map.get(key.as_ref())
+        if let Some(v) = Self::resolve_builtin(key.as_ref()) {
+            return Some(Complex::from(v))
+        }
+        self.map.get(key.as_ref()).cloned()
     }
 
     /// Clears all constants from the table.
@@ -151,12 +156,7 @@ impl<T: Real> Default for Constants<T>
 {
     fn default() -> Self
     {
-        BUILTIN_CONSTANT_NAMES
-            .iter()
-            .filter_map(|&name| {
-                Self::resolve_builtin(name).map(|v| (name, v))
-            })
-            .collect()
+        Self { map: HashMap::new() }
     }
 }
 
@@ -199,10 +199,8 @@ mod tests {
     fn test_keys_iter_and_names_len() {
         let consts = Constants::<f64>::default();
         let keys: Vec<&str> = consts.keys().collect();
-        assert!(keys.contains(&"PI"));
-        assert!(keys.contains(&"E"));
         // expected number of default constants (matches Default implementation)
-        assert_eq!(keys.len(), 19);
+        assert_eq!(keys.len(), 0);
     }
 
     #[test]
@@ -222,12 +220,5 @@ mod tests {
 
         c.clear();
         assert!(c.is_empty());
-    }
-
-    #[test]
-    fn test_owned_keys_conversion() {
-        let consts = Constants::<f64>::default();
-        let owned: Vec<String> = consts.keys().map(|s| s.to_string()).collect();
-        assert!(owned.contains(&"PI".to_string()));
     }
 }
