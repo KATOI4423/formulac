@@ -326,11 +326,11 @@ impl<T: Real> ComplexMath for Complex<T> {
         let mut exp = n;
 
         while exp > 0 {
-            if exp % 2 == 1 {
+            if exp & 1 == 1 {
                 result = result * base.clone();
             }
-            base = base.clone() * base;
-            exp /= 2;
+            base = &base * &base;
+            exp >>=1;
         }
 
         result
