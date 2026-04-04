@@ -821,10 +821,10 @@ impl<T: Real> AstNode<T> {
             BinaryOperatorKind::Add | BinaryOperatorKind::Sub => {
                 Ok(Self::BinaryOperator { kind, left: Rc::new(dl), right: Rc::new(dr) })
             }
-            BinaryOperatorKind::Mul => Ok(dl.mul(right).add(left.mul(dr))),
+            BinaryOperatorKind::Mul => Ok(dl * right + left * dr),
             BinaryOperatorKind::Div => {
                 // (u/v)' = (u'v - uv') / v²
-                Ok(dl.mul(right.clone()).sub(left.mul(dr)).div(right.powi(2)))
+                Ok((dl * right.clone() - left * dr) / right.powi(2))
             }
             BinaryOperatorKind::Pow => Self::diff_pow(left, right, var),
         }
@@ -839,23 +839,25 @@ impl<T: Real> AstNode<T> {
             .unwrap_or_else(|rc| (*rc).clone());
         let dx = x.clone().differentiate(var)?;
         match kind {
-            FunctionKind::Sin   => Ok(x.cos().mul(dx)),
-            FunctionKind::Cos   => Ok(x.sin().negative().mul(dx)),
-            FunctionKind::Tan   => Ok(dx.div(x.cos().powi(2))),
-            FunctionKind::Asin  => Ok(dx.div(Self::one().sub(x.powi(2)))),
-            FunctionKind::Acos  => Ok(dx.negative().div(Self::one().sub(x.powi(2)))),
-            FunctionKind::Atan  => Ok(dx.div(Self::one().add(x.powi(2)))),
-            FunctionKind::Sinh  => Ok(dx.mul(x.cosh())),
-            FunctionKind::Cosh  => Ok(dx.mul(x.sinh())),
-            FunctionKind::Tanh  => Ok(dx.div(x.cosh().powi(2))),
-            FunctionKind::Asinh => Ok(dx.div(x.powi(2).add(Self::one()).sqrt())),
-            FunctionKind::Acosh => Ok(dx.div(x.powi(2).sub(Self::one()).sqrt())),
-            FunctionKind::Atanh => Ok(dx.div(Self::one().sub(x.powi(2)))),
-            FunctionKind::Exp   => Ok(dx.mul(x.exp())),
-            FunctionKind::Ln    => Ok(dx.div(x)),
-            FunctionKind::Log10 => Ok(dx.mul(Self::Number(Complex::from(T::log10_e()))).div(x)),
-            FunctionKind::Sqrt  => Ok(dx.mul(Self::Number(Complex::from(T::from_f64(0.5)))).div(x.sqrt())),
-            FunctionKind::Abs   => Ok(x.clone().div(x.abs()).mul(dx)),
+            FunctionKind::Sin   => Ok(x.cos() * dx),
+            FunctionKind::Cos   => Ok(-x.sin() * dx),
+            FunctionKind::Tan   => Ok(dx / x.cos().powi(2)),
+            FunctionKind::Asin  => Ok(dx / (Self::one() - x.powi(2))),
+            FunctionKind::Acos  => Ok(-dx / (Self::one() - x.powi(2))),
+            FunctionKind::Atan  => Ok(dx / (Self::one() + x.powi(2))),
+            FunctionKind::Sinh  => Ok(dx * x.cosh()),
+            FunctionKind::Cosh  => Ok(dx * x.sinh()),
+            FunctionKind::Tanh  => Ok(dx / x.cosh().powi(2)),
+            FunctionKind::Asinh => Ok(dx / (x.powi(2) + Self::one()).sqrt()),
+            FunctionKind::Acosh => Ok(dx / (x.powi(2) - Self::one()).sqrt()),
+            FunctionKind::Atanh => Ok(dx / (Self::one() - x.powi(2))),
+            FunctionKind::Exp   => Ok(dx * x.exp()),
+            FunctionKind::Ln    => Ok(dx / x),
+            FunctionKind::Log10 => Ok(dx * Self::Number(Complex::from(T::log10_e())) / x),
+            FunctionKind::Sqrt  => Ok(dx * Self::Number(Complex::from(T::from_f64(0.5))) / x.sqrt()),
+            FunctionKind::Abs   => Err(ParseError::InvalidFormula {
+                reason: "`abs(z)` is not differentiable in the complex domain".into()
+            }),
             FunctionKind::Conj  => Err(ParseError::InvalidFormula {
                 reason: "`conj(z)` is not differentiable in the complex domain".into(),
             }),
@@ -1481,7 +1483,7 @@ mod differentiate_tests {
         // d/dx sin(x) = cos(x) * 1
         assert_eq!(
             diff,
-            AstNode::Argument(0).cos().mul(AstNode::Number(Complex::ONE))
+            AstNode::Argument(0).cos() * AstNode::Number(Complex::ONE)
         );
     }
 
@@ -1510,7 +1512,7 @@ mod differentiate_tests {
         let node = AstNode::Argument(0).mul(AstNode::Argument(0)).differentiate(0)
             .unwrap().simplify();
         // d/dx (x * x) = 1 * x + x * 1 = 2x
-        let expected = AstNode::Number(Complex::from(2.0)).mul(AstNode::Argument(0));
+        let expected = AstNode::Number(Complex::from(2.0)) * AstNode::Argument(0);
         assert_eq!(node, expected);
     }
 
@@ -1520,19 +1522,18 @@ mod differentiate_tests {
         let node = AstNode::Argument(0).powi(3);
         let diff = node.differentiate(0).unwrap().simplify();
         // d/dx x^3 = 3 * x^(3-1) * 1 = 3 * x^2
-        let expected = AstNode::Number(Complex::from(3.0))
-            .mul(AstNode::Argument(0).powi(2));
+        let expected = AstNode::Number(Complex::from(3.0)) * AstNode::Argument(0).powi(2);
         assert_eq!(diff, expected);
     }
 
     #[test]
     fn test_differentiate_div() {
         // f(x) = x / (x + 1)
-        let node = AstNode::Argument(0).div(AstNode::Argument(0).add(AstNode::Number(Complex::from(1.0))));
+        let node = AstNode::Argument(0) / (AstNode::Argument(0) + AstNode::Number(Complex::from(1.0)));
         let diff = node.differentiate(0).unwrap().simplify();
 
         // d/dx [x / (x + 1)] = (1 * (x + 1) - x * 1) / (x + 1)^2 = (x + 1 - x) / (x + 1)^2 = (x + 1)^(-2)
-        let expected = AstNode::Argument(0).add(AstNode::Number(Complex::ONE)).powi(-2);
+        let expected = (AstNode::Argument(0) + AstNode::Number(Complex::ONE)).powi(-2);
         assert_eq!(diff, expected);
     }
 
@@ -1543,7 +1544,7 @@ mod differentiate_tests {
         let diff = node.differentiate(0).unwrap().simplify();
 
         // d/dx sin(x^2) = cos(x^2) * d/dx(x^2) = cos(x^2) * 2x
-        let expected = AstNode::Number(Complex::from(2.0)).mul(AstNode::Argument(0).powi(2).cos()).mul(AstNode::Argument(0));
+        let expected = AstNode::Number(Complex::from(2.0)) * AstNode::Argument(0).powi(2).cos() * AstNode::Argument(0);
         assert_eq!(diff, expected);
     }
 }
