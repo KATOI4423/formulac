@@ -16,6 +16,7 @@ use std::ops::{
     AddAssign,
     MulAssign,
 };
+use std::rc::Rc;
 use std::str::FromStr;
 
 use crate::constants::Constants;
@@ -56,19 +57,19 @@ pub(crate) enum AstNode<T: Real> {
     /// Unary operator applied to an expression.
     UnaryOperator {
         kind: UnaryOperatorKind,
-        expr: Box<AstNode<T>>,
+        expr: Rc<AstNode<T>>,
     },
 
     /// Binary operator applied to left and right expressions.
     BinaryOperator {
         kind: BinaryOperatorKind,
-        left: Box<AstNode<T>>,
-        right: Box<AstNode<T>>,
+        left: Rc<AstNode<T>>,
+        right: Rc<AstNode<T>>,
     },
 
     /// Derivative node: `diff(expr, var, order)`.
     Derivative {
-        expr: Box<AstNode<T>>,
+        expr: Rc<AstNode<T>>,
         var: usize,
         order: usize,
     },
@@ -76,13 +77,13 @@ pub(crate) enum AstNode<T: Real> {
     /// Built-in function call.
     FunctionCall {
         kind: FunctionKind,
-        args: Vec<AstNode<T>>,
+        args: Vec<Rc<AstNode<T>>>,
     },
 
     /// User-defined function call.
     UserFunctionCall {
         func: UserFn<T>,
-        args: Vec<AstNode<T>>,
+        args: Vec<Rc<AstNode<T>>>,
     },
 }
 
@@ -284,14 +285,14 @@ impl<T: Real> AstNode<T> {
         let expr = output.pop().ok_or(ParseError::InternalError {
             reason: format!("missing operand for unary '{}'", op),
         })?;
-        output.push(Self::UnaryOperator { kind: op, expr: Box::new(expr) });
+        output.push(Self::UnaryOperator { kind: op, expr: Rc::new(expr) });
         Ok(())
     }
 
     fn apply_binary(output: &mut Vec<Self>, op: BinaryOperatorKind) -> Result<(), ParseError> {
         let right = output.pop().ok_or(ParseError::MissingRightOperator { operator: op.to_string() })?;
         let left  = output.pop().ok_or(ParseError::MissingLeftOperator  { operator: op.to_string() })?;
-        output.push(Self::BinaryOperator { kind: op, left: Box::new(left), right: Box::new(right) });
+        output.push(Self::BinaryOperator { kind: op, left: Rc::new(left), right: Rc::new(right) });
         Ok(())
     }
 
@@ -304,13 +305,13 @@ impl<T: Real> AstNode<T> {
         make_node: F,
     ) -> Result<(), ParseError>
     where
-        F: FnOnce(Vec<Self>) -> Self,
+        F: FnOnce(Vec<Rc<Self>>) -> Self,
     {
         if output.len() < arity {
             return Err(ParseError::MissingArgs { func: format!("<arity {}>", arity) });
         }
         let start = output.len() - arity;
-        let args  = output.drain(start..).collect();
+        let args  = output.drain(start..).map(Rc::new).collect();
         output.push(make_node(args));
         Ok(())
     }
@@ -383,19 +384,23 @@ impl<T: Real> AstNode<T> {
     {
         match self {
             Self::UnaryOperator { kind, expr } => {
-                let expr = expr.simplify();
+                let expr = Rc::try_unwrap(expr)
+                    .unwrap_or_else(|rc| (*rc).clone())
+                    .simplify();
                 match expr {
                     Self::Number(v) => Self::Number(kind.apply(v)),
-                    other => Self::UnaryOperator { kind, expr: Box::new(other) },
+                    other => Self::UnaryOperator { kind, expr: Rc::new(other) },
                 }
             }
             Self::BinaryOperator { kind, left, right } => {
-                Self::fold_binary(kind, *left, *right)
+                Self::fold_binary(kind, (*left).clone(), (*right).clone())
             }
             // pow/powi get their own folding path.
             Self::FunctionCall { kind: FunctionKind::Pow  | FunctionKind::Powi, mut args } => {
-                let base = args.remove(0);
-                let exp  = args.remove(0);
+                let base = Rc::try_unwrap(args.remove(0))
+                    .unwrap_or_else(|rc| (*rc).clone());
+                let exp  = Rc::try_unwrap(args.remove(0))
+                    .unwrap_or_else(|rc| (*rc).clone());
                 Self::fold_pow(base, exp)
             }
             Self::FunctionCall { kind, args } => {
@@ -411,17 +416,26 @@ impl<T: Real> AstNode<T> {
     // ── fold helpers ─────────────────────────────────────────────────────────
 
     /// Evaluates a function call if all arguments are numeric literals.
-    fn fold_generic_fn<F, G>(func: F, args: Vec<Self>, make_node: G) -> Self
+    fn fold_generic_fn<F, G>(func: F, args: Vec<Rc<Self>>, make_node: G) -> Self
     where
         F: FunctionCall<T>,
-        G: FnOnce(F, Vec<Self>) -> Self,
+        G: FnOnce(F, Vec<Rc<Self>>) -> Self,
         Complex<T>: AddAssign + MulAssign,
     {
-        let args: Vec<_> = args.into_iter().map(Self::simplify).collect();
-        let all_numbers  = args.iter().all(|a| matches!(a, Self::Number(_)));
+        let args: Vec<_> = args.into_iter().map(|arg| {
+            let ast = Rc::try_unwrap(arg)
+                .unwrap_or_else(|rc| (*rc).clone());
+            Rc::new(Self::simplify(ast))
+        }).collect();
+        let all_numbers  = args.iter().all(|a| matches!(**a, Self::Number(_)));
         if all_numbers {
             let nums: Vec<Complex<T>> = args.iter()
-                .map(|a| if let Self::Number(v) = a { v.clone() } else { unreachable!() })
+                .map(|a|
+                    match a.as_ref() {
+                        Self::Number(v) => v.clone(),
+                        _ => unreachable!()
+                    }
+                )
                 .collect();
             Self::Number(func.apply(FunctionArgs::from(nums)))
         } else {
@@ -485,8 +499,14 @@ impl<T: Real> AstNode<T> {
     fn collect_add_terms(node: Self, out: &mut Vec<Self>) {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
-                Self::collect_add_terms(*left,  out);
-                Self::collect_add_terms(*right, out);
+                Self::collect_add_terms(
+                    Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone()),
+                    out,
+                );
+                Self::collect_add_terms(
+                    Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone()),
+                    out,
+                );
             }
             other => out.push(other),
         }
@@ -503,7 +523,9 @@ impl<T: Real> AstNode<T> {
         for term in terms {
             let (var, coeff) = match term {
                 Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
-                    match (*left, *right) {
+                    let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
+                    let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                    match (left, right) {
                         (Self::Number(z), v) => (v, z),
                         (v, Self::Number(z)) => (v, z),
                         (l, r)               => (l.mul(r), Complex::one()),
@@ -587,8 +609,10 @@ impl<T: Real> AstNode<T> {
     fn collect_mul_terms(node: Self, out: &mut Vec<Self>) {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } => {
-                Self::collect_mul_terms(*left,  out);
-                Self::collect_mul_terms(*right, out);
+                let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
+                let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                Self::collect_mul_terms(left,  out);
+                Self::collect_mul_terms(right, out);
             }
             other => out.push(other),
         }
@@ -604,14 +628,17 @@ impl<T: Real> AstNode<T> {
         for term in terms {
             let (base, exp) = match term {
                 Self::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right } => {
-                    match *right {
-                        Self::Number(e) => (*left, e),
+                    let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
+                    let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                    match right {
+                        Self::Number(e) => (left, e),
                         r               => (left.pow(r), Complex::one()),
                     }
                 }
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, ref args } => {
-                    match &args[1] {
-                        Self::Number(e) => (args[0].clone(), e.clone()),
+                    let base = Rc::try_unwrap(args[0].clone()).unwrap_or_else(|rc| (*rc).clone());
+                    match args[1].as_ref() {
+                        Self::Number(e) => (base, e.clone()),
                         _ => (term, Complex::one()),
                     }
                 }
@@ -667,8 +694,10 @@ impl<T: Real> AstNode<T> {
         loop {
             match base {
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, mut args } => {
-                    let inner_base = args.remove(0);
-                    let inner_exp  = args.remove(0);
+                    let inner_base = Rc::try_unwrap(args.remove(0))
+                        .unwrap_or_else(|rc| (*rc).clone());
+                    let inner_exp  = Rc::try_unwrap(args.remove(0))
+                        .unwrap_or_else(|rc| (*rc).clone());
                     exp  = inner_exp.mul(exp).simplify();
                     base = inner_base.simplify();
                 }
@@ -698,26 +727,25 @@ impl<T: Real> AstNode<T> {
     fn zero() -> Self { Self::Number(Complex::zero()) }
     fn one()  -> Self { Self::Number(Complex::one()) }
 
-    fn add(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Box::new(self), right: Box::new(rhs) } }
-    fn sub(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Sub, left: Box::new(self), right: Box::new(rhs) } }
-    fn mul(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left: Box::new(self), right: Box::new(rhs) } }
-    fn div(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Div, left: Box::new(self), right: Box::new(rhs) } }
+    fn add(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Rc::new(self), right: Rc::new(rhs) } }
+    fn sub(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Sub, left: Rc::new(self), right: Rc::new(rhs) } }
+    fn mul(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left: Rc::new(self), right: Rc::new(rhs) } }
+    fn div(self, rhs: Self) -> Self { Self::BinaryOperator { kind: BinaryOperatorKind::Div, left: Rc::new(self), right: Rc::new(rhs) } }
 
-    fn negative(self) -> Self { Self::UnaryOperator { kind: UnaryOperatorKind::Negative, expr: Box::new(self) } }
+    fn negative(self) -> Self { Self::UnaryOperator { kind: UnaryOperatorKind::Negative, expr: Rc::new(self) } }
 
-    fn sin(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Sin,  args: vec![self] } }
-    fn cos(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Cos,  args: vec![self] } }
-    fn sinh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sinh, args: vec![self] } }
-    fn cosh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Cosh, args: vec![self] } }
-    fn exp(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Exp,  args: vec![self] } }
-    fn sqrt(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sqrt, args: vec![self] } }
-    fn abs(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Abs,  args: vec![self] } }
+    fn sin(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Sin,  args: vec![Rc::new(self)] } }
+    fn cos(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Cos,  args: vec![Rc::new(self)] } }
+    fn sinh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sinh, args: vec![Rc::new(self)] } }
+    fn cosh(self) -> Self { Self::FunctionCall { kind: FunctionKind::Cosh, args: vec![Rc::new(self)] } }
+    fn exp(self)  -> Self { Self::FunctionCall { kind: FunctionKind::Exp,  args: vec![Rc::new(self)] } }
+    fn sqrt(self) -> Self { Self::FunctionCall { kind: FunctionKind::Sqrt, args: vec![Rc::new(self)] } }
 
     fn pow(self, exp: Self) -> Self {
-        Self::FunctionCall { kind: FunctionKind::Pow, args: vec![self, exp] }
+        Self::FunctionCall { kind: FunctionKind::Pow, args: vec![Rc::new(self), Rc::new(exp)] }
     }
     fn powi(self, n: i32) -> Self {
-        Self::FunctionCall { kind: FunctionKind::Powi, args: vec![self, Self::Number(Complex::from(T::from_f64(n as f64)))] }
+        Self::FunctionCall { kind: FunctionKind::Powi, args: vec![Rc::new(self), Rc::new(Self::Number(Complex::from(T::from_f64(n as f64))))] }
     }
 }
 
@@ -737,13 +765,18 @@ impl<T: Real> AstNode<T> {
             Self::Number(_)    => Ok(Self::zero()),
             Self::Argument(i)  => Ok(if i == var { Self::one() } else { Self::zero() }),
 
-            Self::UnaryOperator { kind, expr } => Ok(Self::UnaryOperator {
-                kind,
-                expr: Box::new(expr.differentiate(var)?),
-            }),
+            Self::UnaryOperator { kind, expr } => {
+                let expr = Rc::try_unwrap(expr).unwrap_or_else(|rc| (*rc).clone());
+                Ok(Self::UnaryOperator {
+                    kind,
+                    expr: Rc::new(expr.differentiate(var)?),
+                })
+            },
 
             Self::BinaryOperator { kind, left, right } => {
-                Self::diff_binary(kind, *left, *right, var)
+                let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
+                let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                Self::diff_binary(kind, left, right, var)
             }
 
             Self::FunctionCall { kind, args } => {
@@ -765,8 +798,9 @@ impl<T: Real> AstNode<T> {
                 if inner_var == var {
                     Ok(Self::Derivative { expr, var, order: order + 1 })
                 } else {
+                    let expr = Rc::try_unwrap(expr).unwrap_or_else(|rc| (*rc).clone());
                     Ok(Self::Derivative {
-                        expr:  Box::new(expr.differentiate(var)?),
+                        expr:  Rc::new(expr.differentiate(var)?),
                         var:   inner_var,
                         order,
                     })
@@ -785,7 +819,7 @@ impl<T: Real> AstNode<T> {
         let dr = right.clone().differentiate(var)?;
         match kind {
             BinaryOperatorKind::Add | BinaryOperatorKind::Sub => {
-                Ok(Self::BinaryOperator { kind, left: Box::new(dl), right: Box::new(dr) })
+                Ok(Self::BinaryOperator { kind, left: Rc::new(dl), right: Rc::new(dr) })
             }
             BinaryOperatorKind::Mul => Ok(dl.mul(right).add(left.mul(dr))),
             BinaryOperatorKind::Div => {
@@ -798,10 +832,11 @@ impl<T: Real> AstNode<T> {
 
     fn diff_function(
         kind: FunctionKind,
-        mut args: Vec<Self>,
+        mut args: Vec<Rc<Self>>,
         var:  usize,
     ) -> Result<Self, ParseError> {
-        let x  = args.remove(0);
+        let x = Rc::try_unwrap(args.remove(0))
+            .unwrap_or_else(|rc| (*rc).clone());
         let dx = x.clone().differentiate(var)?;
         match kind {
             FunctionKind::Sin   => Ok(x.cos().mul(dx)),
@@ -824,8 +859,16 @@ impl<T: Real> AstNode<T> {
             FunctionKind::Conj  => Err(ParseError::InvalidFormula {
                 reason: "`conj(z)` is not differentiable in the complex domain".into(),
             }),
-            FunctionKind::Pow  => Self::diff_pow(x, args.remove(0), var),
-            FunctionKind::Powi => Self::diff_powi(x, args.remove(0), var),
+            FunctionKind::Pow  => {
+                let y = Rc::try_unwrap(args.remove(0))
+                    .unwrap_or_else(|rc| (*rc).clone());
+                Self::diff_pow(x, y, var)
+            },
+            FunctionKind::Powi => {
+                let n = Rc::try_unwrap(args.remove(0))
+                    .unwrap_or_else(|rc| (*rc).clone());
+                Self::diff_powi(x, n, var)
+            },
         }
     }
 
@@ -833,8 +876,8 @@ impl<T: Real> AstNode<T> {
     fn diff_pow(u: Self, v: Self, var: usize) -> Result<Self, ParseError> {
         let du   = u.clone().differentiate(var)?;
         let dv   = v.clone().differentiate(var)?;
-        let ln_u = Self::FunctionCall { kind: FunctionKind::Ln, args: vec![u.clone()] };
-        Ok(u.clone().pow(v.clone()).mul(dv.mul(ln_u).add(v.mul(du).div(u))))
+        let ln_u = Self::FunctionCall { kind: FunctionKind::Ln, args: vec![Rc::new(u.clone())] };
+        Ok(u.clone().pow(v.clone()) * (dv * ln_u + v * du / u))
     }
 
     /// d/dx [u^n] = n * u^(n-1) * u'
@@ -842,8 +885,8 @@ impl<T: Real> AstNode<T> {
         let du = u.clone().differentiate(var)?;
         Ok(Self::FunctionCall {
             kind: FunctionKind::Powi,
-            args: vec![u, n.clone().sub(Self::one())],
-        }.mul(n).mul(du))
+            args: vec![Rc::new(u), Rc::new(n.clone() - Self::one())],
+        } * n * du)
     }
 }
 
@@ -968,7 +1011,8 @@ mod astnode_tests {
         match ast {
             AstNode::BinaryOperator { kind, left, right } => {
                 assert_eq!(kind, BinaryOperatorKind::Add);
-                match *right {
+                let right = Rc::try_unwrap(right).unwrap();
+                match right {
                     AstNode::BinaryOperator { kind, left, right } => {
                         assert_eq!(kind, BinaryOperatorKind::Mul);
                         assert_eq!(*left, AstNode::Number(Complex::new(3.0, 0.0)));
@@ -1008,7 +1052,7 @@ mod astnode_tests {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Sin);
                 assert_eq!(args.len(), 1);
-                assert_eq!(args[0], AstNode::Number(Complex::new(0.0, 0.0)));
+                assert_eq!(Rc::try_unwrap(args[0].clone()).unwrap_or_else(|rc| (*rc).clone()), AstNode::Number(Complex::new(0.0, 0.0)));
             }
             _ => panic!("Expected Function node"),
         }
@@ -1022,8 +1066,8 @@ mod astnode_tests {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
                 assert_eq!(args.len(), 2);
-                assert_eq!(args[0], AstNode::Number(Complex::new(2.0, 0.0)));
-                assert_eq!(args[1], AstNode::Number(Complex::new(3.0, 0.0)));
+                assert_eq!(Rc::try_unwrap(args[0].clone()).unwrap_or_else(|rc| (*rc).clone()), AstNode::Number(Complex::new(2.0, 0.0)));
+                assert_eq!(Rc::try_unwrap(args[1].clone()).unwrap_or_else(|rc| (*rc).clone()), AstNode::Number(Complex::new(3.0, 0.0)));
             }
             _ => panic!("Expected Function node"),
         }
@@ -1034,11 +1078,11 @@ mod astnode_tests {
             AstNode::FunctionCall { kind, args } => {
                 assert_eq!(kind, FunctionKind::Pow);
                 assert_eq!(args.len(), 2);
-                assert_eq!(args[0], AstNode::FunctionCall {
-                    kind: FunctionKind::Sin,
-                    args: vec![AstNode::Argument(0)]
-                });
-                assert_eq!(args[1], AstNode::Number(Complex::new(3.0, 0.0)));
+                let AstNode::FunctionCall { kind: k, args: a } = Rc::try_unwrap(args[0].clone()).unwrap_or_else(|rc| (*rc).clone()) else { unreachable!() };
+                assert_eq!(k, FunctionKind::Sin);
+                assert_eq!(a.len(), 1);
+                assert_eq!(Rc::try_unwrap(a[0].clone()).unwrap_or_else(|rc| (*rc).clone()), AstNode::Argument(0));
+                assert_eq!(Rc::try_unwrap(args[1].clone()).unwrap_or_else(|rc| (*rc).clone()), AstNode::Number(Complex::new(3.0, 0.0)));
             }
             _ => panic!("Expected Function node"),
         }
@@ -1287,8 +1331,8 @@ mod astnode_tests {
         let node = AstNode::UserFunctionCall {
             func,
             args: vec![
-                AstNode::Number(Complex::from(1.0)),
-                AstNode::Number(Complex::from(2.0)),
+                Rc::new(AstNode::Number(Complex::from(1.0))),
+                Rc::new(AstNode::Number(Complex::from(2.0))),
             ],
         }.simplify();
 
@@ -1305,8 +1349,8 @@ mod astnode_tests {
         let node = AstNode::UserFunctionCall {
             func,
             args: vec![
-                AstNode::Number(Complex::ONE),
-                AstNode::Argument(0),
+                Rc::new(AstNode::Number(Complex::ONE)),
+                Rc::new(AstNode::Argument(0)),
             ],
         };
 
@@ -1444,7 +1488,7 @@ mod differentiate_tests {
     #[test]
     fn test_differentiate_derivative_order() {
         let node = AstNode::Derivative {
-            expr: Box::new(AstNode::<f64>::Argument(0)),
+            expr: Rc::new(AstNode::<f64>::Argument(0)),
             var: 0,
             order: 1,
         };
@@ -1453,7 +1497,7 @@ mod differentiate_tests {
         assert_eq!(
             diff,
             AstNode::Derivative {
-                expr: Box::new(AstNode::Argument(0)),
+                expr: Rc::new(AstNode::Argument(0)),
                 var: 0,
                 order: 2,
             }
