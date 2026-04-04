@@ -420,6 +420,25 @@ mod compile_test {
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
     }
+
+    #[test]
+    fn test_different_args_num() {
+        let x = Complex::new(1.0, -1.0);
+        let y = Complex::new(2.0, 0.0);
+
+        let func = Builder::new("f(x) + g(x, y)", ["x", "y"])
+            .with_user_functions([
+                UserFn::new("f", |[x]| x),
+                UserFn::new("g", |[x, y]| x + y),
+            ])
+            .compile()
+            .unwrap();
+
+        let result = func([x, y]);
+        let expected = (x) + (x + y);
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
+    }
 }
 
 #[cfg(test)]
