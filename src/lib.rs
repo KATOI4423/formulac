@@ -38,7 +38,7 @@
 //! ## Example: Retrieving All Names
 //! ```rust
 //! use formulac::constants::Constants;
-//! use formulac::operators::{UnaryOperatorKind, BinaryOperatorKind};
+//! use formulac::operators::OperatorKind;
 //! use formulac::functions::FunctionKind;
 //!
 //!
@@ -46,13 +46,9 @@
 //! let constant_names = Constants::<f64>::symbols();
 //! println!("Constants: {:?}", constant_names);
 //!
-//! // Unary operators
-//! let unary_names = UnaryOperatorKind::symbols();
-//! println!("Unary Operators: {:?}", unary_names);
-//!
-//! // Binary operators
-//! let binary_names = BinaryOperatorKind::symbols();
-//! println!("Binary Operators: {:?}", binary_names);
+//! // Unary / Binary operators
+//! let unary_names = OperatorKind::symbols();
+//! println!("Operators: {:?}", unary_names);
 //!
 //! // Functions
 //! let function_names = FunctionKind::symbols();

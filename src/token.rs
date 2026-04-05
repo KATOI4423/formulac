@@ -17,8 +17,10 @@ use crate::functions::{
 use crate::lexer::{
     Lexeme,
     IMAGINARY_UNIT,
+    Span,
 };
 use crate::operators::{
+    OperatorKind,
     BinaryOperatorKind,
     UnaryOperatorKind,
 };
@@ -37,8 +39,11 @@ pub(crate) enum Token<T: Real> {
     /// Function argument by position index.
     Argument(usize),
 
-    /// Ambiguous operator lexeme (resolved into unary or binary during parsing).
-    Operator(Lexeme),
+    /// Ambiguous operator (resolved into unary or binary during parsing).
+    Operator {
+        kind: OperatorKind,
+        span: Span,
+    },
 
     /// Resolved unary operator.
     UnaryOperator(UnaryOperatorKind),
@@ -47,7 +52,7 @@ pub(crate) enum Token<T: Real> {
     BinaryOperator(BinaryOperatorKind),
 
     /// Differential operator `diff`.
-    DiffOperator(Lexeme),
+    DiffOperator(Span),
 
     /// Built-in function (e.g., `sin`, `cos`).
     Function(FunctionKind),
@@ -56,13 +61,13 @@ pub(crate) enum Token<T: Real> {
     UserFunction(UserFn<T>),
 
     /// Left parenthesis `(`.
-    LParen(Lexeme),
+    LParen(Span),
 
     /// Right parenthesis `)`.
-    RParen(Lexeme),
+    RParen(Span),
 
     /// Comma `,` used as argument separator.
-    Comma(Lexeme),
+    Comma(Span),
 }
 
 impl<T: Real> Token<T> {
@@ -117,7 +122,7 @@ impl<T: Real> Token<T> {
 
         // 2. Differential operator
         if text == DIFFERENTIAL_OPERATOR_STR {
-            return Ok(Token::DiffOperator(lexeme.clone()));
+            return Ok(Token::DiffOperator(lexeme.span()));
         }
 
         // 3. Function argument
@@ -126,14 +131,13 @@ impl<T: Real> Token<T> {
         }
 
         // 4. Operator (unary/binary disambiguation deferred to AstNode parser)
-        if UnaryOperatorKind::try_from(lexeme.clone()).is_ok()
-            || BinaryOperatorKind::try_from(lexeme.clone()).is_ok()
+        if let Ok(kind) = OperatorKind::from_str(lexeme.text())
         {
-            return Ok(Token::Operator(lexeme.clone()));
+            return Ok(Token::Operator { kind, span: lexeme.span() });
         }
 
         // 5. Built-in function
-        if let Ok(func_kind) = FunctionKind::try_from(lexeme.clone()) {
+        if let Ok(func_kind) = FunctionKind::from_str(lexeme.text()) {
             return Ok(Token::Function(func_kind));
         }
 
@@ -144,10 +148,10 @@ impl<T: Real> Token<T> {
 
         // 7. Structural tokens
         match text {
-            "(" => Ok(Token::LParen(lexeme.clone())),
-            ")" => Ok(Token::RParen(lexeme.clone())),
-            "," => Ok(Token::Comma(lexeme.clone())),
-            _   => Err(ParseError::UnknownToken(lexeme.clone())),
+            "(" => Ok(Token::LParen(lexeme.span())),
+            ")" => Ok(Token::RParen(lexeme.span())),
+            "," => Ok(Token::Comma(lexeme.span())),
+            _   => Err(ParseError::UnknownToken { str: lexeme.text().to_string(), span: lexeme.span() }),
         }
     }
 }
@@ -223,7 +227,7 @@ mod token_tests {
         let users = UserFnTable::new();
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Operator(_) => {}, // OK
+            Token::Operator { kind: _, span: _ } => {}, // OK
             _ => panic!("Expected Operator token"),
         }
     }

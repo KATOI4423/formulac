@@ -4,13 +4,13 @@
 
 use thiserror::Error;
 
-use crate::lexer::Lexeme;
+use crate::lexer::Span;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum ParseError {
     /// Unknown lexeme found.
-    #[error("Unknown: {0}")]
-    UnknownToken(Lexeme),
+    #[error("Unknown: {str} at {span}")]
+    UnknownToken { str: String, span: Span },
 
     /// Internal Error
     #[error("Internal Error: {reason}")]
@@ -41,12 +41,12 @@ pub enum ParseError {
     DerivativeUndefined { func: String, idx: usize },
 
     /// Invalid derivation use
-    #[error("Invalid derivative: {lexeme}: {reason}")]
-    InvalidDerivative { lexeme: Lexeme, reason: String },
+    #[error("Invalid derivative at {span}: {reason}")]
+    InvalidDerivative { span: Span, reason: String },
 
     /// The order of a derivative must be an integer
-    #[error("Invalid derivative order {order} for {target}")]
-    InvalidDerivativeOrder { target: Lexeme, order: String },
+    #[error("Invalid derivative order {order} at {span}")]
+    InvalidDerivativeOrder { span: Span, order: String },
 
     /// The argument index of function, derivate is out of range
     #[error("Argument Index for {func} is out of range: {idx}")]

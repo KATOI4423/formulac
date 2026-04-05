@@ -32,8 +32,15 @@ use crate::functions::{
     FunctionKind,
     UserFn
 };
-use crate::lexer::Lexeme;
-use crate::operators::{BinaryOperatorKind, UnaryOperatorKind};
+use crate::lexer::{
+    Lexeme,
+    Span,
+};
+use crate::operators::{
+    BinaryOperatorKind,
+    OperatorKind,
+    UnaryOperatorKind,
+};
 use crate::token::{Token, UserFnTable};
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -117,11 +124,11 @@ impl<T: Real> AstNode<T> {
                     output.push(Self::Argument(pos));
                     prev_is_value = true;
                 }
-                Token::Operator(lex) => {
+                Token::Operator { kind, span } => {
                     if prev_is_value {
-                        Self::push_binary_op(&mut output, &mut ops, lex)?;
+                        Self::push_binary_op(&mut output, &mut ops, kind, span)?;
                     } else {
-                        Self::push_unary_op(&mut ops, lex)?;
+                        Self::push_unary_op(&mut ops, kind, span)?;
                     }
                     prev_is_value = false;
                 }
@@ -164,10 +171,10 @@ impl<T: Real> AstNode<T> {
     // ── shunting-yard helpers ────────────────────────────────────────────────
 
     /// Pushes a unary operator onto the op stack.
-    fn push_unary_op(ops: &mut Vec<Token<T>>, lex: Lexeme) -> Result<(), ParseError> {
-        let kind = UnaryOperatorKind::try_from(lex.clone())
+    fn push_unary_op(ops: &mut Vec<Token<T>>, kind: OperatorKind, span: Span) -> Result<(), ParseError> {
+        let kind = UnaryOperatorKind::try_from(kind)
             .map_err(|_| ParseError::InvalidFormula {
-                reason: format!("unknown unary operator '{}'", lex.text()),
+                reason: format!("unknown unary operator '{}' ({})", kind, span),
             })?;
         ops.push(Token::UnaryOperator(kind));
         Ok(())
@@ -177,11 +184,12 @@ impl<T: Real> AstNode<T> {
     fn push_binary_op(
         output: &mut Vec<Self>,
         ops:    &mut Vec<Token<T>>,
-        lex:    Lexeme,
+        kind:   OperatorKind,
+        span:   Span,
     ) -> Result<(), ParseError> {
-        let oper = BinaryOperatorKind::try_from(lex.clone())
+        let oper = BinaryOperatorKind::try_from(kind)
             .map_err(|_| ParseError::InvalidFormula {
-                reason: format!("unknown binary operator '{}'", lex.text()),
+                reason: format!("unknown binary operator '{}' ({})", kind, span),
             })?;
 
         // Shunting-yard precedence rule.
@@ -211,7 +219,7 @@ impl<T: Real> AstNode<T> {
                 Some(Token::LParen(_)) => break,
                 Some(t) => Self::apply_token(output, t)?,
                 None => return Err(ParseError::InvalidFormula {
-                    reason: format!("mismatched ')' at {}..{}", lex.start(), lex.end()),
+                    reason: format!("mismatched ')' at {}", lex.span()),
                 }),
             }
         }
@@ -220,7 +228,7 @@ impl<T: Real> AstNode<T> {
             match top {
                 Token::Function(f)     => Self::apply_fn(output, f.arity(), |args| Self::FunctionCall { kind: f, args })?,
                 Token::UserFunction(f) => Self::apply_fn(output, f.arity(), |args| Self::UserFunctionCall { func: f, args })?,
-                Token::DiffOperator(l) => Self::apply_diff(output, l)?,
+                Token::DiffOperator(span) => Self::apply_diff(output, span)?,
                 other                  => ops.push(other), // not a call; put it back
             }
         }
@@ -241,7 +249,7 @@ impl<T: Real> AstNode<T> {
                     Self::apply_token(output, t)?;
                 }
                 None => return Err(ParseError::InvalidFormula {
-                    reason: format!("mismatched ',' at {}..{}", lex.start(), lex.end()),
+                    reason: format!("mismatched ',' at {}", lex.span()),
                 }),
             }
         }
@@ -316,10 +324,10 @@ impl<T: Real> AstNode<T> {
         Ok(())
     }
 
-    fn parse_diff_args(output: &mut Vec<Self>, lexeme: &Lexeme) -> Result<(AstNode<T>, usize, usize), ParseError>
+    fn parse_diff_args(output: &mut Vec<Self>, span: Span) -> Result<(AstNode<T>, usize, usize), ParseError>
     {
         let top = output.pop().ok_or(ParseError::InvalidDerivative {
-            lexeme: lexeme.clone(),
+            span,
             reason: "missing argument (expected variable or order)".into(),
         })?;
 
@@ -327,20 +335,20 @@ impl<T: Real> AstNode<T> {
             // diff(f, x, n) — explicit order
             Self::Number(z) => {
                 if !z.im.is_zero() || !z.re.clone().fract().is_zero() {
-                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: format!("{:?}", z) });
+                    return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
                 }
                 let order = z.re.clone().to_i32();
                 if order > i8::MAX as i32 {
-                    return Err(ParseError::InvalidDerivativeOrder { target: lexeme.clone(), order: format!("{:?}", z) });
+                    return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
                 }
                 let var = match output.pop() {
                     Some(Self::Argument(idx)) => idx,
                     Some(other) => return Err(ParseError::InvalidDerivative {
-                        lexeme: lexeme.clone(),
+                        span,
                         reason: format!("expected Argument before order, got {:?}", other),
                     }),
                     None => return Err(ParseError::InvalidDerivative {
-                        lexeme: lexeme.clone(),
+                        span,
                         reason: "missing variable before order".into(),
                     }),
                 };
@@ -350,21 +358,21 @@ impl<T: Real> AstNode<T> {
             Self::Argument(idx) => (idx, 1),
 
             other => return Err(ParseError::InvalidDerivative {
-                lexeme: lexeme.clone(),
+                span,
                 reason: format!("expected Argument or Number, got {:?}", other),
             }),
         };
 
         let expr = output.pop().ok_or(ParseError::InvalidDerivative {
-            lexeme: lexeme.clone(),
+            span,
             reason: "missing expression to differentiate".into(),
         })?;
 
         Ok((expr, var_idx, order as usize))
     }
 
-    fn apply_diff(output: &mut Vec<Self>, lexeme: Lexeme) -> Result<(), ParseError> {
-        let (mut expr, var, order) = Self::parse_diff_args(output, &lexeme)?;
+    fn apply_diff(output: &mut Vec<Self>, span: Span) -> Result<(), ParseError> {
+        let (mut expr, var, order) = Self::parse_diff_args(output, span)?;
 
         for _ in 0..order {
             expr = expr.differentiate(var)?;

@@ -12,6 +12,39 @@ use std::ops::Range;
 /// Constant char representing an imaginary unit
 pub const IMAGINARY_UNIT: char = 'i';
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Span {
+    start: usize,
+    end: usize,
+}
+
+impl Span {
+    pub fn start(&self) -> usize
+    {
+        self.start
+    }
+
+    pub fn end(&self) -> usize
+    {
+        self.end
+    }
+}
+
+impl From<Range<usize>> for Span {
+    fn from(value: Range<usize>) -> Self {
+        Self {
+            start: value.start,
+            end:   value.end,
+        }
+    }
+}
+
+impl std::fmt::Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{start}..{end}", start = self.start, end = self.end)
+    }
+}
+
 /// Represents a single lexeme etracted from the input string.
 ///
 /// A `Lexeme` stores a text slice and its span (start..end indices) within
@@ -19,7 +52,7 @@ pub const IMAGINARY_UNIT: char = 'i';
 #[derive(Debug, Clone, PartialEq)]
 pub struct Lexeme {
     text: String,
-    span: Range<usize>,
+    span: Span,
 }
 
 impl Lexeme {
@@ -32,7 +65,7 @@ impl Lexeme {
     pub fn new(text: &str, span: Range<usize>) -> Self {
         Self {
             text: text.to_string(),
-            span
+            span: Span::from(span),
         }
     }
 
@@ -42,18 +75,18 @@ impl Lexeme {
     }
 
     /// Returns the start index of the lexeme in the original input string.
-    pub fn start(&self) -> &usize {
-        &self.span.start
+    pub fn start(&self) -> usize {
+        self.span.start
     }
 
     /// Returns the end index of the lexeme in the original input string.
-    pub fn end(&self) -> &usize {
-        &self.span.end
+    pub fn end(&self) -> usize {
+        self.span.end
     }
 
     /// Returns the span index (start, end) of the lexeme in the original input string.
-    pub fn span(&self) -> &Range<usize> {
-        &self.span
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 

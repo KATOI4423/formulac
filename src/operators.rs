@@ -4,30 +4,72 @@
 //! It provides enums for operator kinds, precedence information, and application logic.
 
 use num_complex::Complex;
+use std::str::FromStr;
 
 use crate::core::{
     ComplexMath,
     Real,
 };
-use crate::err::ParseError;
-use crate::lexer::Lexeme;
+
+macro_rules! operator_kind {
+    ($($symbol:expr => $kind:ident), *$(,)?) => {
+        #[derive(Debug, Clone, Copy, PartialEq)]
+        pub enum OperatorKind {
+            $( $kind ), *
+        }
+
+        impl FromStr for OperatorKind {
+            type Err = (); // unknown only
+            fn from_str(s: &str) -> Result<Self, Self::Err>
+            {
+                match s {
+                    $( $symbol => Ok(Self::$kind), )*
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl OperatorKind {
+            pub fn symbols() -> &'static [&'static str]
+            {
+                &[$($symbol), *]
+            }
+       }
+
+        impl std::fmt::Display for OperatorKind {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $( Self::$kind => write!(f, $symbol), )*
+                }
+            }
+        }
+    };
+}
+
+operator_kind! {
+    "+" => Plus,
+    "-" => Minus,
+    "*" => Mul,
+    "/" => Div,
+    "^" => Pow,
+}
 
 #[doc(hidden)]
 /// Internal macro to define all unary operators.
 macro_rules! unary_operator_kind {
-    ($($name:ident => { symbol: $symbol:expr, apply: $apply:expr }),* $(,)?) => {
+    ($($name:ident => { kind: $kind:ident, apply: $apply:expr }),* $(,)?) => {
         /// Represents a unary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub enum UnaryOperatorKind {
             $($name),*
         }
 
-        impl TryFrom<Lexeme> for UnaryOperatorKind {
-            type Error = ParseError;
-            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
-                match s.text() {
-                    $( $symbol => Ok(Self::$name), )*
-                    _ => Err(ParseError::UnknownToken(s)),
+        impl TryFrom<OperatorKind> for UnaryOperatorKind {
+            type Error = (); // unknown only
+            fn try_from(k: OperatorKind) -> Result<Self, Self::Error> {
+                match k {
+                    $( OperatorKind::$kind => Ok(Self::$name), )*
+                    _ => Err(()),
                 }
             }
         }
@@ -40,16 +82,12 @@ macro_rules! unary_operator_kind {
                 }
             }
 
-            /// Returns a list of all supported unary operator symbols.
-            pub fn symbols() -> &'static [&'static str] {
-                &[$($symbol), *]
-            }
         }
 
         impl std::fmt::Display for UnaryOperatorKind {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $( Self::$name => write!(f, $symbol), )*
+                    $( Self::$name => write!(f, "{}", OperatorKind::$kind), )*
                 }
             }
         }
@@ -57,15 +95,15 @@ macro_rules! unary_operator_kind {
 }
 
 unary_operator_kind! {
-    Positive => { symbol: "+", apply: |x| x },
-    Negative => { symbol: "-", apply: |x: Complex<_>| -x },
+    Positive => { kind: Plus, apply: |x| x },
+    Negative => { kind: Minus, apply: |x: Complex<_>| -x },
 }
 
 #[doc(hidden)]
 /// Internal macro to define all binary operators.
 macro_rules! binary_operators {
     ($($name:ident => {
-        symbol: $symbol:expr,
+        kind: $kind:ident,
         precedence: $prec:expr,
         left_assoc: $assoc:expr,
         apply: $apply:expr
@@ -76,12 +114,11 @@ macro_rules! binary_operators {
             $($name),*
         }
 
-        impl TryFrom<Lexeme> for BinaryOperatorKind {
-            type Error = ParseError;
-            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
-                match s.text() {
-                    $( $symbol => Ok(Self::$name), )*
-                    _ => Err(ParseError::UnknownToken(s.clone())),
+        impl TryFrom<OperatorKind> for BinaryOperatorKind {
+            type Error = (); // unknown only
+            fn try_from(k: OperatorKind) -> Result<Self, Self::Error> {
+                match k {
+                    $( OperatorKind::$kind => Ok(Self::$name), )*
                 }
             }
         }
@@ -108,17 +145,12 @@ macro_rules! binary_operators {
                     $(Self::$name => $apply(l, r),)*
                 }
             }
-
-            /// Returns a list of all supported binary operator symbols.
-            pub fn symbols() -> &'static [&'static str] {
-                &[$($symbol), *]
-            }
         }
 
         impl std::fmt::Display for BinaryOperatorKind {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 match self {
-                    $( Self::$name => write!(f, $symbol), )*
+                    $( Self::$name => write!(f, "{}",  OperatorKind::$kind), )*
                 }
             }
         }
@@ -126,11 +158,11 @@ macro_rules! binary_operators {
 }
 
 binary_operators! {
-    Add => { symbol: "+", precedence: 0, left_assoc: true,  apply: |l, r| l + r },
-    Sub => { symbol: "-", precedence: 0, left_assoc: true,  apply: |l, r| l - r },
-    Mul => { symbol: "*", precedence: 1, left_assoc: true,  apply: |l, r| l * r },
-    Div => { symbol: "/", precedence: 1, left_assoc: true,  apply: |l, r| l / r },
-    Pow => { symbol: "^", precedence: 2, left_assoc: false, apply: |l: Complex<T>, r: Complex<T>| l.powc(r) },
+    Add => { kind: Plus, precedence: 0, left_assoc: true,  apply: |l, r| l + r },
+    Sub => { kind: Minus, precedence: 0, left_assoc: true,  apply: |l, r| l - r },
+    Mul => { kind: Mul, precedence: 1, left_assoc: true,  apply: |l, r| l * r },
+    Div => { kind: Div, precedence: 1, left_assoc: true,  apply: |l, r| l / r },
+    Pow => { kind: Pow, precedence: 2, left_assoc: false, apply: |l: Complex<T>, r: Complex<T>| l.powc(r) },
 }
 
 #[cfg(test)]
@@ -147,21 +179,31 @@ mod tests {
         (a - b).norm() < 1.0e-10
     }
 
+    // -- symbols --
+    #[test]
+    fn symbols_contains_all() {
+        let syms = OperatorKind::symbols();
+        for s in ["+", "-", "*", "/", "^"] {
+            assert!(syms.contains(&s), "missing symbol: {s}");
+        }
+    }
+
+
     // ── UnaryOperatorKind ─────────────────────────────────────
     mod unary {
         use super::*;
 
         #[test]
         fn from_valid_symbols() {
-            assert_eq!(UnaryOperatorKind::try_from(Lexeme::new("+", 0..1)), Ok(UnaryOperatorKind::Positive));
-            assert_eq!(UnaryOperatorKind::try_from(Lexeme::new("-", 0..1)), Ok(UnaryOperatorKind::Negative));
+            assert_eq!(UnaryOperatorKind::try_from(OperatorKind::Plus), Ok(UnaryOperatorKind::Positive));
+            assert_eq!(UnaryOperatorKind::try_from(OperatorKind::Minus), Ok(UnaryOperatorKind::Negative));
         }
 
         #[test]
         fn from_invalid_symbol() {
-            assert!(UnaryOperatorKind::try_from(Lexeme::new("*", 0..1)).is_err());
-            assert!(UnaryOperatorKind::try_from(Lexeme::new("", 0..1)).is_err());
-            assert!(UnaryOperatorKind::try_from(Lexeme::new("++", 0..2)).is_err());
+            assert!(UnaryOperatorKind::try_from(OperatorKind::Mul).is_err());
+            assert!(UnaryOperatorKind::try_from(OperatorKind::Div).is_err());
+            assert!(UnaryOperatorKind::try_from(OperatorKind::Pow).is_err());
         }
 
         #[test]
@@ -179,13 +221,6 @@ mod tests {
         }
 
         #[test]
-        fn symbols_contains_all() {
-            let syms = UnaryOperatorKind::symbols();
-            assert!(syms.contains(&"+"));
-            assert!(syms.contains(&"-"));
-        }
-
-        #[test]
         fn display() {
             assert_eq!(UnaryOperatorKind::Positive.to_string(), "+");
             assert_eq!(UnaryOperatorKind::Negative.to_string(), "-");
@@ -199,18 +234,11 @@ mod tests {
         // -- TryFrom --
         #[test]
         fn from_valid_symbols() {
-            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("+", 0..1)), Ok(BinaryOperatorKind::Add));
-            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("-", 0..1)), Ok(BinaryOperatorKind::Sub));
-            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("*", 0..1)), Ok(BinaryOperatorKind::Mul));
-            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("/", 0..1)), Ok(BinaryOperatorKind::Div));
-            assert_eq!(BinaryOperatorKind::try_from(Lexeme::new("^", 0..1)), Ok(BinaryOperatorKind::Pow));
-        }
-
-        #[test]
-        fn from_invalid_symbol() {
-            assert!(BinaryOperatorKind::try_from(Lexeme::new("", 0..1)).is_err());
-            assert!(BinaryOperatorKind::try_from(Lexeme::new("**", 0..2)).is_err());
-            assert!(BinaryOperatorKind::try_from(Lexeme::new("!", 0..1)).is_err());
+            assert_eq!(BinaryOperatorKind::try_from(OperatorKind::Plus), Ok(BinaryOperatorKind::Add));
+            assert_eq!(BinaryOperatorKind::try_from(OperatorKind::Minus), Ok(BinaryOperatorKind::Sub));
+            assert_eq!(BinaryOperatorKind::try_from(OperatorKind::Mul), Ok(BinaryOperatorKind::Mul));
+            assert_eq!(BinaryOperatorKind::try_from(OperatorKind::Div), Ok(BinaryOperatorKind::Div));
+            assert_eq!(BinaryOperatorKind::try_from(OperatorKind::Pow), Ok(BinaryOperatorKind::Pow));
         }
 
         // -- precedence --
@@ -283,15 +311,6 @@ mod tests {
         fn div_by_zero_does_not_panic() {
             let result = BinaryOperatorKind::Div.apply(c(1.0, 0.0), c(0.0, 0.0));
             assert!(result.re.is_infinite() || result.re.is_nan());
-        }
-
-        // -- symbols --
-        #[test]
-        fn symbols_contains_all() {
-            let syms = BinaryOperatorKind::symbols();
-            for s in ["+", "-", "*", "/", "^"] {
-                assert!(syms.contains(&s), "missing symbol: {s}");
-            }
         }
 
         // -- Display --

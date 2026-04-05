@@ -4,14 +4,13 @@
 //! and custom functions at runtime, which can be used in expression parsing and evaluation.
 
 use num_complex::Complex;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::{
     ComplexMath,
     Real,
 };
-use crate::err::ParseError;
-use crate::lexer::Lexeme;
 
 /// Typed arguments passed to a built-in function.
 ///
@@ -108,12 +107,13 @@ macro_rules! functions {
             $( $variant, )*
         }
 
-        impl TryFrom<Lexeme> for FunctionKind {
-            type Error = ParseError;
-            fn try_from(s: Lexeme) -> Result<Self, Self::Error> {
-                match s.text() {
+        impl FromStr for FunctionKind {
+            type Err = (); // unknown only
+            fn from_str(s: &str) -> Result<Self, Self::Err>
+            {
+                match s {
                     $( $name => Ok(Self::$variant), )*
-                    _ => Err(ParseError::UnknownToken(s)),
+                    _ => Err(())
                 }
             }
         }
@@ -201,18 +201,18 @@ mod function_tests {
     fn eq(a: Complex<f64>, b: Complex<f64>) -> bool { (a - b).norm() < 1e-10 }
 
     #[test]
-    fn try_from_valid() {
-        assert_eq!(FunctionKind::try_from(Lexeme::new("sin", 0..4)), Ok(FunctionKind::Sin));
-        assert_eq!(FunctionKind::try_from(Lexeme::new("cos", 0..4)), Ok(FunctionKind::Cos));
-        assert_eq!(FunctionKind::try_from(Lexeme::new("pow", 0..4)), Ok(FunctionKind::Pow));
-        assert_eq!(FunctionKind::try_from(Lexeme::new("powi", 0..5)), Ok(FunctionKind::Powi));
+    fn from_str_valid() {
+        assert_eq!(FunctionKind::from_str("sin"), Ok(FunctionKind::Sin));
+        assert_eq!(FunctionKind::from_str("cos"), Ok(FunctionKind::Cos));
+        assert_eq!(FunctionKind::from_str("pow"), Ok(FunctionKind::Pow));
+        assert_eq!(FunctionKind::from_str("powi"), Ok(FunctionKind::Powi));
     }
 
     #[test]
-    fn try_from_invalid() {
-        assert!(FunctionKind::try_from(Lexeme::new("SIN", 0..4)).is_err());
-        assert!(FunctionKind::try_from(Lexeme::new("", 0..1)).is_err());
-        assert!(FunctionKind::try_from(Lexeme::new("log", 0..4)).is_err());
+    fn from_str_invalid() {
+        assert!(FunctionKind::from_str("SIN").is_err());
+        assert!(FunctionKind::from_str("").is_err());
+        assert!(FunctionKind::from_str("log").is_err());
     }
 
     #[test]
