@@ -34,10 +34,16 @@ pub(crate) type UserFnTable<T> = HashMap<String, UserFn<T>>;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Token<T: Real> {
     /// Resolved numeric value (literal, constant, or imaginary).
-    Number(Complex<T>),
+    Number {
+        value: Complex<T>,
+        span: Span,
+    },
 
     /// Function argument by position index.
-    Argument(usize),
+    Argument {
+        index: usize,
+        span: Span,
+    },
 
     /// Ambiguous operator (resolved into unary or binary during parsing).
     Operator {
@@ -46,28 +52,48 @@ pub(crate) enum Token<T: Real> {
     },
 
     /// Resolved unary operator.
-    UnaryOperator(UnaryOperatorKind),
+    UnaryOperator {
+        kind: UnaryOperatorKind,
+        span: Span,
+    },
 
     /// Resolved binary operator.
-    BinaryOperator(BinaryOperatorKind),
+    BinaryOperator {
+        kind: BinaryOperatorKind,
+        span: Span,
+    },
 
     /// Differential operator `diff`.
-    DiffOperator(Span),
+    DiffOperator {
+        span: Span,
+    },
 
     /// Built-in function (e.g., `sin`, `cos`).
-    Function(FunctionKind),
+    Function {
+        kind: FunctionKind,
+        span: Span,
+    },
 
     /// User-defined function.
-    UserFunction(UserFn<T>),
+    UserFunction {
+        func: UserFn<T>,
+        span: Span,
+    },
 
     /// Left parenthesis `(`.
-    LParen(Span),
+    LParen {
+        span: Span,
+    },
 
     /// Right parenthesis `)`.
-    RParen(Span),
+    RParen {
+        span: Span,
+    },
 
     /// Comma `,` used as argument separator.
-    Comma(Span),
+    Comma {
+        span: Span,
+    },
 }
 
 impl<T: Real> Token<T> {
@@ -111,47 +137,66 @@ impl<T: Real> Token<T> {
         T: FromStr,
     {
         let text = lexeme.text();
+        let span = lexeme.span();
 
         // 1. Number or constant
-        if let Some(val) = Self::parse_real(text)
+        if let Some(value) = Self::parse_real(text)
             .or_else(|| Self::parse_imaginary(text))
             .or_else(|| constants.get(text))
         {
-            return Ok(Token::Number(val));
+            return Ok(Token::Number { value, span });
         }
 
         // 2. Differential operator
         if text == DIFFERENTIAL_OPERATOR_STR {
-            return Ok(Token::DiffOperator(lexeme.span()));
+            return Ok(Token::DiffOperator { span });
         }
 
         // 3. Function argument
-        if let Some(pos) = args.iter().position(|&a| a == text) {
-            return Ok(Token::Argument(pos));
+        if let Some(index) = args.iter().position(|&a| a == text) {
+            return Ok(Token::Argument { index, span });
         }
 
         // 4. Operator (unary/binary disambiguation deferred to AstNode parser)
-        if let Ok(kind) = OperatorKind::from_str(lexeme.text())
+        if let Ok(kind) = OperatorKind::from_str(text)
         {
-            return Ok(Token::Operator { kind, span: lexeme.span() });
+            return Ok(Token::Operator { kind, span });
         }
 
         // 5. Built-in function
-        if let Ok(func_kind) = FunctionKind::from_str(lexeme.text()) {
-            return Ok(Token::Function(func_kind));
+        if let Ok(kind) = FunctionKind::from_str(text) {
+            return Ok(Token::Function { kind, span });
         }
 
         // 6. User-defined function
-        if let Some(user_func) = users.get(text) {
-            return Ok(Token::UserFunction(user_func.clone()));
+        if let Some(func) = users.get(text) {
+            return Ok(Token::UserFunction { func: func.clone(), span });
         }
 
         // 7. Structural tokens
         match text {
-            "(" => Ok(Token::LParen(lexeme.span())),
-            ")" => Ok(Token::RParen(lexeme.span())),
-            "," => Ok(Token::Comma(lexeme.span())),
-            _   => Err(ParseError::UnknownToken { str: lexeme.text().to_string(), span: lexeme.span() }),
+            "(" => Ok(Token::LParen { span }),
+            ")" => Ok(Token::RParen { span }),
+            "," => Ok(Token::Comma { span }),
+            _   => Err(ParseError::UnknownToken { str: lexeme.text().to_string(), span }),
+        }
+    }
+
+    pub fn span(&self) -> Span
+    {
+        match self {
+            Self::Number { span, .. }
+            | Self::Argument { span, .. }
+            | Self::Operator { span, .. }
+            | Self::UnaryOperator { span, .. }
+            | Self::BinaryOperator { span, .. }
+            | Self::Function { span, .. }
+            | Self::UserFunction { span, .. }
+            | Self::DiffOperator { span }
+            | Self::LParen { span }
+            | Self::RParen { span }
+            | Self::Comma { span }
+            => *span,
         }
     }
 }
@@ -168,7 +213,7 @@ mod token_tests {
         let args: [&str; 0] = [];
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(3.14, 0.0)),
+            Token::Number { value, span: _ } => assert_eq!(value, Complex::new(3.14, 0.0)),
             _ => panic!("Expected Number token"),
         }
     }
@@ -181,14 +226,14 @@ mod token_tests {
         let args: [&str; 0] = [];
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(0.0, 2.0)),
+            Token::Number { value, span: _ } => assert_eq!(value, Complex::new(0.0, 2.0)),
             _ => panic!("Expected Number token"),
         }
 
         let lex = Lexeme::new("i", 0..2);
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(0.0, 1.0)),
+            Token::Number { value, span: _ } => assert_eq!(value, Complex::new(0.0, 1.0)),
             _ => panic!("Expected Number token"),
         }
     }
@@ -201,7 +246,7 @@ mod token_tests {
         let args: [&str; 0] = [];
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Number(val) => assert_eq!(val, Complex::new(std::f64::consts::PI, 0.0)),
+            Token::Number { value, span: _ } => assert_eq!(value, Complex::new(std::f64::consts::PI, 0.0)),
             _ => panic!("Expected Number token"),
         }
     }
@@ -214,7 +259,7 @@ mod token_tests {
         let users = UserFnTable::new();
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Argument(pos) => assert_eq!(pos, 0),
+            Token::Argument { index, span: _ } => assert_eq!(index, 0),
             _ => panic!("Expected Argument token"),
         }
     }
@@ -240,7 +285,7 @@ mod token_tests {
         let args: [&str; 0] = [];
         let token = Token::try_from(&lex, &args, &constants, &users).unwrap();
         match token {
-            Token::Function(f) => assert_eq!(f, FunctionKind::Sin),
+            Token::Function { kind, span: _} => assert_eq!(kind, FunctionKind::Sin),
             _ => panic!("Expected Function token"),
         }
     }
@@ -254,9 +299,9 @@ mod token_tests {
         let users = UserFnTable::new();
         let args: [&str; 0] = [];
 
-        assert!(matches!(Token::try_from(&lex_l, &args, &constants, &users).unwrap(), Token::LParen(_)));
-        assert!(matches!(Token::try_from(&lex_r, &args, &constants, &users).unwrap(), Token::RParen(_)));
-        assert!(matches!(Token::try_from(&lex_c, &args, &constants, &users).unwrap(), Token::Comma(_)));
+        assert!(matches!(Token::try_from(&lex_l, &args, &constants, &users).unwrap(), Token::LParen { span: _ }));
+        assert!(matches!(Token::try_from(&lex_r, &args, &constants, &users).unwrap(), Token::RParen { span: _ }));
+        assert!(matches!(Token::try_from(&lex_c, &args, &constants, &users).unwrap(), Token::Comma { span: _ }));
     }
 
     #[test]

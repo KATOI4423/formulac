@@ -160,27 +160,27 @@ impl<T: Real, const N: usize> Builder<T, N>
             let mut stack: Vec<Complex<T>> = Vec::new();
             for token in tokens.iter() {
                 match token {
-                    Token::Number(val) => stack.push(val.clone()),
-                    Token::Argument(idx) => stack.push(arg_values[*idx].clone()),
-                    Token::UnaryOperator(oper) => {
+                    Token::Number { value, .. } => stack.push(value.clone()),
+                    Token::Argument { index, .. } => stack.push(arg_values[*index].clone()),
+                    Token::UnaryOperator { kind, .. } => {
                         let expr = stack.pop().unwrap();
-                        stack.push(oper.apply(expr));
+                        stack.push(kind.apply(expr));
                     },
-                    Token::BinaryOperator(oper) => {
+                    Token::BinaryOperator { kind, .. } => {
                         let r = stack.pop().unwrap();
                         let l = stack.pop().unwrap();
-                        stack.push(oper.apply(l, r));
+                        stack.push(kind.apply(l, r));
                     },
-                    Token::Function(func) => {
-                        let n = func.arity();
+                    Token::Function { kind, .. } => {
+                        let n = kind.arity();
                         let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
                         for _ in 0..n {
                             args.push(stack.pop().unwrap())
                         }
                         args.reverse();
-                        stack.push(func.apply(FunctionArgs::from(args)));
+                        stack.push(kind.apply(FunctionArgs::from(args)));
                     },
-                    Token::UserFunction(func) => {
+                    Token::UserFunction { func, .. } => {
                         let n = func.arity();
                         let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
                         args.resize(n, Complex::zero());

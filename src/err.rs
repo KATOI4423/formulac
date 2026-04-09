@@ -13,32 +13,32 @@ pub enum ParseError {
     UnknownToken { str: String, span: Span },
 
     /// Internal Error
-    #[error("Internal Error: {reason}")]
-    InternalError { reason: String },
+    #[error("Internal Error at {span}: {reason}")]
+    InternalError { reason: String, span: Span },
 
     /// The return value is wrong
     #[error("Return value parsed is wrong: {0}")]
     WrongReturn(String),
 
     /// Invalid formula use
-    #[error("Invalid formula: {reason}")]
-    InvalidFormula{ reason: String },
+    #[error("Invalid formula at {span}: {reason}")]
+    InvalidFormula{ reason: String, span: Span },
 
     /// Missing function arguments
-    #[error("Missing function arguments for {func}")]
-    MissingArgs { func: String },
+    #[error("Missing function arguments for {func} at {span}")]
+    MissingArgs { func: String, span: Span },
 
     /// Missing right operand for binary operator
-    #[error("Missing right operand for {operator}")]
-    MissingRightOperator { operator: String },
+    #[error("Missing right operand for {operator} at {span}")]
+    MissingRightOperator { operator: String, span: Span },
 
     /// Missing left operand for binary operator
-    #[error("Missing left operand for {operator}")]
-    MissingLeftOperator { operator: String },
+    #[error("Missing left operand for {operator} at {span}")]
+    MissingLeftOperator { operator: String, span: Span },
 
     /// Derivative undefined for X_i
-    #[error("Undefined derivative of {func} for {idx}")]
-    DerivativeUndefined { func: String, idx: usize },
+    #[error("Undefined derivative of {func} for {idx} at {span}")]
+    DerivativeUndefined { func: String, idx: usize, span: Span },
 
     /// Invalid derivation use
     #[error("Invalid derivative at {span}: {reason}")]
@@ -49,6 +49,6 @@ pub enum ParseError {
     InvalidDerivativeOrder { span: Span, order: String },
 
     /// The argument index of function, derivate is out of range
-    #[error("Argument Index for {func} is out of range: {idx}")]
-    OutOfRange { func: String, idx: usize },
+    #[error("Argument Index for {func} at {span} is out of range: {idx}")]
+    OutOfRange { func: String, idx: usize, span: Span },
 }

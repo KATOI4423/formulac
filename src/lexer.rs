@@ -19,6 +19,11 @@ pub struct Span {
 }
 
 impl Span {
+    pub fn new() -> Self
+    {
+        Self { start: 0, end: 0 }
+    }
+
     pub fn start(&self) -> usize
     {
         self.start
