@@ -406,14 +406,14 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_single_number_astnode() {
+    fn single_number_astnode() {
         let lexemes = lexer::from("42");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_astnode_eq!(ast, AstNode::Number { value: Complex::new(42.0, 0.0), span: Span::from(0..2) })
     }
 
     #[test]
-    fn test_unary_operator_negative_astnode() {
+    fn unary_operator_negative_astnode() {
         let lexemes = lexer::from("- 3");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_astnode_eq!(ast, AstNode::UnaryOperator {
@@ -424,7 +424,7 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_binary_operator_precedence_astnode() {
+    fn binary_operator_precedence_astnode() {
         let lexemes = lexer::from("2 + 3 * 4");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         // expected: (2 + (3 * 4))
@@ -442,7 +442,7 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_parentheses_override_precedence_astnode() {
+    fn parentheses_override_precedence_astnode() {
         let lexemes = lexer::from("( 2 + 3 ) * 4");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         // expected: ((2 + 3) * 4)
@@ -460,7 +460,7 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_function_single_arg_astnode() {
+    fn function_single_arg_astnode() {
         let lexemes = lexer::from("sin ( 0 )");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_astnode_eq!(ast, AstNode::FunctionCall {
@@ -471,7 +471,7 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_function_multiple_args_astnode() {
+    fn function_multiple_args_astnode() {
         let lexemes = lexer::from("pow ( 2 , 3 )");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_astnode_eq!(ast, AstNode::FunctionCall {
@@ -500,14 +500,14 @@ mod astnode_tests {
     }
 
     #[test]
-    fn test_imaginary_number_astnode() {
+    fn imaginary_number_astnode() {
         let lexemes = lexer::from("5i");
         let ast = AstNode::from(&lexemes, &[], &Constants::new(), &UserFnTable::new()).unwrap();
         assert_eq!(ast, AstNode::Number { value: Complex::new(0.0, 5.0), span: Span::from(0..2) });
     }
 
     #[test]
-    fn test_unknown_token_astnode_error() {
+    fn unknown_token_astnode_error() {
         let lexemes = lexer::from("@");
         let res = AstNode::from(&lexemes, &[], &Constants::<f64>::new(), &UserFnTable::new());
         assert!(res.is_err());

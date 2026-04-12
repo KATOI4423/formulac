@@ -217,14 +217,14 @@ mod differentiate_tests {
     use num_complex::Complex;
 
     #[test]
-    fn test_differentiate_number() {
+    fn differentiate_number() {
         let node = AstNode::Number { value: Complex::new(5.0, 0.0), span: Span::from(0..1) };
         let diff = node.differentiate(0).unwrap();
         assert_eq!(diff, AstNode::Number { value: Complex::ZERO, span: Span::from(0..1) });
     }
 
     #[test]
-    fn test_differentiate_argument() {
+    fn differentiate_argument() {
         let node = AstNode::<f64>::Argument { index: 1, span: Span::from(0..1) };
         let diff = node.clone().differentiate(1).unwrap();
         assert_eq!(diff, AstNode::Number { value: Complex::ONE, span: Span::from(0..1) });
@@ -233,7 +233,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_unary_operator() {
+    fn differentiate_unary_operator() {
         let node = -AstNode::<f64>::Argument { index: 0, span: Span::from(2..3) };
         let diff = node.differentiate(0).unwrap();
         // d/dx(-x) = -1, where 1 is generated with the argument's span
@@ -241,7 +241,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_binary_add() {
+    fn differentiate_binary_add() {
         let node = AstNode::Argument { index: 0, span: Span::from(0..1) } + AstNode::Number { value: Complex::new(2.0, 0.0), span: Span::from(4..5) };
         let diff = node.differentiate(0).unwrap();
         // d/dx (x + 2) = 1 + 0
@@ -255,7 +255,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_function_sin() {
+    fn differentiate_function_sin() {
         let node = AstNode::<f64>::Argument { index: 0, span: Span::from(2..3) }.sin();
         let diff = node.differentiate(0).unwrap();
         // d/dx sin(x) = cos(x) * 1
@@ -269,7 +269,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_derivative_order() {
+    fn differentiate_derivative_order() {
         let node = AstNode::Derivative {
             expr: Rc::new(AstNode::<f64>::Argument { index: 0, span: Span::from(2..3) }),
             var: 0,
@@ -290,7 +290,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_mul_x2() {
+    fn differentiate_mul_x2() {
         // f(x) = x * x
         let node = AstNode::<f64>::Argument { index: 0, span: Span::from(0..1) }.mul(AstNode::Argument { index: 0, span: Span::from(4..5) }).differentiate(0)
             .unwrap().simplify();
@@ -306,7 +306,7 @@ mod differentiate_tests {
     }
 
     #[test]
-    fn test_differentiate_builtin_functions() {
+    fn differentiate_builtin_functions() {
         let span = Span::from(2..3);
         let x = AstNode::<f64>::Argument { index: 0, span };
         let y = AstNode::<f64>::Argument { index: 1, span };
@@ -418,7 +418,7 @@ mod differentiate_tests {
         assert!(AstNode::FunctionCall { kind: FunctionKind::Conj, args: vec![Rc::new(x.clone())], span }.differentiate(0).is_err());
     }
 
-    // Note: test_differentiate_div is not tested due to complex span handling
+    // Note: differentiate_div is not tested due to complex span handling
     // After differentiation, internally generated constants' spans are determined
     // by the fold/simplify process, which makes exact span comparison difficult.
 }
