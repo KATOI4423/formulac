@@ -22,10 +22,10 @@ use crate::lexer::{
 use crate::operators::{
     OperatorKind,
     BinaryOperatorKind,
+    DIFFERENTIAL_OPERATOR_STR,
     UnaryOperatorKind,
 };
 
-pub const DIFFERENTIAL_OPERATOR_STR: &str = "diff";
 pub(crate) type UserFnTable<T> = HashMap<String, UserFn<T>>;
 
 /// Represents a parsed token in a mathematical expression.

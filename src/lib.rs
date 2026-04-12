@@ -72,7 +72,7 @@ pub mod functions;
 pub mod err;
 pub mod lexer;
 pub mod operators;
-pub mod token;
+mod token;
 
 pub type Builder<T, const N: usize> = builder::Builder<T, N>;
 pub type UserFn<T> = functions::UserFn<T>;

@@ -11,6 +11,8 @@ use crate::core::{
     Real,
 };
 
+pub const DIFFERENTIAL_OPERATOR_STR: &str = "diff";
+
 macro_rules! operator_kind {
     ($($symbol:expr => $kind:ident), *$(,)?) => {
         #[derive(Debug, Clone, Copy, PartialEq)]
