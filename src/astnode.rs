@@ -977,8 +977,8 @@ impl<T: Real> AstNode<T> {
             FunctionKind::Sin   => Ok(x.cos() * dx),
             FunctionKind::Cos   => Ok(-x.sin() * dx),
             FunctionKind::Tan   => Ok(dx / x.cos().powi(2)),
-            FunctionKind::Asin  => Ok(dx / (Self::one(span) - x.powi(2))),
-            FunctionKind::Acos  => Ok(-dx / (Self::one(span) - x.powi(2))),
+            FunctionKind::Asin  => Ok(dx / (Self::one(span) - x.powi(2)).sqrt()),
+            FunctionKind::Acos  => Ok(-dx / (Self::one(span) - x.powi(2)).sqrt()),
             FunctionKind::Atan  => Ok(dx / (Self::one(span) + x.powi(2))),
             FunctionKind::Sinh  => Ok(dx * x.cosh()),
             FunctionKind::Cosh  => Ok(dx * x.sinh()),
@@ -1810,6 +1810,119 @@ mod differentiate_tests {
             }
             _ => panic!("Expected BinaryOperator after differentiation and simplification"),
         }
+    }
+
+    #[test]
+    fn test_differentiate_builtin_functions() {
+        let span = Span::from(2..3);
+        let x = AstNode::<f64>::Argument { index: 0, span };
+        let y = AstNode::<f64>::Argument { index: 1, span };
+        let one = AstNode::one(span);
+        let three = AstNode::Number { value: Complex::new(3.0, 0.0), span };
+        let half = AstNode::Number { value: Complex::new(0.5, 0.0), span };
+        let log10_e = AstNode::Number { value: Complex::new(std::f64::consts::LOG10_E, 0.0), span };
+
+        let cases = vec![
+            (
+                FunctionKind::Sin,
+                AstNode::FunctionCall { kind: FunctionKind::Sin, args: vec![Rc::new(x.clone())], span },
+                x.clone().cos() * one.clone(),
+            ),
+            (
+                FunctionKind::Cos,
+                AstNode::FunctionCall { kind: FunctionKind::Cos, args: vec![Rc::new(x.clone())], span },
+                (-x.clone().sin()) * one.clone(),
+            ),
+            (
+                FunctionKind::Tan,
+                AstNode::FunctionCall { kind: FunctionKind::Tan, args: vec![Rc::new(x.clone())], span },
+                one.clone() / x.clone().cos().powi(2),
+            ),
+            (
+                FunctionKind::Asin,
+                AstNode::FunctionCall { kind: FunctionKind::Asin, args: vec![Rc::new(x.clone())], span },
+                one.clone() / (one.clone() - x.clone().powi(2)).sqrt(),
+            ),
+            (
+                FunctionKind::Acos,
+                AstNode::FunctionCall { kind: FunctionKind::Acos, args: vec![Rc::new(x.clone())], span },
+                (-one.clone()) / (one.clone() - x.clone().powi(2)).sqrt(),
+            ),
+            (
+                FunctionKind::Atan,
+                AstNode::FunctionCall { kind: FunctionKind::Atan, args: vec![Rc::new(x.clone())], span },
+                one.clone() / (one.clone() + x.clone().powi(2)),
+            ),
+            (
+                FunctionKind::Sinh,
+                AstNode::FunctionCall { kind: FunctionKind::Sinh, args: vec![Rc::new(x.clone())], span },
+                one.clone() * x.clone().cosh(),
+            ),
+            (
+                FunctionKind::Cosh,
+                AstNode::FunctionCall { kind: FunctionKind::Cosh, args: vec![Rc::new(x.clone())], span },
+                one.clone() * x.clone().sinh(),
+            ),
+            (
+                FunctionKind::Tanh,
+                AstNode::FunctionCall { kind: FunctionKind::Tanh, args: vec![Rc::new(x.clone())], span },
+                one.clone() / x.clone().cosh().powi(2),
+            ),
+            (
+                FunctionKind::Asinh,
+                AstNode::FunctionCall { kind: FunctionKind::Asinh, args: vec![Rc::new(x.clone())], span },
+                one.clone() / (x.clone().powi(2) + one.clone()).sqrt(),
+            ),
+            (
+                FunctionKind::Acosh,
+                AstNode::FunctionCall { kind: FunctionKind::Acosh, args: vec![Rc::new(x.clone())], span },
+                one.clone() / (x.clone().powi(2) - one.clone()).sqrt(),
+            ),
+            (
+                FunctionKind::Atanh,
+                AstNode::FunctionCall { kind: FunctionKind::Atanh, args: vec![Rc::new(x.clone())], span },
+                one.clone() / (one.clone() - x.clone().powi(2)),
+            ),
+            (
+                FunctionKind::Exp,
+                AstNode::FunctionCall { kind: FunctionKind::Exp, args: vec![Rc::new(x.clone())], span },
+                one.clone() * x.clone().exp(),
+            ),
+            (
+                FunctionKind::Ln,
+                AstNode::FunctionCall { kind: FunctionKind::Ln, args: vec![Rc::new(x.clone())], span },
+                one.clone() / x.clone(),
+            ),
+            (
+                FunctionKind::Log10,
+                AstNode::FunctionCall { kind: FunctionKind::Log10, args: vec![Rc::new(x.clone())], span },
+                one.clone() * log10_e.clone() / x.clone(),
+            ),
+            (
+                FunctionKind::Sqrt,
+                AstNode::FunctionCall { kind: FunctionKind::Sqrt, args: vec![Rc::new(x.clone())], span },
+                one.clone() * half.clone() / x.clone().sqrt(),
+            ),
+        ];
+
+        for (kind, node, expected) in cases {
+            assert_eq!(node.differentiate(0).unwrap(), expected, "FunctionKind::{:?}", kind);
+        }
+
+        let pow_node = x.clone().pow(y.clone());
+        let pow_expected = x.clone().pow(y.clone()) * (one.clone() * AstNode::FunctionCall { kind: FunctionKind::Ln, args: vec![Rc::new(x.clone())], span } + y.clone() * AstNode::zero(span) / x.clone());
+        assert_eq!(pow_node.differentiate(1).unwrap(), pow_expected);
+
+        let powi_node = x.clone().powi(3);
+        let powi_expected = AstNode::FunctionCall {
+            kind: FunctionKind::Powi,
+            args: vec![Rc::new(x.clone()), Rc::new(three.clone() - one.clone())],
+            span,
+        } * three.clone() * one.clone();
+        assert_eq!(powi_node.differentiate(0).unwrap(), powi_expected);
+
+        assert!(AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![Rc::new(x.clone())], span }.differentiate(0).is_err());
+        assert!(AstNode::FunctionCall { kind: FunctionKind::Conj, args: vec![Rc::new(x.clone())], span }.differentiate(0).is_err());
     }
 
     // Note: test_differentiate_div is not tested due to complex span handling
