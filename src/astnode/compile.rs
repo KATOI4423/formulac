@@ -1,22 +1,16 @@
-//! # astnode.rs
+//! # astnode/compile.rs
 //!
-//! Parses mathematical expressions into an Abstract Syntax Tree (AST)
-//! and compiles them into executable tokens.
+//! Compiles an [`AstNode`] tree into a flat sequence of postfix [`Token`]s
+//! (Reverse Polish Notation) for stack-based evaluation.
 //!
-//! Supports real/complex numbers, constants, unary/binary operators,
-//! built-in functions, user-defined functions, and symbolic differentiation.
+//! ## Entry point
+//! [`AstNode::compile`] performs a depth-first traversal of the AST
+//! and emits tokens in evaluation order.
+//! The resulting token sequence is consumed by the executor in [`builder`].
 
-pub mod core;
-pub mod diff;
-pub mod parser;
-pub mod simplify;
-
+use crate::astnode::AstNode;
 use crate::core::Real;
 use crate::token::Token;
-
-pub(crate) type AstNode<T> = core::AstNode<T>;
-
-// ─── compile ────────────────────────────────────────────────────────────────
 
 impl<T: Real> AstNode<T> {
     /// Compiles the AST into a flat sequence of postfix `Token`s.
@@ -53,7 +47,6 @@ impl<T: Real> AstNode<T> {
         }
     }
 }
-
 
 #[cfg(test)]
 mod astnode_tests {
