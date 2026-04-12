@@ -46,8 +46,7 @@ use crate::token::{Token, UserFnTable};
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 fn is_i32_compatible<T: Real>(z: &Complex<T>) -> bool {
-    z.im.is_zero() && z.re.clone().fract().is_zero()
-        && (T::from_f64(i32::MIN as f64)..=T::from_f64(i32::MAX as f64)).contains(&z.re)
+    z.im.is_zero() && z.re.is_i32_compatible()
 }
 
 // ─── AstNode ────────────────────────────────────────────────────────────────

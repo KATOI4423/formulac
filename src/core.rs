@@ -1,7 +1,10 @@
 //! core.rs
 
 use num_complex::Complex;
-use num_traits::Num;
+use num_traits::{
+    Num,
+    Zero,
+};
 use std::f64;
 
 pub trait Real: Num + std::ops::Neg<Output = Self>
@@ -12,6 +15,11 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
     // Basic
     fn from_f64(v: f64) -> Self;
     fn to_i32(&self) -> i32;
+    fn is_i32_compatible(&self) -> bool {
+        self.clone().fract().is_zero()
+            && *self >= Self::from_f64(i32::MIN as f64)
+            && *self <= Self::from_f64(i32::MAX as f64)
+    }
     fn fract(self) -> Self;
     fn trunc(self) -> Self;
 
@@ -84,6 +92,11 @@ impl Real for f64 {
         } else {
             truncated as i32
         }
+    }
+    fn is_i32_compatible(&self) -> bool {
+        const MAX: f64 = i32::MAX as f64;
+        const MIN: f64 = i32::MIN as f64;
+        self.fract().is_zero() && MIN <= *self && *self <= MAX
     }
     fn fract(self) -> Self { self.fract() }
     fn trunc(self) -> Self { self.trunc() }
