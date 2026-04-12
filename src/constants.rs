@@ -14,7 +14,7 @@ use crate::core::Real;
 ///
 /// `Constants` maintains a mapping from constant names (`String`) to values (`Complex<T>`),
 /// allowing expressions to reference these values by name during parsing or evaluation.
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Constants<T: Real>
 {
     map: HashMap<String, Complex<T>>,

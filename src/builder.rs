@@ -26,7 +26,7 @@ use crate::token::{
     UserFnTable,
 };
 
-
+#[derive(Debug, Clone)]
 pub struct Builder<T: Real, const N: usize>
 {
     formula: String,
