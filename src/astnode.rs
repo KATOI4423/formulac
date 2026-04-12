@@ -194,6 +194,10 @@ impl<T: Real> AstNode<T> {
         }
     }
 
+    fn unwrap_rc(rc: Rc<Self>) -> Self {
+        Rc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone())
+    }
+
     // ── shunting-yard helpers ────────────────────────────────────────────────
 
     /// Pushes a unary operator onto the op stack.
@@ -427,9 +431,7 @@ impl<T: Real> AstNode<T> {
     {
         match self {
             Self::UnaryOperator { kind, expr, span } => {
-                let expr = Rc::try_unwrap(expr)
-                    .unwrap_or_else(|rc| (*rc).clone())
-                    .simplify();
+                let expr = Self::unwrap_rc(expr).simplify();
                 match expr {
                     Self::Number { value, span } => Self::Number { value: kind.apply(value), span },
                     other => Self::UnaryOperator { kind, expr: Rc::new(other), span },
@@ -440,10 +442,8 @@ impl<T: Real> AstNode<T> {
             }
             // pow/powi get their own folding path.
             Self::FunctionCall { kind: FunctionKind::Pow  | FunctionKind::Powi, mut args, .. } => {
-                let base = Rc::try_unwrap(args.remove(0))
-                    .unwrap_or_else(|rc| (*rc).clone());
-                let exp  = Rc::try_unwrap(args.remove(0))
-                    .unwrap_or_else(|rc| (*rc).clone());
+                let base = Self::unwrap_rc(args.remove(0));
+                let exp  = Self::unwrap_rc(args.remove(0));
                 Self::fold_pow(base, exp)
             }
             Self::FunctionCall { kind, args, span } => {
@@ -466,8 +466,7 @@ impl<T: Real> AstNode<T> {
         Complex<T>: AddAssign + MulAssign,
     {
         let args: Vec<_> = args.into_iter().map(|arg| {
-            let ast = Rc::try_unwrap(arg)
-                .unwrap_or_else(|rc| (*rc).clone());
+            let ast = Self::unwrap_rc(arg);
             Rc::new(Self::simplify(ast))
         }).collect();
         let all_numbers  = args.iter().all(|a| matches!(**a, Self::Number { .. }));
@@ -543,11 +542,11 @@ impl<T: Real> AstNode<T> {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right, .. } => {
                 Self::collect_add_terms(
-                    Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone()),
+                    Self::unwrap_rc(left),
                     out,
                 );
                 Self::collect_add_terms(
-                    Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone()),
+                    Self::unwrap_rc(right),
                     out,
                 );
             }
@@ -589,8 +588,8 @@ impl<T: Real> AstNode<T> {
         for term in terms {
             let (var, coeff) = match term {
                 Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } => {
-                    let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
-                    let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                    let left = Self::unwrap_rc(left);
+                    let right = Self::unwrap_rc(right);
                     match (left, right) {
                         (Self::Number { value: z, .. }, v) => (v, z),
                         (v, Self::Number { value: z, .. }) => (v, z),
@@ -676,8 +675,8 @@ impl<T: Real> AstNode<T> {
     fn collect_mul_terms(node: Self, out: &mut Vec<Self>) {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } => {
-                let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
-                let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                let left = Self::unwrap_rc(left);
+                let right = Self::unwrap_rc(right);
                 Self::collect_mul_terms(left,  out);
                 Self::collect_mul_terms(right, out);
             }
@@ -695,8 +694,8 @@ impl<T: Real> AstNode<T> {
         for term in terms {
             let (base, exp) = match term {
                 Self::BinaryOperator { kind: BinaryOperatorKind::Pow, left, right, .. } => {
-                    let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
-                    let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                    let left = Self::unwrap_rc(left);
+                    let right = Self::unwrap_rc(right);
                     match right {
                         Self::Number { value: e, .. } => (left, e),
                         r => {
@@ -705,7 +704,7 @@ impl<T: Real> AstNode<T> {
                     }
                 }
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, ref args, .. } => {
-                    let base = Rc::try_unwrap(args[0].clone()).unwrap_or_else(|rc| (*rc).clone());
+                    let base = Self::unwrap_rc(args[0].clone());
                     match args[1].as_ref() {
                         Self::Number { value: e, .. } => (base, e.clone()),
                         _ => (term, Complex::one()),
@@ -766,10 +765,10 @@ impl<T: Real> AstNode<T> {
         loop {
             match base {
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, mut args, .. } => {
-                    let inner_base = Rc::try_unwrap(args.remove(0))
-                        .unwrap_or_else(|rc| (*rc).clone());
-                    let inner_exp  = Rc::try_unwrap(args.remove(0))
-                        .unwrap_or_else(|rc| (*rc).clone());
+                    let inner_base = Self::unwrap_rc(args.remove(0))
+                        ;
+                    let inner_exp  = Self::unwrap_rc(args.remove(0))
+                        ;
                     exp  = inner_exp.mul(exp).simplify();
                     base = inner_base.simplify();
                 }
@@ -897,7 +896,7 @@ impl<T: Real> AstNode<T> {
             Self::Argument { index: i, span }  => Ok(if i == var { Self::one(span) } else { Self::zero(span) }),
 
             Self::UnaryOperator { kind, expr, span } => {
-                let expr = Rc::try_unwrap(expr).unwrap_or_else(|rc| (*rc).clone());
+                let expr = Self::unwrap_rc(expr);
                 Ok(Self::UnaryOperator {
                     kind,
                     expr: Rc::new(expr.differentiate(var)?),
@@ -906,8 +905,8 @@ impl<T: Real> AstNode<T> {
             },
 
             Self::BinaryOperator { kind, left, right, span } => {
-                let left = Rc::try_unwrap(left).unwrap_or_else(|rc| (*rc).clone());
-                let right = Rc::try_unwrap(right).unwrap_or_else(|rc| (*rc).clone());
+                let left = Self::unwrap_rc(left);
+                let right = Self::unwrap_rc(right);
                 Self::diff_binary(kind, left, right, var, span)
             }
 
@@ -930,7 +929,7 @@ impl<T: Real> AstNode<T> {
                 if inner_var == var {
                     Ok(Self::Derivative { expr, var, order: order + 1, span })
                 } else {
-                    let expr = Rc::try_unwrap(expr).unwrap_or_else(|rc| (*rc).clone());
+                    let expr = Self::unwrap_rc(expr);
                     Ok(Self::Derivative {
                         expr:  Rc::new(expr.differentiate(var)?),
                         var:   inner_var,
@@ -970,8 +969,8 @@ impl<T: Real> AstNode<T> {
         var:  usize,
         span: Span,
     ) -> Result<Self, ParseError> {
-        let x = Rc::try_unwrap(args.remove(0))
-            .unwrap_or_else(|rc| (*rc).clone());
+        let x = Self::unwrap_rc(args.remove(0))
+            ;
         let dx = x.clone().differentiate(var)?;
         match kind {
             FunctionKind::Sin   => Ok(x.cos() * dx),
@@ -999,13 +998,13 @@ impl<T: Real> AstNode<T> {
                 span,
             }),
             FunctionKind::Pow  => {
-                let y = Rc::try_unwrap(args.remove(0))
-                    .unwrap_or_else(|rc| (*rc).clone());
+                let y = Self::unwrap_rc(args.remove(0))
+                    ;
                 Self::diff_pow(x, y, var)
             },
             FunctionKind::Powi => {
-                let n = Rc::try_unwrap(args.remove(0))
-                    .unwrap_or_else(|rc| (*rc).clone());
+                let n = Self::unwrap_rc(args.remove(0))
+                    ;
                 Self::diff_powi(x, n, var)
             },
         }
