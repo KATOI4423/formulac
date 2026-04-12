@@ -22,6 +22,7 @@ pub enum FunctionArgs<T: Real>
 {
     Unary(Complex<T>),
     Binary(Complex<T>, Complex<T>),
+    Ternary(Complex<T>, Complex<T>, Complex<T>),
 }
 
 impl<T: Real> FunctionArgs<T>
@@ -29,9 +30,10 @@ impl<T: Real> FunctionArgs<T>
     /// Constructs `FunctionArgs` from a slice, based on length.
     pub(crate) fn from(args: impl IntoIterator<Item = Complex<T>>) -> Self {
         let mut args = args.into_iter();
-        match (args.next(), args.next()) {
-            (Some(a), None) => Self::Unary(a),
-            (Some(a), Some(b)) => Self::Binary(a, b),
+        match (args.next(), args.next(), args.next()) {
+            (Some(a), None, None) => Self::Unary(a),
+            (Some(a), Some(b), None) => Self::Binary(a, b),
+            (Some(a), Some(b), Some(c)) => Self::Ternary(a, b, c),
             _ => unreachable!("unsupported arity"),
         }
     }
@@ -59,6 +61,16 @@ impl<T: Real> FromFunctionArgs<T, 2> for [Complex<T>; 2]
         [x, y]
     }
 }
+
+impl<T: Real> FromFunctionArgs<T, 3> for [Complex<T>; 3]
+{
+    fn from_args(args: FunctionArgs<T>) -> Self
+    {
+        let FunctionArgs::<T>::Ternary(x, y, z) = args else { unreachable!("arity mismatch") };
+        [x, y, z]
+    }
+}
+
 
 /// A trait representing a callable mathematical function.
 ///
@@ -427,6 +439,18 @@ mod userfn_tests {
         assert_eq!(
             f.apply(FunctionArgs::Binary(c(1.0, 0.0), c(2.0, 0.0))),
             c(3.0, 0.0),
+        );
+    }
+
+    #[test]
+    fn apply_ternary() {
+        let f = UserFn::new(
+            "sum",
+            |[x, y, z]| x + y + z,
+        );
+        assert_eq!(
+            f.apply(FunctionArgs::Ternary(c(1.0, 0.0), c(2.0, 0.0), c(3.0, 0.0))),
+            c(6.0, 0.0),
         );
     }
 
