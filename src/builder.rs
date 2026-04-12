@@ -157,7 +157,7 @@ impl<T: Real, const N: usize> Builder<T, N>
         T: Send + Sync + 'static,
     {
         move |arg_values: [Complex<T>; N]| {
-            let mut stack: Vec<Complex<T>> = Vec::new();
+            let mut stack: Vec<Complex<T>> = Vec::with_capacity(tokens.len());
             for token in tokens.iter() {
                 match token {
                     Token::Number { value, .. } => stack.push(value.clone()),
