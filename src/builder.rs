@@ -352,7 +352,7 @@ mod compile_test {
 
         // Define f(x) = x^2
         let func = UserFn::new("f", |[x]| x * x)
-            .with_derivative(vec![deriv]);
+            .with_derivative(vec![deriv]).unwrap();
 
         let expr = Builder::new("diff(f(x), x)", ["x"])
             .with_user_functions([func])
@@ -372,7 +372,7 @@ mod compile_test {
 
         // Define g(x, y) = x^2 * y + y^3
         let func = UserFn::new("g", |[x, y]| x * x * y + y * y * y)
-            .with_derivative(vec![dg_dx, dg_dy]);
+            .with_derivative(vec![dg_dx, dg_dy]).unwrap();
 
         let x = Complex::new(2.0, 0.0);
         let y = Complex::new(3.0, 0.0);

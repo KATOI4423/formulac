@@ -11,6 +11,7 @@ use crate::core::{
     ComplexMath,
     Real,
 };
+use crate::err::InitializeError;
 
 /// Typed arguments passed to a built-in function.
 ///
@@ -329,11 +330,15 @@ impl<T: Real> UserFn<T> {
     ///     |[x]| x * x,
     /// ).with_derivative([df]);
     /// ```
-    pub fn with_derivative(mut self, diffs: impl IntoIterator<Item = Self>) -> Self {
+    pub fn with_derivative(mut self, diffs: impl IntoIterator<Item = Self>) -> Result<Self, InitializeError> {
         let diffs: Vec<Self> = diffs.into_iter().collect();
-        debug_assert_eq!(diffs.len(), self.arity);
+        if diffs.len() != self.arity {
+            return Err(InitializeError::DerivativesNumberMismatched {
+                expected: self.arity, number: diffs.len()
+            });
+        }
         self.deriv = diffs;
-        self
+        Ok(self)
     }
 
     /// Returns the function name.
@@ -357,7 +362,8 @@ impl<T: Real> UserFn<T> {
     /// let f = UserFn::new(
     ///     "square",
     ///     |[x]| x * x,
-    /// ).with_derivative(vec![df]);
+    /// ).with_derivative(vec![df])
+    /// .expect("Mistake derivative count");
     ///
     /// assert!(f.derivative(0).is_some());
     /// assert!(f.derivative(1).is_none()); // out of range
@@ -450,7 +456,8 @@ mod userfn_tests {
         let f = UserFn::new(
             "square",
             |[x]| x * x,
-        ).with_derivative(vec![df]);
+        ).with_derivative(vec![df])
+        .unwrap();
 
         let deriv = f.derivative(0).expect("should exist");
         let result = deriv.apply(FunctionArgs::Unary(c(4.0, 0.0)));

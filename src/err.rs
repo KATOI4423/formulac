@@ -52,3 +52,10 @@ pub enum ParseError {
     #[error("Argument Index for {func} at {span} is out of range: {idx}")]
     OutOfRange { func: String, idx: usize, span: Span },
 }
+
+#[derive(Debug, Error, PartialEq)]
+pub enum InitializeError
+{
+    #[error("Mismatched number of derivatives ({number}): expected {expected}")]
+    DerivativesNumberMismatched { expected: usize, number: usize }
+}

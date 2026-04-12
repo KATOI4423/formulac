@@ -186,7 +186,7 @@ use formulac::{Builder, UserFn};
 fn main() {
     // Define f(x) = x^2, derivative f'(x) = 2x
     let deriv = UserFn::<f64>::new("df", |[x]| Complex::new(2.0, 0.0) * x);
-    let func = UserFn::<f64>::new("f", |[x]| x * x).with_derivative([deriv]);
+    let func = UserFn::<f64>::new("f", |[x]| x * x).with_derivative([deriv]).unwrap();
 
     let expr = Builder::<f64, 1>::new("diff(f(x), x)", ["x"])
         .with_user_functions([func])
