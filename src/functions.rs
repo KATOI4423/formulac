@@ -13,65 +13,6 @@ use crate::core::{
 };
 use crate::err::InitializeError;
 
-/// Typed arguments passed to a built-in function.
-///
-/// Enforces at the type level that unary and binary functions
-/// receive the correct number of arguments.
-#[derive(Clone, Debug, PartialEq)]
-pub enum FunctionArgs<T: Real>
-{
-    Unary(Complex<T>),
-    Binary(Complex<T>, Complex<T>),
-    Ternary(Complex<T>, Complex<T>, Complex<T>),
-}
-
-impl<T: Real> FunctionArgs<T>
-{
-    /// Constructs `FunctionArgs` from a slice, based on length.
-    pub(crate) fn from(args: impl IntoIterator<Item = Complex<T>>) -> Self {
-        let mut args = args.into_iter();
-        match (args.next(), args.next(), args.next()) {
-            (Some(a), None, None) => Self::Unary(a),
-            (Some(a), Some(b), None) => Self::Binary(a, b),
-            (Some(a), Some(b), Some(c)) => Self::Ternary(a, b, c),
-            _ => unreachable!("unsupported arity"),
-        }
-    }
-}
-
-pub trait FromFunctionArgs<T: Real, const N: usize>
-{
-    fn from_args(args: FunctionArgs<T>) -> Self;
-}
-
-impl<T: Real> FromFunctionArgs<T, 1> for [Complex<T>; 1]
-{
-    fn from_args(args: FunctionArgs<T>) -> Self
-    {
-        let FunctionArgs::<T>::Unary(x) = args else { unreachable!("arity mismatch") };
-        [x]
-    }
-}
-
-impl<T: Real> FromFunctionArgs<T, 2> for [Complex<T>; 2]
-{
-    fn from_args(args: FunctionArgs<T>) -> Self
-    {
-        let FunctionArgs::<T>::Binary(x, y) = args else { unreachable!("arity mismatch") };
-        [x, y]
-    }
-}
-
-impl<T: Real> FromFunctionArgs<T, 3> for [Complex<T>; 3]
-{
-    fn from_args(args: FunctionArgs<T>) -> Self
-    {
-        let FunctionArgs::<T>::Ternary(x, y, z) = args else { unreachable!("arity mismatch") };
-        [x, y, z]
-    }
-}
-
-
 /// A trait representing a callable mathematical function.
 ///
 /// This trait is implemented by types that can be called with a fixed number
@@ -97,7 +38,7 @@ where
 pub trait Apply<T: Real>
 {
     /// Evaluates the function with the given arguments.
-    fn apply(&self, arg: FunctionArgs<T>) -> Complex<T>;
+    fn apply(&self, arg: Vec<Complex<T>>) -> Complex<T>;
 }
 
 pub trait Arity
@@ -106,12 +47,16 @@ pub trait Arity
     fn arity(&self) -> usize;
 }
 
+macro_rules! count_args {
+    () => { 0usize };
+    ($head:ident $(, $tail:ident)*) => { 1usize + count_args!($($tail),*)}
+}
+
 #[doc(hidden)]
 /// Internal macro to define all functions
 macro_rules! functions {
     ($( $variant:ident => {
         name:  $name:expr,
-        arity: $kind:ident,
         apply: |$( $arg:ident ),+| $body:expr
     }, )*) => {
         /// Represents a built-in mathematical function.
@@ -142,17 +87,18 @@ macro_rules! functions {
         {
             fn arity(&self) -> usize {
                 match self {
-                    $( Self::$variant => functions!(@arity $kind), )*
+                    $( Self::$variant => count_args!($($arg),+), )*
                 }
             }
         }
 
         impl<T: Real> Apply<T> for FunctionKind
         {
-            fn apply(&self, args: FunctionArgs<T>) -> Complex<T> {
+            fn apply(&self, args: Vec<Complex<T>>) -> Complex<T> {
                 match self {
                     $( Self::$variant => {
-                        functions!(@destructure $kind, args, $( $arg ),+);
+                        let mut it = args.into_iter();
+                        $( let $arg = it.next().unwrap(); )+
                         $body
                     }, )*
                 }
@@ -167,43 +113,29 @@ macro_rules! functions {
             }
         }
     };
-
-    (@arity Unary) => { 1 };
-    (@destructure Unary, $args:expr, $x:ident) => {
-        let FunctionArgs::Unary($x) = $args else {
-            unreachable!("arity mismatch: expected Unary")
-        };
-    };
-
-    (@arity Binary) => { 2 };
-    (@destructure Binary, $args: expr, $x:ident, $y:ident) => {
-        let FunctionArgs::Binary($x, $y) = $args else {
-            unreachable!("arity mismatch: expected Binary")
-        };
-    };
 }
 
 functions! {
-    Sin   => { name: "sin",   arity: Unary, apply: |x| x.sin() },
-    Cos   => { name: "cos",   arity: Unary, apply: |x| x.cos() },
-    Tan   => { name: "tan",   arity: Unary, apply: |x| x.tan() },
-    Asin  => { name: "asin",  arity: Unary, apply: |x| x.asin() },
-    Acos  => { name: "acos",  arity: Unary, apply: |x| x.acos() },
-    Atan  => { name: "atan",  arity: Unary, apply: |x| x.atan() },
-    Sinh  => { name: "sinh",  arity: Unary, apply: |x| x.sinh() },
-    Cosh  => { name: "cosh",  arity: Unary, apply: |x| x.cosh() },
-    Tanh  => { name: "tanh",  arity: Unary, apply: |x| x.tanh() },
-    Asinh => { name: "asinh", arity: Unary, apply: |x| x.asinh() },
-    Acosh => { name: "acosh", arity: Unary, apply: |x| x.acosh() },
-    Atanh => { name: "atanh", arity: Unary, apply: |x| x.atanh() },
-    Exp   => { name: "exp",   arity: Unary, apply: |x| x.exp() },
-    Ln    => { name: "ln",    arity: Unary, apply: |x| x.ln() },
-    Log10 => { name: "log10", arity: Unary, apply: |x| x.log10() },
-    Sqrt  => { name: "sqrt",  arity: Unary, apply: |x| x.sqrt() },
-    Abs   => { name: "abs",   arity: Unary, apply: |x| x.abs() },
-    Conj  => { name: "conj",  arity: Unary, apply: |x| x.conj() },
-    Pow   => { name: "pow",   arity: Binary, apply: |x, y| x.powc(y) },
-    Powi  => { name: "powi",  arity: Binary, apply: |x, y| x.powi(y.re.to_i32()) },
+    Sin   => { name: "sin",     apply: |x| x.sin() },
+    Cos   => { name: "cos",     apply: |x| x.cos() },
+    Tan   => { name: "tan",     apply: |x| x.tan() },
+    Asin  => { name: "asin",    apply: |x| x.asin() },
+    Acos  => { name: "acos",    apply: |x| x.acos() },
+    Atan  => { name: "atan",    apply: |x| x.atan() },
+    Sinh  => { name: "sinh",    apply: |x| x.sinh() },
+    Cosh  => { name: "cosh",    apply: |x| x.cosh() },
+    Tanh  => { name: "tanh",    apply: |x| x.tanh() },
+    Asinh => { name: "asinh",   apply: |x| x.asinh() },
+    Acosh => { name: "acosh",   apply: |x| x.acosh() },
+    Atanh => { name: "atanh",   apply: |x| x.atanh() },
+    Exp   => { name: "exp",     apply: |x| x.exp() },
+    Ln    => { name: "ln",      apply: |x| x.ln() },
+    Log10 => { name: "log10",   apply: |x| x.log10() },
+    Sqrt  => { name: "sqrt",    apply: |x| x.sqrt() },
+    Abs   => { name: "abs",     apply: |x| x.abs() },
+    Conj  => { name: "conj",    apply: |x| x.conj() },
+    Pow   => { name: "pow",     apply: |x, y| x.powc(y) },
+    Powi  => { name: "powi",    apply: |x, y| x.powi(y.re.to_i32()) },
 }
 
 #[cfg(test)]
@@ -244,21 +176,21 @@ mod function_tests {
 
     #[test]
     fn apply_sin_cos() {
-        assert!(eq(FunctionKind::Sin.apply(FunctionArgs::Unary(c(0.0, 0.0))), c(0.0, 0.0)));
-        assert!(eq(FunctionKind::Cos.apply(FunctionArgs::Unary(c(0.0, 0.0))), c(1.0, 0.0)));
+        assert!(eq(FunctionKind::Sin.apply(vec![c(0.0, 0.0)]), c(0.0, 0.0)));
+        assert!(eq(FunctionKind::Cos.apply(vec![c(0.0, 0.0)]), c(1.0, 0.0)));
     }
 
     #[test]
     fn apply_exp_ln_roundtrip() {
         let x = c(1.0, 1.0);
-        let exp_x = FunctionKind::Exp.apply(FunctionArgs::Unary(x));
-        assert!(eq(FunctionKind::Ln.apply(FunctionArgs::Unary(exp_x)), x));
+        let exp_x = FunctionKind::Exp.apply(vec![x]);
+        assert!(eq(FunctionKind::Ln.apply(vec![exp_x]), x));
     }
 
     #[test]
     fn apply_abs_is_real() {
         assert!(eq(
-            FunctionKind::Abs.apply(FunctionArgs::Unary(c(3.0, 4.0))),
+            FunctionKind::Abs.apply(vec![c(3.0, 4.0)]),
             c(5.0, 0.0),
         ));
     }
@@ -266,7 +198,7 @@ mod function_tests {
     #[test]
     fn apply_pow_binary() {
         assert!(eq(
-            FunctionKind::Pow.apply(FunctionArgs::Binary(c(2.0, 0.0), c(8.0, 0.0))),
+            FunctionKind::Pow.apply(vec![c(2.0, 0.0), c(8.0, 0.0)]),
             c(256.0, 0.0),
         ));
     }
@@ -274,8 +206,8 @@ mod function_tests {
     #[test]
     fn apply_powi_integer_exp() {
         assert!(eq(
-            FunctionKind::Powi.apply(FunctionArgs::Binary(c(3.0, 0.0), c(3.0, 0.0))),
-            c(27.0, 0.0),
+            FunctionKind::Powi.apply(vec![c(3.0, 0.0), c(4.0, 0.0)]),
+            c(81.0, 0.0),
         ));
     }
 
@@ -288,7 +220,7 @@ mod function_tests {
 }
 
 /// Tye closure type for user-defined custom functions.
-type FuncType<T> = dyn Fn(FunctionArgs<T>) -> Complex<T> + Send + Sync;
+type FuncType<T> = dyn Fn(Vec<Complex<T>>) -> Complex<T> + Send + Sync;
 
 #[derive(Clone)]
 pub struct UserFn<T: Real>
@@ -310,11 +242,10 @@ impl<T: Real> UserFn<T> {
     where
         F: Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
         S: Into<String>,
-        [Complex<T>; N]: FromFunctionArgs<T, N>,
     {
         Self {
             func: Arc::new(move |args| {
-                let arr = <[Complex<T>; N]>::from_args(args);
+                let arr = args.try_into().unwrap_or_else(|_| unreachable!("arity mismatch"));
                 func(arr)
             }),
             deriv: Vec::new(),
@@ -393,7 +324,7 @@ impl<T: Real> Arity for UserFn<T>
 }
 
 impl<T: Real> Apply<T> for UserFn<T> {
-    fn apply(&self, args: FunctionArgs<T>) -> Complex<T> {
+    fn apply(&self, args: Vec<Complex<T>>) -> Complex<T> {
         (self.func)(args)
     }
 }
@@ -427,7 +358,7 @@ mod userfn_tests {
             "inc",
             |[x] : [Complex<f64>; 1]| x + Complex::ONE,
         );
-        assert_eq!(f.apply(FunctionArgs::Unary(Complex::ZERO)), Complex::ONE);
+        assert_eq!(f.apply(vec![Complex::ZERO]), Complex::ONE);
     }
 
     #[test]
@@ -437,7 +368,7 @@ mod userfn_tests {
             |[x, y]| x + y,
         );
         assert_eq!(
-            f.apply(FunctionArgs::Binary(c(1.0, 0.0), c(2.0, 0.0))),
+            f.apply(vec![c(1.0, 0.0), c(2.0, 0.0)]),
             c(3.0, 0.0),
         );
     }
@@ -449,7 +380,7 @@ mod userfn_tests {
             |[x, y, z]| x + y + z,
         );
         assert_eq!(
-            f.apply(FunctionArgs::Ternary(c(1.0, 0.0), c(2.0, 0.0), c(3.0, 0.0))),
+            f.apply(vec![c(1.0, 0.0), c(2.0, 0.0), c(3.0, 0.0)]),
             c(6.0, 0.0),
         );
     }
@@ -484,7 +415,7 @@ mod userfn_tests {
         .unwrap();
 
         let deriv = f.derivative(0).expect("should exist");
-        let result = deriv.apply(FunctionArgs::Unary(c(4.0, 0.0)));
+        let result = deriv.apply(vec![c(4.0, 0.0)]);
         assert_abs_diff_eq!(result.re, 8.0, epsilon = 1e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon = 1e-12);
     }

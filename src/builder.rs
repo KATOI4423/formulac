@@ -17,7 +17,6 @@ use crate::err::ParseError;
 use crate::functions::{
     Arity,
     Apply,
-    FunctionArgs,
     UserFn,
 };
 use crate::lexer;
@@ -119,7 +118,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// # Examples
     /// ```rust
     /// use formulac::builder::Builder;
-    /// use formulac::functions::{FunctionArgs, UserFn};
+    /// use formulac::functions::UserFn;
     /// use num_complex::Complex;
     ///
     /// let func = UserFn::<f64>::new("double", |[x]| x * Complex::new(2.0, 0.0));
@@ -178,7 +177,7 @@ impl<T: Real, const N: usize> Builder<T, N>
                             args.push(stack.pop().unwrap())
                         }
                         args.reverse();
-                        stack.push(kind.apply(FunctionArgs::from(args)));
+                        stack.push(kind.apply(args));
                     },
                     Token::UserFunction { func, .. } => {
                         let n = func.arity();
@@ -188,7 +187,7 @@ impl<T: Real, const N: usize> Builder<T, N>
                         for i in (0..n).rev() {
                             args[i] = stack.pop().unwrap();
                         }
-                        stack.push(func.apply(FunctionArgs::from(args)));
+                        stack.push(func.apply(args));
                     },
                     _ => unreachable!("Invalid tokens found: use compiled tokens"),
                 }

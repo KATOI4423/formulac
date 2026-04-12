@@ -29,7 +29,6 @@ use crate::core::{
     Real,
 };
 use crate::functions::{
-    FunctionArgs,
     FunctionCall,
     FunctionKind,
 };
@@ -93,7 +92,7 @@ impl<T: Real> AstNode<T> {
                     }
                 )
                 .collect();
-            Self::Number { value: func.apply(FunctionArgs::from(nums)), span }
+            Self::Number { value: func.apply(nums), span }
         } else {
             make_node(func, span, args)
         }
