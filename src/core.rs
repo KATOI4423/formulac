@@ -2,7 +2,7 @@
 
 use num_complex::Complex;
 use num_traits::Num;
-use std::{f64, i32};
+use std::f64;
 
 pub trait Real: Num + std::ops::Neg<Output = Self>
     + Clone

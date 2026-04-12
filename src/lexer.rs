@@ -35,6 +35,12 @@ impl Span {
     }
 }
 
+impl Default for Span {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl From<Range<usize>> for Span {
     fn from(value: Range<usize>) -> Self {
         Self {
@@ -76,7 +82,7 @@ impl<'a> Lexeme<'a> {
 
     /// Returns the text slice of the lexeme.
     pub fn text(&self) -> &str {
-        &self.text
+        self.text
     }
 
     /// Returns the start index of the lexeme in the original input string.

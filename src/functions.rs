@@ -187,7 +187,7 @@ functions! {
     Ln    => { name: "ln",    arity: Unary, apply: |x| x.ln() },
     Log10 => { name: "log10", arity: Unary, apply: |x| x.log10() },
     Sqrt  => { name: "sqrt",  arity: Unary, apply: |x| x.sqrt() },
-    Abs   => { name: "abs",   arity: Unary, apply: |x| Complex::from(x.abs()) },
+    Abs   => { name: "abs",   arity: Unary, apply: |x| x.abs() },
     Conj  => { name: "conj",  arity: Unary, apply: |x| x.conj() },
     Pow   => { name: "pow",   arity: Binary, apply: |x, y| x.powc(y) },
     Powi  => { name: "powi",  arity: Binary, apply: |x, y| x.powi(y.re.to_i32()) },
