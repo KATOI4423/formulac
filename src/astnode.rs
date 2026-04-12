@@ -6,12 +6,13 @@
 //! Supports real/complex numbers, constants, unary/binary operators,
 //! built-in functions, user-defined functions, and symbolic differentiation.
 
+pub mod core;
+
 use num_complex::Complex;
 use num_traits::{
     One,
     Zero,
 };
-use std::fmt::Debug;
 use std::ops::{
     AddAssign,
     MulAssign,
@@ -30,7 +31,6 @@ use crate::functions::{
     FunctionArgs,
     FunctionCall,
     FunctionKind,
-    UserFn
 };
 use crate::lexer::{
     Lexeme,
@@ -43,66 +43,7 @@ use crate::operators::{
 };
 use crate::token::{Token, UserFnTable};
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
-fn is_i32_compatible<T: Real>(z: &Complex<T>) -> bool {
-    z.im.is_zero() && z.re.is_i32_compatible()
-}
-
-// ─── AstNode ────────────────────────────────────────────────────────────────
-
-/// Abstract Syntax Tree node representing a mathematical expression.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum AstNode<T: Real> {
-    /// Numeric literal.
-    Number {
-        value: Complex<T>,
-        span: Span, // the location of value
-    },
-
-    /// Function argument by index.
-    Argument {
-        index: usize,
-        span: Span, // the location of index
-    },
-
-    /// Unary operator applied to an expression.
-    UnaryOperator {
-        kind: UnaryOperatorKind,
-        expr: Rc<AstNode<T>>,
-        span: Span, // the location of operator
-    },
-
-    /// Binary operator applied to left and right expressions.
-    BinaryOperator {
-        kind: BinaryOperatorKind,
-        left: Rc<AstNode<T>>,
-        right: Rc<AstNode<T>>,
-        span: Span, // the location of operator
-    },
-
-    /// Derivative node: `diff(expr, var, order)`.
-    Derivative {
-        expr: Rc<AstNode<T>>,
-        var: usize,
-        order: usize,
-        span: Span, // the location of `diff`
-    },
-
-    /// Built-in function call.
-    FunctionCall {
-        kind: FunctionKind,
-        args: Vec<Rc<AstNode<T>>>,
-        span: Span, // the location of function
-    },
-
-    /// User-defined function call.
-    UserFunctionCall {
-        func: UserFn<T>,
-        args: Vec<Rc<AstNode<T>>>,
-        span: Span, // the location of function
-    },
-}
+pub(crate) type AstNode<T> = core::AstNode<T>;
 
 // ─── parse ──────────────────────────────────────────────────────────────────
 
@@ -177,24 +118,6 @@ impl<T: Real> AstNode<T> {
             0 => Err(ParseError::WrongReturn("no AST node produced".into())),
             _ => Err(ParseError::WrongReturn("too many AST nodes remaining".into())),
         }
-    }
-
-    fn span(&self) -> Span
-    {
-        match self {
-            Self::Argument { span, .. }
-            | Self::BinaryOperator { span, .. }
-            | Self::Derivative { span, .. }
-            | Self::FunctionCall { span, .. }
-            | Self::Number { span, .. }
-            | Self::UnaryOperator { span, .. }
-            | Self::UserFunctionCall { span, .. }
-            => *span
-        }
-    }
-
-    fn unwrap_rc(rc: Rc<Self>) -> Self {
-        Rc::try_unwrap(rc).unwrap_or_else(|rc| (*rc).clone())
     }
 
     // ── shunting-yard helpers ────────────────────────────────────────────────
@@ -721,7 +644,7 @@ impl<T: Real> AstNode<T> {
             .filter(|(_, e)| !(*e).is_zero())
             .map(|(base, exp)| {
                 if exp.is_one() { base }
-                else if is_i32_compatible(&exp) { base.powi(exp.re.to_i32()) }
+                else if Self::is_i32_compatible(&exp) { base.powi(exp.re.to_i32()) }
                 else {
                     let span= base.span();
                     base.pow(Self::Number { value: exp, span })
@@ -788,7 +711,7 @@ impl<T: Real> AstNode<T> {
                 => Self::zero(s),
             (Self::Number { value: b, span: s }, Self::Number { value: e, .. })
                 => Self::Number { value: b.powc(e), span: s },
-            (b, Self::Number { value: e, .. }) if is_i32_compatible(&e)
+            (b, Self::Number { value: e, .. }) if Self::is_i32_compatible(&e)
                 => b.powi(e.re.to_i32()),
             (b, e) => {
                 b.pow(e)
@@ -796,94 +719,6 @@ impl<T: Real> AstNode<T> {
         }
     }
 }
-
-// ─── AstNode builder helpers ─────────────────────────────────────────────────
-
-impl<T: Real> AstNode<T> {
-    fn zero(span: Span) -> Self { Self::Number { value: Complex::zero(), span } }
-    fn one(span: Span)  -> Self { Self::Number { value: Complex::one(), span } }
-
-    fn add(self, rhs: Self) -> Self {
-        let span = self.span();
-        Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Rc::new(self), right: Rc::new(rhs), span }
-    }
-
-    fn sub(self, rhs: Self) -> Self {
-        let span = self.span();
-        Self::BinaryOperator { kind: BinaryOperatorKind::Sub, left: Rc::new(self), right: Rc::new(rhs), span }
-    }
-
-    fn mul(self, rhs: Self) -> Self {
-        let span = self.span();
-        Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left: Rc::new(self), right: Rc::new(rhs), span }
-    }
-
-    fn div(self, rhs: Self) -> Self {
-        let span = self.span();
-        Self::BinaryOperator { kind: BinaryOperatorKind::Div, left: Rc::new(self), right: Rc::new(rhs), span }
-    }
-
-    fn negative(self) -> Self {
-        let span = self.span();
-        Self::UnaryOperator { kind: UnaryOperatorKind::Negative, expr: Rc::new(self), span }
-    }
-
-    fn sin(self)  -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Sin,  args: vec![Rc::new(self)], span }
-    }
-
-    fn cos(self)  -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Cos,  args: vec![Rc::new(self)], span }
-    }
-
-    fn sinh(self) -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Sinh, args: vec![Rc::new(self)], span }
-    }
-
-    fn cosh(self) -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Cosh, args: vec![Rc::new(self)], span }
-    }
-
-    fn exp(self)  -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Exp,  args: vec![Rc::new(self)], span }
-    }
-
-    fn sqrt(self) -> Self {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Sqrt, args: vec![Rc::new(self)], span }
-    }
-
-    fn pow(self, exp: Self) -> Self
-    {
-        let span = self.span();
-        Self::FunctionCall { kind: FunctionKind::Pow, args: vec![Rc::new(self), Rc::new(exp)], span }
-    }
-
-    fn powi(self, n: i32) -> Self
-    {
-        let span = self.span();
-        Self::FunctionCall {
-            kind: FunctionKind::Powi,
-            args: vec![
-                Rc::new(self),
-                Rc::new(Self::Number { value: Complex::from(T::from_f64(n as f64)), span }),
-            ],
-            span,
-        }
-    }
-}
-
-impl<T: Real> std::ops::Add for AstNode<T> { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }
-impl<T: Real> std::ops::Sub for AstNode<T> { type Output = Self; fn sub(self, rhs: Self) -> Self { self.sub(rhs) } }
-impl<T: Real> std::ops::Mul for AstNode<T> { type Output = Self; fn mul(self, rhs: Self) -> Self { self.mul(rhs) } }
-impl<T: Real> std::ops::Div for AstNode<T> { type Output = Self; fn div(self, rhs: Self) -> Self { self.div(rhs) } }
-impl<T: Real> std::ops::BitXor for AstNode<T> { type Output = Self; fn bitxor(self, rhs: Self) -> Self { self.pow(rhs) } }
-impl<T: Real> std::ops::Neg for AstNode<T> { type Output = Self; fn neg(self) -> Self { self.negative() } }
 
 // ─── differentiate ──────────────────────────────────────────────────────────
 
