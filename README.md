@@ -7,6 +7,7 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
 ## Features
 
 - **Generic numeric backend (T: Real)**
+  - Arbitrary-precision support via `Real` trait
   - Supports `f64` as well as custom numeric types (e.g., arbitrary precision floats)
   - Designed without requiring `Copy`, enabling efficient use of non-trivial numeric types
 - **Complex number support**
