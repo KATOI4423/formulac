@@ -14,7 +14,7 @@ use crate::token::Token;
 
 impl<T: Real> AstNode<T> {
     /// Compiles the AST into a flat sequence of postfix `Token`s.
-    pub fn compile(&self) -> Vec<Token<T>> {
+    pub(crate) fn compile(&self) -> Vec<Token<T>> {
         let mut out = Vec::new();
         self.compile_into(&mut out);
         out

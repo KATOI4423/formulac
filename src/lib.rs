@@ -64,7 +64,7 @@
 //! ## License
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
-pub mod astnode;
+mod astnode;
 pub mod builder;
 pub mod constants;
 pub mod core;

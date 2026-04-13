@@ -9,10 +9,10 @@
 //! - [`diff`]: Symbolic differentiation
 //! - [`compile`]: Compilation into a flat postfix [`Token`] sequence
 
-pub mod compile;
-pub mod core;
-pub mod diff;
-pub mod parser;
-pub mod simplify;
+pub(crate) mod compile;
+pub(crate) mod core;
+pub(crate) mod diff;
+pub(crate) mod parser;
+pub(crate) mod simplify;
 
 pub(crate) type AstNode<T> = core::AstNode<T>;

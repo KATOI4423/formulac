@@ -38,7 +38,7 @@ use crate::operators::BinaryOperatorKind;
 
 impl<T: Real> AstNode<T> {
     /// Simplifies the AST by constant-folding and algebraic normalization.
-    pub fn simplify(self) -> Self
+    pub(crate) fn simplify(self) -> Self
     where
         Complex<T>: AddAssign + MulAssign,
     {

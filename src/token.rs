@@ -127,7 +127,7 @@ impl<T: Real> Token<T> {
     /// 5. Built-in function
     /// 6. User-defined function
     /// 7. Parentheses and comma
-    pub fn try_from(
+    pub(crate) fn try_from(
         lexeme: &Lexeme,
         args: &[&str],
         constants: &Constants<T>,
@@ -182,7 +182,7 @@ impl<T: Real> Token<T> {
         }
     }
 
-    pub fn span(&self) -> Span
+    pub(crate) fn span(&self) -> Span
     {
         match self {
             Self::Number { span, .. }

@@ -61,7 +61,7 @@ impl std::fmt::Display for Span {
 /// A `Lexeme` stores a text slice and its span (start..end indices) within
 /// the original input string.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Lexeme<'a> {
+pub(crate) struct Lexeme<'a> {
     text: &'a str,
     span: Span,
 }
@@ -73,7 +73,7 @@ impl<'a> Lexeme<'a> {
     ///
     /// * `text` - The slice of text corresponding to the lexeme.
     /// * `span` - The range of the lexeme in the original input string.
-    pub fn new(text: &'a str, span: Range<usize>) -> Self {
+    pub(crate) fn new(text: &'a str, span: Range<usize>) -> Self {
         Self {
             text,
             span: Span::from(span),
@@ -81,22 +81,12 @@ impl<'a> Lexeme<'a> {
     }
 
     /// Returns the text slice of the lexeme.
-    pub fn text(&self) -> &str {
+    pub(crate) fn text(&self) -> &str {
         self.text
     }
 
-    /// Returns the start index of the lexeme in the original input string.
-    pub fn start(&self) -> usize {
-        self.span.start
-    }
-
-    /// Returns the end index of the lexeme in the original input string.
-    pub fn end(&self) -> usize {
-        self.span.end
-    }
-
     /// Returns the span index (start, end) of the lexeme in the original input string.
-    pub fn span(&self) -> Span {
+    pub(crate) fn span(&self) -> Span {
         self.span
     }
 }
@@ -109,7 +99,7 @@ impl<'a> std::fmt::Display for Lexeme<'a>
 }
 
 /// Type alias for a collection of lexemes.
-pub type Lexemes<'a> = Vec<Lexeme<'a>>;
+pub(crate) type Lexemes<'a> = Vec<Lexeme<'a>>;
 
 type CharIter<'a> = std::iter::Peekable<std::str::CharIndices<'a>>;
 
@@ -191,7 +181,7 @@ fn parse_number(start_idx: usize, chars: &mut CharIter) -> usize
 /// # Returns
 ///
 /// A `VecDeque` of lexemes representing identifiers, numbers, and single-character tokens..
-pub fn from<'a>(input: &'a str) -> Lexemes<'a> {
+pub(crate) fn from<'a>(input: &'a str) -> Lexemes<'a> {
     let mut lexemes = Lexemes::default();
     let mut chars = input.char_indices().peekable();
 

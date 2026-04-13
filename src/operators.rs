@@ -62,7 +62,7 @@ macro_rules! unary_operator_kind {
     ($($name:ident => { kind: $kind:ident, apply: $apply:expr }),* $(,)?) => {
         /// Represents a unary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub enum UnaryOperatorKind {
+        pub(crate) enum UnaryOperatorKind {
             $($name),*
         }
 
@@ -78,7 +78,7 @@ macro_rules! unary_operator_kind {
 
         impl UnaryOperatorKind {
             /// Applies the unary operator to a complex number.
-            pub fn apply<T: Real>(&self, x: Complex<T>) -> Complex<T> {
+            pub(crate) fn apply<T: Real>(&self, x: Complex<T>) -> Complex<T> {
                 match self {
                     $( Self::$name => $apply(x), )*
                 }
@@ -112,7 +112,7 @@ macro_rules! binary_operators {
     }),* $(,)?) => {
         /// Represents a binary operator in a mathematical expression.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub enum BinaryOperatorKind {
+        pub(crate) enum BinaryOperatorKind {
             $($name),*
         }
 
@@ -127,14 +127,14 @@ macro_rules! binary_operators {
 
         impl BinaryOperatorKind {
             #[inline]
-            pub fn precedence(&self) -> u8 {
+            pub(crate) fn precedence(&self) -> u8 {
                 match self {
                     $( Self::$name => $prec, )*
                 }
             }
 
             #[inline]
-            pub fn is_left_assoc(&self) -> bool {
+            pub(crate) fn is_left_assoc(&self) -> bool {
                 match self {
                     $( Self::$name => $assoc, )*
                 }
@@ -142,7 +142,7 @@ macro_rules! binary_operators {
 
             /// Applies the operator to two complex numbers.
             #[inline]
-            pub fn apply<T: Real>(&self, l: Complex<T>, r: Complex<T>) -> Complex<T> {
+            pub(crate) fn apply<T: Real>(&self, l: Complex<T>, r: Complex<T>) -> Complex<T> {
                 match self {
                     $(Self::$name => $apply(l, r),)*
                 }

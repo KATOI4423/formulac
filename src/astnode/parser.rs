@@ -36,7 +36,7 @@ use crate::token::{
 
 impl<T: Real> AstNode<T> {
     /// Parses a slice of `Lexeme`s into an AST using a shunting-yard algorithm.
-    pub fn from(
+    pub(crate) fn from(
         lexemes:   &[Lexeme],
         args:      &[&str],
         constants: &Constants<T>,

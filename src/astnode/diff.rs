@@ -33,7 +33,7 @@ use crate::operators::BinaryOperatorKind;
 
 impl<T: Real> AstNode<T> {
     /// Symbolically differentiates the AST with respect to argument `var`.
-    pub fn differentiate(self, var: usize) -> Result<Self, ParseError> {
+    pub(crate) fn differentiate(self, var: usize) -> Result<Self, ParseError> {
         match self {
             Self::Number { span, .. }    => Ok(Self::zero(span)),
             Self::Argument { index: i, span }  => Ok(if i == var { Self::one(span) } else { Self::zero(span) }),
