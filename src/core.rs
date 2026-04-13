@@ -52,6 +52,7 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
     fn acos(self) -> Self;
     fn atan(self) -> Self;
     fn atan2(self, other: Self) -> Self;
+    fn sin_cos(self) -> (Self, Self);
 
     // Hyperbolic functions
     fn sinh(self) -> Self;
@@ -128,6 +129,7 @@ impl Real for f64 {
     fn acos(self) -> Self { self.acos() }
     fn atan(self) -> Self { self.atan() }
     fn atan2(self, other: Self) -> Self { self.atan2(other) }
+    fn sin_cos(self) -> (Self, Self) { self.sin_cos() }
 
     fn sinh(self) -> Self { self.sinh() }
     fn cosh(self) -> Self { self.cosh() }
@@ -184,44 +186,61 @@ impl<T: Real> ComplexMath for Complex<T> {
     fn sin(self) -> Self
     {
         // sin(a + bi) = sin(a) cosh(b) + i cos(a) sinh(b)
-        let re = self.re; let im = self.im;
+        let (a, b) = (self.re, self.im);
+        let (sin_a, cos_a) = a.sin_cos();
         Self {
-            re: re.clone().sin() * im.clone().cosh(),
-            im: re.cos() * im.sinh(),
+            re: sin_a * b.clone().cosh(),
+            im: cos_a * b.sinh(),
         }
     }
 
     fn cos(self) -> Self
     {
         // cos(a + bi) = cos(a) cosh(b) - i sin(a) sinh(b)
-        let re = self.re; let im = self.im;
+        let (a, b) = (self.re, self.im);
+        let (sin_a, cos_a) = a.sin_cos();
         Self {
-            re: re.clone().cos() * im.clone().cosh(),
-            im: -(re.sin() * im.sinh()),
+            re: cos_a * b.clone().cosh(),
+            im: -(sin_a * b.sinh()),
         }
     }
 
-    fn tan(self) -> Self { self.clone().sin() / self.cos() }
+    fn tan(self) -> Self {
+        // tan(a + bi) = sin(a + bi) / cos(a + bi)
+        let (a, b) = (self.re, self.im);
+        let (sin_a, cos_a) = a.sin_cos();
+        let (sinh_b, cosh_b) = (b.clone().sinh(), b.cosh());
+
+        let sin = Self {
+            re: sin_a.clone() * cosh_b.clone(),
+            im: cos_a.clone() * sinh_b.clone(),
+        };
+        let cos = Self {
+            re: cos_a * cosh_b,
+            im: -sin_a * sinh_b,
+        };
+        sin / cos
+    }
 
     fn asin(self) -> Self {
         // asin(z) = -i ln(iz + sqrt(1 - z^2))
+        let z = self;
+        let z2 = z.clone() * z.clone(); // z^2
+        let iz = Complex::new(-z.im, z.re);
         let i = Complex::new(T::zero(), T::one());
         let one = Complex::new(T::one(), T::zero());
 
-        let iz = i.clone() * self.clone();
-        let sqrt = (one - self.clone() * self).sqrt();
-
-        -(i) * (iz + sqrt).ln()
+        -i * (iz + (one - z2).sqrt()).ln()
     }
 
     fn acos(self) -> Self {
         // acos(z) = -i ln(z + i sqrt(1 - z^2))
+        let z = self;
+        let z2 = z.clone() * z.clone(); // z^2
         let i = Complex::new(T::zero(), T::one());
         let one = Complex::new(T::one(), T::zero());
 
-        let sqrt = (one - self.clone() * self.clone()).sqrt();
-
-        -(i.clone()) * (self + i * sqrt).ln()
+        -(i.clone()) * (z + i * (one - z2).sqrt()).ln()
     }
 
     fn atan(self) -> Self {
@@ -240,16 +259,31 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn sinh(self) -> Self {
-        // sinh(z) = (exp(z) - exp(-z)) / 2
-        (self.clone().exp() - (-self).exp()) * T::from_f64(0.5)
+        // sinh(z) = (exp(z) - exp(-z)) / 2 = sinh(x) cos(y) + i cosh(x) sin(y)
+        let (x, y) = (self.re, self.im);
+        let (sin_y, cos_y) = y.sin_cos();
+        Self {
+            re: x.clone().sinh() * cos_y,
+            im: x.cosh() * sin_y,
+        }
     }
 
     fn cosh(self) -> Self {
-        // cosh(z) = (exp(z) + exp(-z)) / 2
-        (self.clone().exp() + (-self).exp()) * T::from_f64(0.5)
+        // cosh(z) = (exp(z) + exp(-z)) / 2 = cosh(x) cos(y) + i sinh(x) sin(y)
+        let (x, y) = (self.re, self.im);
+        let (sin_y, cos_y) = y.sin_cos();
+        Self {
+            re: x.clone().cosh() * cos_y,
+            im: x.sinh() * sin_y,
+        }
     }
 
-    fn tanh(self) -> Self { self.clone().sinh() / self.cosh() }
+    fn tanh(self) -> Self {
+        // tanh(z) = (exp(2z) - 1) / (exp(2z) + 1)
+        let e2 = (self.clone() + self).exp();
+        let one = T::one();
+        (e2.clone() - one.clone()) / (e2 + one)
+      }
 
     fn asinh(self) -> Self {
         // asinh(z) = ln(z + sqrt(z^2 + 1))
@@ -338,15 +372,15 @@ impl<T: Real> ComplexMath for Complex<T> {
         let mut base = self;
         let mut exp = n;
 
-        while exp > 0 {
+        while exp > 1 {
             if exp & 1 == 1 {
                 result = result * base.clone();
             }
-            base = &base * &base;
+            base = base.clone() * base;
             exp >>=1;
         }
 
-        result
+        result * base
     }
 }
 
