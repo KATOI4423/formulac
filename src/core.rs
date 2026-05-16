@@ -206,20 +206,12 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn tan(self) -> Self {
-        // tan(a + bi) = sin(a + bi) / cos(a + bi)
-        let (a, b) = (self.re, self.im);
-        let (sin_a, cos_a) = a.sin_cos();
-        let (sinh_b, cosh_b) = (b.clone().sinh(), b.cosh());
+        // tan(a + bi) = (sin(2a) + i sinh(2b)) / (cos(2b) + cosh(2b))
+        let (a2, b2) = (self.re * T::from_f64(2.0), self.im * T::from_f64(2.0));
+        let (sin_2a, cos_2a) = a2.sin_cos();
+        let (sinh_2b, cosh_2b) = (b2.clone().sinh(), b2.cosh());
 
-        let sin = Self {
-            re: sin_a.clone() * cosh_b.clone(),
-            im: cos_a.clone() * sinh_b.clone(),
-        };
-        let cos = Self {
-            re: cos_a * cosh_b,
-            im: -sin_a * sinh_b,
-        };
-        sin / cos
+        Complex::new(sin_2a, sinh_2b) / (cos_2a + cosh_2b)
     }
 
     fn asin(self) -> Self {
