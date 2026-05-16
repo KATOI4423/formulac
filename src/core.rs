@@ -333,10 +333,13 @@ impl<T: Real> ComplexMath for Complex<T> {
         let r = self.re.clone().hypot(self.im.clone());
         let half = T::from_f64(0.5);
 
-        let re = ((r.clone() + self.re.clone()) * half.clone()).sqrt();
-        let im = ((r - self.re) * half).sqrt();
-
-        let im = if self.im >= T::zero() { im } else { -im };
+        let (re, im) = if self.re > T::zero() {
+            let u = ((r + self.re) * half.clone()).sqrt();
+            (u.clone(), self.im * half / u)
+        } else {
+            let v = ((r - self.re) * half.clone()).sqrt();
+            (self.im * half / v.clone(), v)
+        };
 
         Complex::new(re, im)
     }
