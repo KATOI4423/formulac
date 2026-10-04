@@ -7,7 +7,7 @@
 //! - Parse and evaluate expressions containing real and imaginary numbers.
 //! - Use built-in operators, constants, and mathematical functions.
 //! - Register your own constants and functions.
-//! - Compile expressions into callable closures for repeated evaluation without re-parsing.
+//! - Compile expressions into reusable [`CompiledFormula`]s for repeated evaluation without re-parsing.
 //!
 //! Internally, expressions are first tokenized into lexeme,
 //! then converted to an AST using the Shunting-Yard algorithm,
@@ -19,7 +19,8 @@
 //! - **User-defined functions and constants**
 //! - **Variables and arguments**
 //! - **Operator precedence** and parentheses handling
-//! - **Efficient compiled closures** avoiding repeated parsing
+//! - **Efficient compiled formulas** avoiding repeated parsing
+//! - **Thread-friendly evaluation**: share one [`CompiledFormula`], give each thread its own [`Scratch`]
 //!
 //! ## Example
 //! ```rust
@@ -31,7 +32,7 @@
 //!     .compile()
 //!     .expect("Failed to compile formula");
 //!
-//! let result = expr([Complex::new(1.0, 2.0)]);
+//! let result = expr.eval([Complex::new(1.0, 2.0)]);
 //! println!("Result = {}", result);
 //! ```
 //!
@@ -76,3 +77,7 @@ mod token;
 
 pub type Builder<T, const N: usize> = builder::Builder<T, N>;
 pub type UserFn<T> = functions::UserFn<T>;
+pub use builder::{
+    CompiledFormula,
+    Scratch,
+};

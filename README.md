@@ -18,10 +18,13 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
 - **Reverse Polish Notation (RPN)**
   - Converts infix expressions to RPN using the Shunting-Yard algorithm
 - **Built-in mathematical operators & functions**
-  - Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `log`, and more
-  - See `src/astnode.rs` or [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols
+  - Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `ln`, and more
+  - See the [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols
 - **Abstract Syntax Tree (AST)**
-  - Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into executable closures
+  - Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into an executable structure
+- **Reusable compiled formulas**
+  - `Builder::compile()` returns a `CompiledFormula<T, N>` that is evaluated with `eval(...)`
+  - One formula can be shared across threads; give each thread its own `Scratch` to avoid per-call allocation
 - **User-defined functions**
   - Easily register custom functions via `Builder::with_user_functions`
 - **Symbolic differentiation**
@@ -54,7 +57,7 @@ fn main() {
         .compile()
         .unwrap();
 
-    let result = expr([Complex::new(1.0, 2.0)]);
+    let result = expr.eval([Complex::new(1.0, 2.0)]);
     println!("Result = {}", result);
 }
 ```
@@ -103,13 +106,13 @@ fn main() {
     // Define a function f(x) = x^2 + 1
     let func = UserFn::<f64>::new("f", |[x]| x * x + Complex::new(1.0, 0.0));
 
-    let builder = Builder::<f64, 1>::new("f(3)", [])
+    let builder = Builder::<f64, 0>::new("f(3)", [])
         .with_user_functions([func]);
 
     let expr = builder.compile()
         .expect("Failed to compile formula with UserFn");
 
-    assert_eq!(expr([]), Complex::new(10.0, 0.0));
+    assert_eq!(expr.eval([]), Complex::new(10.0, 0.0));
 
     let func2 = UserFn::<f64>::new(
         "f", // it conflicts the above function.
@@ -120,7 +123,7 @@ fn main() {
     let expr = builder.with_user_functions([func2])
         .compile().unwrap();
 
-    assert_eq!(expr([]), Complex::new(5.0, 1.0));
+    assert_eq!(expr.eval([]), Complex::new(5.0, 1.0));
 }
 ```
 
@@ -129,7 +132,7 @@ fn main() {
 ## Differentiation Support
 
 `formulac` can represent **derivative expressions** in the AST.
-Built-in functions (e.g. `sin`, `cos`, `exp`, `log`, …) already have derivative rules,
+Built-in functions (e.g. `sin`, `cos`, `exp`, `ln`, …) already have derivative rules,
 but **user-defined functions require the user to explicitly register their derivative form**.
 If no derivative is provided, `diff(...)` will result in an error at compile time (during `compile()`).
 
@@ -153,7 +156,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr([Complex::new(1.0, 0.0)]); // evaluates cos(1)
+    let result = expr.eval([Complex::new(1.0, 0.0)]); // evaluates cos(1)
     println!("Result = {}", result);
 }
 ```
@@ -171,7 +174,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr([Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
+    let result = expr.eval([Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
     println!("Result = {}", result);
 }
 ```
@@ -194,7 +197,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula with UserFn");
 
-    let result = expr([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+    let result = expr.eval([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
     println!("Result: {}", result);
 }
 ```
@@ -214,21 +217,21 @@ fn main() {
     let deriv_y = UserFn::<f64>::new("dg_dy", |[x, y]| x * x + Complex::new(3.0, 0.0) * y * y);
     // Define g(x, y) = x^2 * y + y^3
     let func = UserFn::<f64>::new("g", |[x, y]| x * x * y  + y * y * y)
-        .with_derivative([deriv_x, deriv_y]);
+        .with_derivative([deriv_x, deriv_y]).unwrap();
 
     // 2 arguments: x and y
     let expr_dx = Builder::<f64, 2>::new("diff(g(x, y), x)", ["x", "y"])
         .with_user_functions([func.clone()]) // use it again later
         .compile()
         .unwrap();
-    let result_dx = expr_dx([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dx = expr_dx.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂x at (2, 3) = {}", result_dx); // 12
 
     let expr_dy = Builder::<f64, 2>::new("diff(g(x, y), y)", ["x", "y"])
         .with_user_functions([func])
         .compile()
         .unwrap();
-    let result_dy = expr_dy([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dy = expr_dy.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
     println!("∂g/∂y at (2, 3) = {}", result_dy); // 31
 }
 ```
@@ -236,7 +239,16 @@ fn main() {
 ## Core Types & API Overview
 
 - **`Builder<T, const N: usize>`**
-  Compiles a formula string into a Rust closure `Fn([Complex<T>; N]) -> Complex<T>` that evaluates the expression for given variable values.
+  Compiles a formula string into a structure `CompiledFormula` that evaluates the expression for given variable values.
+
+- **`CompiledFormula<T, const N: usize>`**
+  The compiled, immutable formula returned by `Builder::compile()`.
+  `eval(args)` evaluates it with a freshly allocated working stack;
+  `eval_with_scratch(args, &mut scratch)` reuses a `Scratch`.
+  Cloning is cheap (the compiled program is shared via `Arc`).
+
+- **`Scratch<T>`**
+  A reusable working buffer for `eval_with_scratch`. Use one per thread; never share it.
 
 - **`UserFn<T>`**
   Represents a user-defined function.
@@ -250,12 +262,13 @@ fn main() {
   - Cost depends on the underlying type
   - For small types (e.g., `f64`), this is negligible
   - For large types, this trades performance for flexibility
-- Closure require:
+- `Builder::compile()` requires:
   ```rust
   T: Send + Sync + 'static
   ```
-  - This is needed because the compiled function captures owned data
-  - Enables safe reuse across threads
+  - The compiled program owns its data (constants, user functions) behind an `Arc`
+  - `CompiledFormula` is therefore `Send + Sync` and can be shared across threads
+  - The only mutable state is the `Scratch` buffer: give each thread its own
 
 ### Available mathematical constants
 
@@ -355,6 +368,9 @@ The benchmarks are located in `benches/benches.rs` and cover:
 - Invalid expressions (error cases)
 - Practical expressions (polynomials, wave functions, exponential decay)
 - Comparison of direct calls vs. parsed calls for standard functions (sin, cos, pow, etc.)
+
+Multi-threaded evaluation (1 / 4 / 8 threads, `f64` and a multi-precision type) is measured in
+`benches/threads.rs`; run it with `cargo bench --bench threads`.
 
 ### Run Benchmarks
 

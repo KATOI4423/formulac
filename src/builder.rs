@@ -9,8 +9,10 @@ use std::ops::{
     MulAssign,
 };
 use std::str::FromStr;
+use std::sync::Arc;
 
-use crate::astnode;
+use crate::astnode::AstNode;
+use crate::astnode::compile::Program;
 use crate::core::Real;
 use crate::constants::Constants;
 use crate::err::ParseError;
@@ -58,7 +60,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let builder = Builder::new("x + 1", ["x"]);
     /// let func = builder.compile()
     ///     .expect("Failed to compile 'x + 1'");
-    /// println!("{} + 1 = {}", 3, func([Complex::new(3.0, 0.0)]));
+    /// println!("{} + 1 = {}", 3, func.eval([Complex::new(3.0, 0.0)]));
     /// ```
     pub fn new(formula: &str, arg_names: [&str; N]) -> Self
     {
@@ -136,7 +138,7 @@ impl<T: Real, const N: usize> Builder<T, N>
         self
     }
 
-    fn build_tokens(&self) -> Result<Vec<Token<T>>, ParseError>
+    fn build_tokens(&self) -> Result<Program<T>, ParseError>
     where
         T: FromStr,
         Complex<T>: AddAssign + MulAssign,
@@ -146,81 +148,30 @@ impl<T: Real, const N: usize> Builder<T, N>
         Ok(tokens)
     }
 
-    fn build_astnode(&self) -> Result<astnode::AstNode<T>, ParseError>
+    fn build_astnode(&self) -> Result<AstNode<T>, ParseError>
     where
         T: FromStr,
         Complex<T>: AddAssign + MulAssign,
     {
         let lexemes = lexer::from(&self.formula);
         let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
-        let astnode = astnode::AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
+        let astnode = AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
             .simplify();
         Ok(astnode)
     }
 
-    fn build_executor(tokens: Vec<Token<T>>)
-        -> impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static
-    where
-        T: Send + Sync + 'static,
-    {
-        move |arg_values: [Complex<T>; N]| {
-            let mut stack: Vec<Complex<T>> = Vec::with_capacity(tokens.len());
-            for token in tokens.iter() {
-                match token {
-                    Token::Number { value, .. } => stack.push(value.clone()),
-                    Token::Argument { index, .. } => stack.push(arg_values[*index].clone()),
-                    Token::UnaryOperator { kind, .. } => {
-                        let expr = stack.pop().unwrap();
-                        stack.push(kind.apply(expr));
-                    },
-                    Token::BinaryOperator { kind, .. } => {
-                        let r = stack.pop().unwrap();
-                        let l = stack.pop().unwrap();
-                        stack.push(kind.apply(l, r));
-                    },
-                    Token::Function { kind, .. } => {
-                        let n = kind.arity();
-                        let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
-                        for _ in 0..n {
-                            args.push(stack.pop().unwrap())
-                        }
-                        args.reverse();
-                        stack.push(kind.apply(args));
-                    },
-                    Token::UserFunction { func, .. } => {
-                        let n = func.arity();
-                        let mut args: Vec<Complex<T>> = Vec::with_capacity(n);
-                        args.resize(n, Complex::zero());
-
-                        for i in (0..n).rev() {
-                            args[i] = stack.pop().unwrap();
-                        }
-                        stack.push(func.apply(args));
-                    },
-                    _ => unreachable!("Invalid tokens found: use compiled tokens"),
-                }
-            }
-
-            stack.pop().unwrap_or_else(|| unreachable!("empty stack at end"))
-        }
-    }
-
-    /// Compiles a mathematical expression into an executable closure.
+    /// Compiles a mathematical expression into an executable structure.
     ///
     /// This function parses a formula string into an abstract syntax tree (AST),
     /// simplifies it, and then compiles it into a list of stack operations
-    /// (in Reverse Polish Notation). The result is returned as a closure that
+    /// (in Reverse Polish Notation). The result is returned as a structure that
     /// can be called multiple times with different argument values without
-    /// re-parsing the formula.
+    /// re-parsing the formula with `eval()`.
     ///
     /// # Returns
-    /// On success, returns a closure of type:
+    /// On success, returns a structure: CompiledFormula:
     ///
-    /// ```rust,ignore
-    /// Fn([Complex<f64>]) -> Complex<f64>
-    /// ```
-    ///
-    /// - The closure takes a slice of complex argument values corresponding to `arg_names`.
+    /// - The structure takes a slice of complex argument values corresponding to `arg_names`.
     /// - Returns `Complex<f64>` if evaluation succeeds.
     ///
     /// On failure, returns an error enum describing the parsing or compilation error.
@@ -235,21 +186,21 @@ impl<T: Real, const N: usize> Builder<T, N>
     ///     .compile()
     ///     .expect("Failed to compile formula");
     ///
-    /// let result = expr([Complex::new(1.0, 2.0)]);
+    /// let result = expr.eval([Complex::new(1.0, 2.0)]);
     /// println!("Result = {}", result);
     /// ```
     ///
     /// # Notes
     /// - This function does not evaluate immediately; instead, it produces
-    ///   a reusable compiled closure for efficient repeated evaluation.
-    pub fn compile(&self) -> Result<impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static, ParseError>
+    ///   a reusable compiled structure for efficient repeated evaluation.
+    pub fn compile(&self) -> Result<CompiledFormula<T, N>, ParseError>
     where
         T: FromStr + Send + Sync + 'static,
         Complex<T>: AddAssign + MulAssign,
     {
-        let tokens = self.build_tokens()?;
+        let program = self.build_tokens()?;
 
-        Ok(Self::build_executor(tokens))
+        Ok(CompiledFormula::from_program(program))
     }
 
     fn get_argument_index(&self, variable: impl AsRef<str>) -> Option<usize>
@@ -266,7 +217,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// 2. the compiled derivative with respect to `variable`.
     ///
     /// The derivative is generated by differentiating the AST before compilation,
-    /// so both closures are produced from the same parsed expression.
+    /// so both structures are produced from the same parsed expression.
     ///
     /// # Parameters
     ///
@@ -294,13 +245,14 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let x = Complex::new(1.0, -1.0);
     /// let y = Complex::new(2.0, 0.0);
     ///
-    /// assert_eq!(f([x, y]), x.sin() + y);
-    /// assert_eq!(df([x, y]), x.cos());
+    /// assert_eq!(f.eval([x, y]), x.sin() + y);
+    /// assert_eq!(df.eval([x, y]), x.cos());
     /// ```
-    pub fn compile_with_derivative(&self, variable: impl AsRef<str>) -> Result<(
-        impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
-        impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
-    ), ParseError>
+    pub fn compile_with_derivative(&self, variable: impl AsRef<str>)
+    -> Result<
+        (CompiledFormula<T, N>, CompiledFormula<T, N>),
+        ParseError,
+    >
     where
         T: FromStr + Send + Sync + 'static,
         Complex<T>: AddAssign + MulAssign,
@@ -313,10 +265,10 @@ impl<T: Real, const N: usize> Builder<T, N>
             })?;
 
         let astnode = self.build_astnode()?;
-        let tokens = astnode.clone().compile();
-        let derive_tokens = astnode.differentiate(idx)?.compile();
+        let program = astnode.clone().compile();
+        let derive_program = astnode.differentiate(idx)?.compile();
 
-        Ok((Self::build_executor(tokens), Self::build_executor(derive_tokens)))
+        Ok((CompiledFormula::from_program(program), CompiledFormula::from_program(derive_program)))
     }
 
     /// Compiles the original expression together with all partial derivatives.
@@ -352,35 +304,231 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let df_dy = &partials[1]; // ∂/∂y
     /// let df_dz = &partials[2]; // ∂/∂z
     ///
-    /// assert_eq!(f([x, y, z]), x * y + z);
-    /// assert_eq!(df_dx([x, y, z]), y);
-    /// assert_eq!(df_dy([x, y, z]), x);
-    /// assert_eq!(df_dz([x, y, z]), Complex::new(1.0, 0.0));
+    /// assert_eq!(f.eval([x, y, z]), x * y + z);
+    /// assert_eq!(df_dx.eval([x, y, z]), y);
+    /// assert_eq!(df_dy.eval([x, y, z]), x);
+    /// assert_eq!(df_dz.eval([x, y, z]), Complex::new(1.0, 0.0));
     /// ```
     pub fn compile_with_all_partials(
         &self,
     ) -> Result<(
-        impl Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
-        Vec<Box<dyn Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static>>,
+        CompiledFormula<T, N>,
+        Vec<CompiledFormula<T, N>>,
     ), ParseError>
     where
         T: FromStr + Send + Sync + 'static,
         Complex<T>: AddAssign + MulAssign,
     {
         let astnode = self.build_astnode()?;
-        let original_tokens = astnode.clone().compile();
+        let original_program = astnode.clone().compile();
 
         let partials = (0..N)
             .map(|idx| {
-                let derived_tokens = astnode.clone().differentiate(idx)?.compile();
-                Ok(Box::new(Self::build_executor(derived_tokens))
-                    as Box<dyn Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static>)
+                let derived_program = astnode.clone().differentiate(idx)?.compile();
+                Ok(CompiledFormula::from_program(derived_program))
             })
             .collect::<Result<Vec<_>, ParseError>>()?;
 
-        Ok((Self::build_executor(original_tokens), partials))
+        Ok((CompiledFormula::from_program(original_program), partials))
     }
 }
+
+/// Reusable working buffer for [`CompiledFormula::eval_with_scratch`].
+///
+/// Evaluating a formula uses a stack of intermediate values. Passing a `Scratch`
+/// lets repeated evaluations reuse a single allocation instead of allocating a new
+/// stack on every call.
+///
+/// # Usage
+/// - Use **one `Scratch` per thread.** It is mutable state and is taken as `&mut`,
+///   so one instance cannot be used from two threads at once. It is [`Send`] when
+///   `T: Send`, so moving it to another thread is fine.
+/// - Its contents are discarded at the start of every evaluation. No reset is
+///   needed, and one `Scratch` may be used with different formulas (it grows on
+///   demand).
+///
+/// Create one with [`CompiledFormula::new_scratch`], which sizes it for that
+/// formula, or with [`Scratch::new`].
+#[derive(Debug, Clone)]
+pub struct Scratch<T: Real> {
+    stack: Vec<Complex<T>>,
+}
+
+impl<T: Real> Scratch<T> {
+    /// Creates a scratch buffer with room for `capacity` intermediate values.
+    ///
+    /// A buffer that is too small is safe: it grows on demand during evaluation.
+    /// Prefer [`CompiledFormula::new_scratch`] to get the right size automatically.
+    pub(crate) fn new(size: usize) -> Self {
+        Self {
+            stack: Vec::with_capacity(size),
+        }
+    }
+}
+
+/// A compiled formula, ready for repeated evaluation.
+///
+/// Created by [`Builder::compile`], [`Builder::compile_with_derivative`] and
+/// [`Builder::compile_with_all_partials`]. `N` is the number of arguments given to
+/// [`Builder::new`].
+///
+/// # Evaluation
+/// - [`eval`](Self::eval): the simplest form; allocates a working stack per call.
+/// - [`eval_with_scratch`](Self::eval_with_scratch): reuses a [`Scratch`], so no
+///   stack is allocated per call. Preferred for repeated or multi-threaded use.
+///
+/// # Sharing and threads
+/// A `CompiledFormula` is immutable. Cloning is cheap: clones share the same
+/// compiled program through an [`Arc`]. It is `Send + Sync` when `T` is, so one
+/// instance can be shared by reference between threads. The only mutable state is
+/// the [`Scratch`], of which each thread should own one.
+///
+/// # Examples
+/// ```rust
+/// use formulac::Builder;
+/// use num_complex::Complex;
+///
+/// let f = Builder::<f64, 1>::new("x * x + 1", ["x"]).compile().unwrap();
+///
+/// std::thread::scope(|s| {
+///     for t in 0..4 {
+///         let f = &f;
+///         s.spawn(move || {
+///             let mut scratch = f.new_scratch(); // one per thread
+///             let x = Complex::new(t as f64, 0.0);
+///             assert_eq!(f.eval_with_scratch([x], &mut scratch), f.eval([x]));
+///         });
+///     }
+/// });
+/// ```
+#[derive(Debug, Clone)]
+pub struct CompiledFormula<T: Real, const N: usize> {
+    program: Arc<Program<T>>,
+}
+
+impl<T: Real, const N: usize> CompiledFormula<T, N> {
+    fn from_program(program: Program<T>) -> Self {
+        Self {
+            program: Arc::new(program),
+        }
+    }
+
+    /// Creates a [`Scratch`] sized for this formula.
+    ///
+    /// Equivalent to [`Scratch::new`] with this formula's maximum stack depth, so the
+    /// first call to [`eval_with_scratch`](Self::eval_with_scratch) does not allocate.
+    /// Create one per thread.
+    pub fn new_scratch(&self) -> Scratch<T> {
+        Scratch::new(self.program.stack_size())
+    }
+
+    /// Evaluates the formula for the given arguments.
+    ///
+    /// A working stack is allocated on every call. When the same formula is evaluated
+    /// many times, prefer [`eval_with_scratch`](Self::eval_with_scratch).
+    ///
+    /// # Parameters
+    /// - `args`: argument values, in the order given to [`Builder::new`](crate::builder::Builder::new).
+    ///   They are taken by value; clone them first if you need them again.
+    ///
+    /// # Returns
+    /// The computed value. No error is returned: domain errors such as division by zero
+    /// follow the semantics of `T` (`NaN` / `inf` for `f64`).
+    ///
+    /// # Panics
+    /// Only if a user-defined function panics; the panic is propagated unchanged.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::Builder;
+    /// use num_complex::Complex;
+    ///
+    /// let f = Builder::<f64, 1>::new("x * x + 1", ["x"]).compile().unwrap();
+    /// assert_eq!(f.eval([Complex::new(3.0, 0.0)]), Complex::new(10.0, 0.0));
+    /// ```
+    pub fn eval(&self, args: [Complex<T>; N]) -> Complex<T> {
+        self.eval_with_scratch(args, &mut Scratch::new(self.program.stack_size()))
+    }
+
+    /// Evaluates the formula, reusing `scratch` as the working stack.
+    ///
+    /// The result is the same as [`eval`](Self::eval), but no stack is allocated per call
+    /// once `scratch` is large enough. This is the preferred form for repeated or
+    /// multi-threaded evaluation.
+    ///
+    /// # Parameters
+    /// - `args`: argument values, taken by value (see [`eval`](Self::eval)).
+    /// - `scratch`: working buffer. Its previous contents are discarded at the start of
+    ///   every call, so it needs no reset and may be reused across different formulas
+    ///   (it grows if necessary). Its contents after the call are unspecified.
+    ///
+    /// # Threading
+    /// A `CompiledFormula` can be shared between threads freely; a [`Scratch`] is mutable
+    /// state, so use **one per thread**. `&mut` makes concurrent use of a single
+    /// `Scratch` impossible at compile time.
+    ///
+    /// # Returns
+    /// The computed value (see [`eval`](Self::eval) for error semantics).
+    ///
+    /// # Panics
+    /// Only if a user-defined function panics. The `scratch` stays usable afterwards.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use formulac::Builder;
+    /// use num_complex::Complex;
+    ///
+    /// let f = Builder::<f64, 1>::new("x * x + 1", ["x"]).compile().unwrap();
+    /// let mut scratch = f.new_scratch();
+    /// for i in 0..3 {
+    ///     let x = Complex::new(i as f64, 0.0);
+    ///     assert_eq!(f.eval_with_scratch([x], &mut scratch), f.eval([x]));
+    /// }
+    /// ```
+    pub fn eval_with_scratch(&self, args: [Complex<T>; N], scratch: &mut Scratch<T>) -> Complex<T> {
+        scratch.stack.reserve(self.program.stack_size());
+        scratch.stack.clear();
+
+        for token in self.program.code().iter() {
+            match token {
+                Token::Number { value, .. } => scratch.stack.push(value.clone()),
+                Token::Argument { index, .. } => scratch.stack.push(args[*index].clone()),
+                Token::UnaryOperator { kind, .. } => {
+                    let expr = scratch.stack.pop().unwrap();
+                    scratch.stack.push(kind.apply(expr));
+                },
+                Token::BinaryOperator { kind, .. } => {
+                    let r = scratch.stack.pop().unwrap();
+                    let l = scratch.stack.pop().unwrap();
+                    scratch.stack.push(kind.apply(l, r));
+                },
+                Token::Function { kind, .. } => {
+                    let n = kind.arity();
+                    let mut call_args: Vec<Complex<T>> = Vec::with_capacity(n);
+                    for _ in 0..n {
+                        call_args.push(scratch.stack.pop().unwrap())
+                    }
+                    call_args.reverse();
+                    scratch.stack.push(kind.apply(call_args));
+                },
+                Token::UserFunction { func, .. } => {
+                    let n = func.arity();
+                    let mut call_args: Vec<Complex<T>> = Vec::with_capacity(n);
+                    call_args.resize(n, Complex::zero());
+
+                    for i in (0..n).rev() {
+                        call_args[i] = scratch.stack.pop().unwrap();
+                    }
+                    scratch.stack.push(func.apply(call_args));
+                },
+                _ => unreachable!("Invalid tokens found: use compiled tokens"),
+            }
+        }
+
+        scratch.stack.pop().unwrap_or_else(|| unreachable!("empty stack at end"))
+    }
+}
+
 
 #[cfg(test)]
 mod compile_test {
@@ -396,7 +544,7 @@ mod compile_test {
     fn test_constant_number() {
         let f = Builder::new("42", [])
             .compile().unwrap();
-        let result = f([]);
+        let result = f.eval([]);
         assert_eq!(result, Complex::new(42.0, 0.0));
     }
 
@@ -404,7 +552,7 @@ mod compile_test {
     fn test_constant_str() {
         let f = Builder::new("PI", [])
             .compile().unwrap();
-        let result = f([]);
+        let result = f.eval([]);
         assert_eq!(result, Complex::from(std::f64::consts::PI));
     }
 
@@ -412,7 +560,7 @@ mod compile_test {
     fn test_argument() {
         let f = Builder::new("x", ["x"])
             .compile().unwrap();
-        let result = f([Complex::new(3.0, 0.0)]);
+        let result = f.eval([Complex::new(3.0, 0.0)]);
         assert_eq!(result, Complex::new(3.0, 0.0));
     }
 
@@ -422,7 +570,7 @@ mod compile_test {
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
         let y = Complex::new(3.0, 5.0);
-        let result = f([x, y]);
+        let result = f.eval([x, y]);
         assert_abs_diff_eq!(result.re, (x + y).re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, (x + y).im, epsilon=1.0e-12);
     }
@@ -431,7 +579,7 @@ mod compile_test {
     fn test_nested_expression() {
         let f = Builder::new("sin(x + 1)", ["x"])
             .compile().unwrap();
-        let result = f([Complex::new(0.0, 1.0)]);
+        let result = f.eval([Complex::new(0.0, 1.0)]);
         let expected = Complex::new(1.0, 1.0).sin();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -441,7 +589,7 @@ mod compile_test {
     fn test_binary_operator_precedence() {
         let f = Builder::<f64, _>::new("2 + 3 * 4", [])
             .compile().unwrap();
-        let result = f([]);
+        let result = f.eval([]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -453,7 +601,7 @@ mod compile_test {
             .compile().unwrap();
         let a = Complex::new(2.0, 1.0);
         let b = Complex::new(-2.0, 3.0);
-        let result = f([a, b]);
+        let result = f.eval([a, b]);
         let expected = a.powc(b);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -464,7 +612,7 @@ mod compile_test {
         let f = Builder::new("diff(x^2, x)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f([x]);
+        let result = f.eval([x]);
         let expected = 2.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -475,7 +623,7 @@ mod compile_test {
         let f = Builder::new("diff(x^3, x, 2)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f([x]);
+        let result = f.eval([x]);
         let expected = 6.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -494,7 +642,7 @@ mod compile_test {
             .with_user_functions([func])
             .compile().unwrap();
 
-        let result = expr([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+        let result = expr.eval([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
         assert_abs_diff_eq!(result.re, 6.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
     }
@@ -517,7 +665,7 @@ mod compile_test {
             .with_user_functions([func.clone()])
             .compile()
             .unwrap();
-        let result_dx = expr_dx([x, y]);
+        let result_dx = expr_dx.eval([x, y]);
         let expect_dx = 2.0 * x * y;
         assert_abs_diff_eq!(result_dx.re, expect_dx.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dx.im, expect_dx.im, epsilon=1.0e-12);
@@ -525,7 +673,7 @@ mod compile_test {
         let expr_dy = Builder::new("diff(g(x, y), y)", ["x", "y"])
             .with_user_functions([func.clone()])
             .compile().unwrap();
-        let result_dy = expr_dy([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+        let result_dy = expr_dy.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
         let expect_dy = x * x + 3.0 * y * y;
         assert_abs_diff_eq!(result_dy.re, expect_dy.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dy.im, expect_dy.im, epsilon=1.0e-12);
@@ -551,7 +699,7 @@ mod compile_test {
                 .compile().unwrap()
         };
 
-        let result = f([x]);
+        let result = f.eval([x]);
         let expected = (x + a).conj();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -570,10 +718,88 @@ mod compile_test {
             .compile()
             .unwrap();
 
-        let result = func([x, y]);
+        let result = func.eval([x, y]);
         let expected = (x) + (x + y);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
+    }
+
+    fn assert_send_sync<X: Send + Sync>() {}
+
+    #[test]
+    fn compiled_formula_and_scratch_are_thread_safe() {
+        assert_send_sync::<CompiledFormula<f64, 1>>();
+        assert_send_sync::<Scratch<f64>>();
+    }
+
+    fn simulate_max_depth<T: Real>(code: &[Token<T>]) -> usize {
+        let (mut cur, mut max) = (0usize, 0usize);
+        for t in code {
+            match t {
+                Token::Number { .. } | Token::Argument { .. } => cur += 1,
+                Token::UnaryOperator { .. } => {}
+                Token::BinaryOperator { .. } => cur -= 1,
+                Token::Function { kind, .. } => cur = cur - kind.arity() + 1,
+                Token::UserFunction { func, .. } => cur = cur - func.arity() + 1,
+                _ => unreachable!(),
+            }
+            max = max.max(cur);
+        }
+        assert_eq!(cur, 1, "final stack depth must be 1");
+        max
+    }
+
+    #[test]
+    fn stack_size_matches_simulation() {
+        for f in ["x", "x + y", "x+y*x-y/(x+1)", "pow(x, y + sin(x*y))",
+                  "sin(cos(sin(x)))", "diff(x^3 + sin(x*y), x)", "(x+y)*(x-y)*(x+1)*(y+2)"] {
+            let p = Builder::<f64, 2>::new(f, ["x", "y"]).build_tokens().unwrap();
+            assert_eq!(p.stack_size(), simulate_max_depth(p.code()), "formula: {f}");
+        }
+    }
+
+    #[test]
+    fn scratch_reuse_and_undersized_scratch() {
+        let f = Builder::new("sin(x) * y + x", ["x", "y"]).compile().unwrap();
+        let g = Builder::new("x + 1", ["x", "y"]).compile().unwrap();
+        let a = [Complex::new(0.3, 0.4), Complex::new(-1.0, 2.0)];
+
+        let mut s = Scratch::new(0);
+        let expected = f.eval(a);
+        for _ in 0..10 {
+            assert_eq!(f.eval_with_scratch(a, &mut s), expected);
+            assert_eq!(g.eval_with_scratch(a, &mut s), g.eval(a));
+        }
+    }
+
+    #[test]
+    fn shared_formula_with_per_thread_scratch() {
+        let f = Builder::new("sin(x) + cos(x)*cos(x) + x*x", ["x"]).compile().unwrap();
+        let xs: Vec<_> = (0..64).map(|i| Complex::new(i as f64 * 0.1, 0.5)).collect();
+        let expected: Vec<_> = xs.iter().map(|&x| f.eval([x])).collect();
+
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    let mut scratch = Scratch::new(0);
+                    for (x, e) in xs.iter().zip(&expected) {
+                        assert_eq!(f.eval_with_scratch([*x], &mut scratch), *e);
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn scratch_is_usable_after_user_fn_panic() {
+        let boom = UserFn::<f64>::new("boom", |[x]| { if x.re > 100.0 { panic!("boom") } x });
+        let f = Builder::new("x + boom(x)", ["x"]).with_user_functions([boom]).compile().unwrap();
+        let mut s = Scratch::new(0);
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            f.eval_with_scratch([Complex::new(1000.0, 0.0)], &mut s)
+        }));
+        assert!(r.is_err());
+        assert_eq!(f.eval_with_scratch([Complex::new(1.0, 0.0)], &mut s), Complex::new(2.0, 0.0));
     }
 }
 
@@ -592,7 +818,7 @@ mod issue_test {
 
         let expr_1 = Builder::new("sin(z) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_1 = expr_1([z]);
+        let result_1 = expr_1.eval([z]);
         let expect_1 = z.sin() + z;
 
         assert_abs_diff_eq!(result_1.re, expect_1.re, epsilon=1.0e-12);
@@ -600,14 +826,14 @@ mod issue_test {
 
         let expr_2 = Builder::new("sin(z + z)", ["z"])
             .compile().expect("failed to compile formula");
-        let result_2 = expr_2([z]);
+        let result_2 = expr_2.eval([z]);
         let expect_2 = (z+z).sin();
         assert_abs_diff_eq!(result_2.re, expect_2.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_2.im, expect_2.im, epsilon=1.0e-12);
 
         let expr_3 = Builder::new("(sin(z)) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_3 = expr_3([z]);
+        let result_3 = expr_3.eval([z]);
         let expect_3 = (z.sin()) + z;
         assert_abs_diff_eq!(result_3.re, expect_3.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_3.im, expect_3.im, epsilon=1.0e-12);

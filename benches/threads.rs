@@ -33,7 +33,7 @@
 //! Record `nproc`, toolchain and CPU governor next to the results.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use formulac::builder::Builder;
+use formulac::builder::{Builder, Scratch};
 use formulac::core::Real;
 use num_complex::Complex;
 use std::hint::black_box;
@@ -220,11 +220,14 @@ where
                         run_threads(
                             threads,
                             iters,
-                            || [mk(0.7, 0.1), mk(1.3, -0.4)],
-                            |args: &mut [Complex<T>; 2], n: u64| {
+                            || ([mk(0.7, 0.1), mk(1.3, -0.4)], expr.new_scratch()),
+                            |st: &mut ([Complex<T>; 2], Scratch<T>), n: u64| {
                                 for _ in 0..n {
                                     // args are passed by value, so one array clone per call
-                                    drop(black_box(expr(black_box(args.clone()))));
+                                    drop(black_box(expr.eval_with_scratch(
+                                        black_box(st.0.clone()),
+                                        &mut st.1,
+                                    )));
                                 }
                             },
                         )
