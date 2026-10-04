@@ -24,3 +24,6 @@ rug = { version = "1.29.0", features = ["float"] }
 [[bench]]
 name = "benches"
 harness = false
+
+[profile.bench]
+inherits = "release"
