@@ -23,7 +23,7 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
 - **Abstract Syntax Tree (AST)**
   - Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into an executable structure
 - **Reusable compiled formulas**
-  - `Builder::compile()` returns a `CompiledFormula<T, N>` that is evaluated with `eval(...)`
+  - `Builder::compile()` returns a `CompiledFormula<T, N>` that is evaluated with `eval(...)` or `eval_with_scratch(...)`
   - One formula can be shared across threads; give each thread its own `Scratch` to avoid per-call allocation
 - **User-defined functions**
   - Easily register custom functions via `Builder::with_user_functions`
@@ -57,7 +57,7 @@ fn main() {
         .compile()
         .unwrap();
 
-    let result = expr.eval([Complex::new(1.0, 2.0)]);
+    let result = expr.eval(&[Complex::new(1.0, 2.0)]);
     println!("Result = {}", result);
 }
 ```
@@ -112,7 +112,7 @@ fn main() {
     let expr = builder.compile()
         .expect("Failed to compile formula with UserFn");
 
-    assert_eq!(expr.eval([]), Complex::new(10.0, 0.0));
+    assert_eq!(expr.eval(&[]), Complex::new(10.0, 0.0));
 
     let func2 = UserFn::<f64>::new(
         "f", // it conflicts the above function.
@@ -123,7 +123,7 @@ fn main() {
     let expr = builder.with_user_functions([func2])
         .compile().unwrap();
 
-    assert_eq!(expr.eval([]), Complex::new(5.0, 1.0));
+    assert_eq!(expr.eval(&[]), Complex::new(5.0, 1.0));
 }
 ```
 
@@ -156,7 +156,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr.eval([Complex::new(1.0, 0.0)]); // evaluates cos(1)
+    let result = expr.eval(&[Complex::new(1.0, 0.0)]); // evaluates cos(1)
     println!("Result = {}", result);
 }
 ```
@@ -174,7 +174,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula");
 
-    let result = expr.eval([Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
+    let result = expr.eval(&[Complex::new(1.0, 0.0)]); // evaluates to -sin(1)
     println!("Result = {}", result);
 }
 ```
@@ -197,7 +197,7 @@ fn main() {
         .compile()
         .expect("Failed to compile formula with UserFn");
 
-    let result = expr.eval([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+    let result = expr.eval(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
     println!("Result: {}", result);
 }
 ```
@@ -220,18 +220,19 @@ fn main() {
         .with_derivative([deriv_x, deriv_y]).unwrap();
 
     // 2 arguments: x and y
+    let args = [Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)];
     let expr_dx = Builder::<f64, 2>::new("diff(g(x, y), x)", ["x", "y"])
         .with_user_functions([func.clone()]) // use it again later
         .compile()
         .unwrap();
-    let result_dx = expr_dx.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dx = expr_dx.eval(&args);
     println!("∂g/∂x at (2, 3) = {}", result_dx); // 12
 
     let expr_dy = Builder::<f64, 2>::new("diff(g(x, y), y)", ["x", "y"])
         .with_user_functions([func])
         .compile()
         .unwrap();
-    let result_dy = expr_dy.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+    let result_dy = expr_dy.eval(&args);
     println!("∂g/∂y at (2, 3) = {}", result_dy); // 31
 }
 ```
@@ -243,8 +244,9 @@ fn main() {
 
 - **`CompiledFormula<T, const N: usize>`**
   The compiled, immutable formula returned by `Builder::compile()`.
-  `eval(args)` evaluates it with a freshly allocated working stack;
-  `eval_with_scratch(args, &mut scratch)` reuses a `Scratch`.
+  `eval(&args)` evaluates it with a freshly allocated working stack;
+  `eval_with_scratch(&args, &mut scratch)` reuses a `Scratch`.
+  Arguments are passed by reference and are not cloned by the API boundary.
   Cloning is cheap (the compiled program is shared via `Arc`).
 
 - **`Scratch<T>`**

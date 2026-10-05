@@ -76,7 +76,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let builder = Builder::new("x + 1", ["x"]);
     /// let func = builder.compile()
     ///     .expect("Failed to compile 'x + 1'");
-    /// println!("{} + 1 = {}", 3, func.eval([Complex::new(3.0, 0.0)]));
+    /// println!("{} + 1 = {}", 3, func.eval(&[Complex::new(3.0, 0.0)]));
     /// ```
     pub fn new(formula: &str, arg_names: [&str; N]) -> Self
     {
@@ -202,7 +202,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     ///     .compile()
     ///     .expect("Failed to compile formula");
     ///
-    /// let result = expr.eval([Complex::new(1.0, 2.0)]);
+    /// let result = expr.eval(&[Complex::new(1.0, 2.0)]);
     /// println!("Result = {}", result);
     /// ```
     ///
@@ -261,8 +261,8 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let x = Complex::new(1.0, -1.0);
     /// let y = Complex::new(2.0, 0.0);
     ///
-    /// assert_eq!(f.eval([x, y]), x.sin() + y);
-    /// assert_eq!(df.eval([x, y]), x.cos());
+    /// assert_eq!(f.eval(&[x, y]), x.sin() + y);
+    /// assert_eq!(df.eval(&[x, y]), x.cos());
     /// ```
     pub fn compile_with_derivative(&self, variable: impl AsRef<str>)
     -> Result<
@@ -320,10 +320,10 @@ impl<T: Real, const N: usize> Builder<T, N>
     /// let df_dy = &partials[1]; // ∂/∂y
     /// let df_dz = &partials[2]; // ∂/∂z
     ///
-    /// assert_eq!(f.eval([x, y, z]), x * y + z);
-    /// assert_eq!(df_dx.eval([x, y, z]), y);
-    /// assert_eq!(df_dy.eval([x, y, z]), x);
-    /// assert_eq!(df_dz.eval([x, y, z]), Complex::new(1.0, 0.0));
+    /// assert_eq!(f.eval(&[x, y, z]), x * y + z);
+    /// assert_eq!(df_dx.eval(&[x, y, z]), y);
+    /// assert_eq!(df_dy.eval(&[x, y, z]), x);
+    /// assert_eq!(df_dz.eval(&[x, y, z]), Complex::new(1.0, 0.0));
     /// ```
     pub fn compile_with_all_partials(
         &self,
@@ -412,7 +412,7 @@ impl<T: Real> Scratch<T> {
 ///         s.spawn(move || {
 ///             let mut scratch = f.new_scratch(); // one per thread
 ///             let x = Complex::new(t as f64, 0.0);
-///             assert_eq!(f.eval_with_scratch([x], &mut scratch), f.eval([x]));
+///             assert_eq!(f.eval_with_scratch(&[x], &mut scratch), f.eval(&[x]));
 ///         });
 ///     }
 /// });
@@ -445,7 +445,6 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
     ///
     /// # Parameters
     /// - `args`: argument values, in the order given to [`Builder::new`](crate::builder::Builder::new).
-    ///   They are taken by value; clone them first if you need them again.
     ///
     /// # Returns
     /// The computed value. No error is returned: domain errors such as division by zero
@@ -460,9 +459,9 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
     /// use num_complex::Complex;
     ///
     /// let f = Builder::<f64, 1>::new("x * x + 1", ["x"]).compile().unwrap();
-    /// assert_eq!(f.eval([Complex::new(3.0, 0.0)]), Complex::new(10.0, 0.0));
+    /// assert_eq!(f.eval(&[Complex::new(3.0, 0.0)]), Complex::new(10.0, 0.0));
     /// ```
-    pub fn eval(&self, args: [Complex<T>; N]) -> Complex<T> {
+    pub fn eval(&self, args: &[Complex<T>; N]) -> Complex<T> {
         self.eval_with_scratch(args, &mut Scratch::new(self.program.stack_size()))
     }
 
@@ -498,10 +497,10 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
     /// let mut scratch = f.new_scratch();
     /// for i in 0..3 {
     ///     let x = Complex::new(i as f64, 0.0);
-    ///     assert_eq!(f.eval_with_scratch([x], &mut scratch), f.eval([x]));
+    ///     assert_eq!(f.eval_with_scratch(&[x], &mut scratch), f.eval(&[x]));
     /// }
     /// ```
-    pub fn eval_with_scratch(&self, args: [Complex<T>; N], scratch: &mut Scratch<T>) -> Complex<T> {
+    pub fn eval_with_scratch(&self, args: &[Complex<T>; N], scratch: &mut Scratch<T>) -> Complex<T> {
         scratch.stack.reserve(self.program.stack_size());
         scratch.stack.clear();
 
@@ -560,7 +559,7 @@ mod compile_test {
     fn test_constant_number() {
         let f = Builder::new("42", [])
             .compile().unwrap();
-        let result = f.eval([]);
+        let result = f.eval(&[]);
         assert_eq!(result, Complex::new(42.0, 0.0));
     }
 
@@ -568,7 +567,7 @@ mod compile_test {
     fn test_constant_str() {
         let f = Builder::new("PI", [])
             .compile().unwrap();
-        let result = f.eval([]);
+        let result = f.eval(&[]);
         assert_eq!(result, Complex::from(std::f64::consts::PI));
     }
 
@@ -576,7 +575,7 @@ mod compile_test {
     fn test_argument() {
         let f = Builder::new("x", ["x"])
             .compile().unwrap();
-        let result = f.eval([Complex::new(3.0, 0.0)]);
+        let result = f.eval(&[Complex::new(3.0, 0.0)]);
         assert_eq!(result, Complex::new(3.0, 0.0));
     }
 
@@ -586,7 +585,7 @@ mod compile_test {
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
         let y = Complex::new(3.0, 5.0);
-        let result = f.eval([x, y]);
+        let result = f.eval(&[x, y]);
         assert_abs_diff_eq!(result.re, (x + y).re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, (x + y).im, epsilon=1.0e-12);
     }
@@ -595,7 +594,7 @@ mod compile_test {
     fn test_nested_expression() {
         let f = Builder::new("sin(x + 1)", ["x"])
             .compile().unwrap();
-        let result = f.eval([Complex::new(0.0, 1.0)]);
+        let result = f.eval(&[Complex::new(0.0, 1.0)]);
         let expected = Complex::new(1.0, 1.0).sin();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -605,7 +604,7 @@ mod compile_test {
     fn test_binary_operator_precedence() {
         let f = Builder::<f64, _>::new("2 + 3 * 4", [])
             .compile().unwrap();
-        let result = f.eval([]);
+        let result = f.eval(&[]);
         let expected = Complex::from(2.0 + 3.0 * 4.0);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -617,7 +616,7 @@ mod compile_test {
             .compile().unwrap();
         let a = Complex::new(2.0, 1.0);
         let b = Complex::new(-2.0, 3.0);
-        let result = f.eval([a, b]);
+        let result = f.eval(&[a, b]);
         let expected = a.powc(b);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -628,7 +627,7 @@ mod compile_test {
         let f = Builder::new("diff(x^2, x)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f.eval([x]);
+        let result = f.eval(&[x]);
         let expected = 2.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -639,7 +638,7 @@ mod compile_test {
         let f = Builder::new("diff(x^3, x, 2)", ["x"])
             .compile().unwrap();
         let x = Complex::new(2.0, 1.0);
-        let result = f.eval([x]);
+        let result = f.eval(&[x]);
         let expected = 6.0 * x;
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -658,7 +657,7 @@ mod compile_test {
             .with_user_functions([func])
             .compile().unwrap();
 
-        let result = expr.eval([Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
+        let result = expr.eval(&[Complex::new(3.0, 0.0)]); // evaluates f'(3) = 6
         assert_abs_diff_eq!(result.re, 6.0, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, 0.0, epsilon=1.0e-12);
     }
@@ -681,7 +680,7 @@ mod compile_test {
             .with_user_functions([func.clone()])
             .compile()
             .unwrap();
-        let result_dx = expr_dx.eval([x, y]);
+        let result_dx = expr_dx.eval(&[x, y]);
         let expect_dx = 2.0 * x * y;
         assert_abs_diff_eq!(result_dx.re, expect_dx.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dx.im, expect_dx.im, epsilon=1.0e-12);
@@ -689,7 +688,7 @@ mod compile_test {
         let expr_dy = Builder::new("diff(g(x, y), y)", ["x", "y"])
             .with_user_functions([func.clone()])
             .compile().unwrap();
-        let result_dy = expr_dy.eval([Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
+        let result_dy = expr_dy.eval(&[Complex::new(2.0, 0.0), Complex::new(3.0, 0.0)]);
         let expect_dy = x * x + 3.0 * y * y;
         assert_abs_diff_eq!(result_dy.re, expect_dy.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_dy.im, expect_dy.im, epsilon=1.0e-12);
@@ -715,7 +714,7 @@ mod compile_test {
                 .compile().unwrap()
         };
 
-        let result = f.eval([x]);
+        let result = f.eval(&[x]);
         let expected = (x + a).conj();
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -734,7 +733,7 @@ mod compile_test {
             .compile()
             .unwrap();
 
-        let result = func.eval([x, y]);
+        let result = func.eval(&[x, y]);
         let expected = (x) + (x + y);
         assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
@@ -781,10 +780,10 @@ mod compile_test {
         let a = [Complex::new(0.3, 0.4), Complex::new(-1.0, 2.0)];
 
         let mut s = Scratch::new(0);
-        let expected = f.eval(a);
+        let expected = f.eval(&a);
         for _ in 0..10 {
-            assert_eq!(f.eval_with_scratch(a, &mut s), expected);
-            assert_eq!(g.eval_with_scratch(a, &mut s), g.eval(a));
+            assert_eq!(f.eval_with_scratch(&a, &mut s), expected);
+            assert_eq!(g.eval_with_scratch(&a, &mut s), g.eval(&a));
         }
     }
 
@@ -792,14 +791,14 @@ mod compile_test {
     fn shared_formula_with_per_thread_scratch() {
         let f = Builder::new("sin(x) + cos(x)*cos(x) + x*x", ["x"]).compile().unwrap();
         let xs: Vec<_> = (0..64).map(|i| Complex::new(i as f64 * 0.1, 0.5)).collect();
-        let expected: Vec<_> = xs.iter().map(|&x| f.eval([x])).collect();
+        let expected: Vec<_> = xs.iter().map(|&x| f.eval(&[x])).collect();
 
         std::thread::scope(|s| {
             for _ in 0..8 {
                 s.spawn(|| {
                     let mut scratch = Scratch::new(0);
                     for (x, e) in xs.iter().zip(&expected) {
-                        assert_eq!(f.eval_with_scratch([*x], &mut scratch), *e);
+                        assert_eq!(f.eval_with_scratch(&[*x], &mut scratch), *e);
                     }
                 });
             }
@@ -812,10 +811,10 @@ mod compile_test {
         let f = Builder::new("x + boom(x)", ["x"]).with_user_functions([boom]).compile().unwrap();
         let mut s = Scratch::new(0);
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            f.eval_with_scratch([Complex::new(1000.0, 0.0)], &mut s)
+            f.eval_with_scratch(&[Complex::new(1000.0, 0.0)], &mut s)
         }));
         assert!(r.is_err());
-        assert_eq!(f.eval_with_scratch([Complex::new(1.0, 0.0)], &mut s), Complex::new(2.0, 0.0));
+        assert_eq!(f.eval_with_scratch(&[Complex::new(1.0, 0.0)], &mut s), Complex::new(2.0, 0.0));
     }
 }
 
@@ -834,7 +833,7 @@ mod issue_test {
 
         let expr_1 = Builder::new("sin(z) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_1 = expr_1.eval([z]);
+        let result_1 = expr_1.eval(&[z]);
         let expect_1 = z.sin() + z;
 
         assert_abs_diff_eq!(result_1.re, expect_1.re, epsilon=1.0e-12);
@@ -842,14 +841,14 @@ mod issue_test {
 
         let expr_2 = Builder::new("sin(z + z)", ["z"])
             .compile().expect("failed to compile formula");
-        let result_2 = expr_2.eval([z]);
+        let result_2 = expr_2.eval(&[z]);
         let expect_2 = (z+z).sin();
         assert_abs_diff_eq!(result_2.re, expect_2.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_2.im, expect_2.im, epsilon=1.0e-12);
 
         let expr_3 = Builder::new("(sin(z)) + z", ["z"])
             .compile().expect("failed to compile formula");
-        let result_3 = expr_3.eval([z]);
+        let result_3 = expr_3.eval(&[z]);
         let expect_3 = (z.sin()) + z;
         assert_abs_diff_eq!(result_3.re, expect_3.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_3.im, expect_3.im, epsilon=1.0e-12);

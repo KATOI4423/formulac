@@ -372,7 +372,7 @@ fn mp_constant_number() {
     let f = Builder::<MpFloat, 0>::new("42", [])
         .compile()
         .expect("compile failed");
-    let result = to_f64(&f.eval([]));
+    let result = to_f64(&f.eval(&[]));
     assert_close(result, Complex::new(42.0, 0.0), 1e-10, "constant 42");
 }
 
@@ -382,7 +382,7 @@ fn mp_builtin_constant_pi() {
     let f = Builder::<MpFloat, 0>::new("PI", [])
         .compile()
         .expect("compile failed");
-    let result = to_f64(&f.eval([]));
+    let result = to_f64(&f.eval(&[]));
     assert_close(result, Complex::new(std::f64::consts::PI, 0.0), 1e-15, "PI");
 }
 
@@ -392,7 +392,7 @@ fn mp_argument_passthrough() {
     let f = Builder::<MpFloat, 1>::new("x", ["x"])
         .compile()
         .expect("compile failed");
-    let result = to_f64(&f.eval([mp(3.5, -1.2)]));
+    let result = to_f64(&f.eval(&[mp(3.5, -1.2)]));
     assert_close(result, Complex::new(3.5, -1.2), 1e-14, "argument passthrough");
 }
 
@@ -404,7 +404,7 @@ fn mp_addition() {
         .expect("compile failed");
     let x = Complex::new(2.0_f64, 1.0);
     let y = Complex::new(3.0_f64, -5.0);
-    let result = to_f64(&f.eval([mp(x.re, x.im), mp(y.re, y.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im), mp(y.re, y.im)]));
     assert_close(result, x + y, 1e-14, "addition");
 }
 
@@ -414,7 +414,7 @@ fn mp_binary_operator_precedence() {
     let f = Builder::<MpFloat, 0>::new("2 + 3 * 4", [])
         .compile()
         .expect("compile failed");
-    let result = to_f64(&f.eval([]));
+    let result = to_f64(&f.eval(&[]));
     assert_close(result, Complex::new(14.0, 0.0), 1e-14, "precedence");
 }
 
@@ -425,7 +425,7 @@ fn mp_sin_function() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(1.0_f64, 0.5);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     // Reference value calculated in f64
     let expected = Complex::new(
         1.0_f64.sin() * 0.5_f64.cosh(),
@@ -441,7 +441,7 @@ fn mp_exp_ln_roundtrip() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(2.5_f64, -1.3);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     assert_close(result, x, 1e-13, "exp(ln(z)) roundtrip");
 }
 
@@ -452,7 +452,7 @@ fn mp_nested_expression() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(0.0_f64, 1.0);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     let z = x + Complex::new(1.0, 0.0);
     let expected = Complex::new(
         z.re.sin() * z.im.cosh(),
@@ -469,7 +469,7 @@ fn mp_power_operator() {
         .expect("compile failed");
     let a = Complex::new(2.0_f64, 0.0);
     let b = Complex::new(10.0_f64, 0.0);
-    let result = to_f64(&f.eval([mp(a.re, a.im), mp(b.re, b.im)]));
+    let result = to_f64(&f.eval(&[mp(a.re, a.im), mp(b.re, b.im)]));
     assert_close(result, Complex::new(1024.0, 0.0), 1e-10, "pow(2, 10)");
 }
 
@@ -483,7 +483,7 @@ fn mp_user_function() {
         .with_user_functions([double])
         .compile()
         .expect("compile failed");
-    let result = to_f64(&f.eval([mp(3.0, 0.0)]));
+    let result = to_f64(&f.eval(&[mp(3.0, 0.0)]));
     assert_close(result, Complex::new(6.0, 0.0), 1e-14, "user fn double(3)");
 }
 
@@ -494,7 +494,7 @@ fn mp_differentiation_polynomial() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(3.0_f64, 0.0);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     assert_close(result, 2.0 * x, 1e-12, "diff(x^2, x) at x=3");
 }
 
@@ -505,7 +505,7 @@ fn mp_differentiation_second_order() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(2.0_f64, 0.0);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     assert_close(result, 6.0 * x, 1e-11, "diff(x^3, x, 2) at x=2");
 }
 
@@ -516,7 +516,7 @@ fn mp_differentiation_sin() {
         .compile()
         .expect("compile failed");
     let x = Complex::new(1.0_f64, 0.0);
-    let result = to_f64(&f.eval([mp(x.re, x.im)]));
+    let result = to_f64(&f.eval(&[mp(x.re, x.im)]));
     // Reference value for cos(1.0)
     let expected = Complex::new(1.0_f64.cos(), 0.0);
     assert_close(result, expected, 1e-13, "diff(sin(x), x) = cos(x)");
@@ -538,7 +538,7 @@ fn mp_user_fn_with_derivative() {
         .expect("compile failed");
 
     // f'(3) = 6
-    let result = to_f64(&expr.eval([mp(3.0, 0.0)]));
+    let result = to_f64(&expr.eval(&[mp(3.0, 0.0)]));
     assert_close(result, Complex::new(6.0, 0.0), 1e-13, "user fn derivative f'(3)=6");
 }
 
@@ -551,7 +551,7 @@ fn mp_with_custom_constant() {
         .compile()
         .expect("compile failed");
     let x = mp(4.0, 0.0);
-    let result = to_f64(&f.eval([x]));
+    let result = to_f64(&f.eval(&[x]));
     // 2.5 * 4 + 1 = 11
     assert_close(result, Complex::new(11.0, 0.0), 1e-13, "a*x+1 with custom constant");
 }
@@ -565,7 +565,7 @@ fn mp_complex_formula() {
         .expect("compile failed");
 
     let z = Complex::new(1.0_f64, 0.5);
-    let result = to_f64(&f.eval([mp(z.re, z.im)]));
+    let result = to_f64(&f.eval(&[mp(z.re, z.im)]));
 
     // Reference value calculated in f64
     let sin_z = Complex::new(
@@ -597,13 +597,13 @@ fn mp_precision_demo_exp_pi_minus_pi() {
     let f_mp = Builder::<MpFloat, 0>::new("exp(PI) - PI", [])
         .compile()
         .expect("compile failed");
-    let result_mp = to_f64(&f_mp.eval([]));
+    let result_mp = to_f64(&f_mp.eval(&[]));
 
     // Same calculation with f64
     let f_f64 = Builder::<f64, 0>::new("exp(PI) - PI", [])
         .compile()
         .expect("compile failed");
-    let result_f64 = f_f64.eval([]);
+    let result_f64 = f_f64.eval(&[]);
 
     // True value (high-precision reference)
     let true_val = std::f64::consts::E.powf(std::f64::consts::PI) - std::f64::consts::PI;

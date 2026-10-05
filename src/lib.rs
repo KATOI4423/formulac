@@ -32,7 +32,7 @@
 //!     .compile()
 //!     .expect("Failed to compile formula");
 //!
-//! let result = expr.eval([Complex::new(1.0, 2.0)]);
+//! let result = expr.eval(&[Complex::new(1.0, 2.0)]);
 //! println!("Result = {}", result);
 //! ```
 //!

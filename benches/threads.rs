@@ -225,7 +225,7 @@ where
                                 for _ in 0..n {
                                     // args are passed by value, so one array clone per call
                                     drop(black_box(expr.eval_with_scratch(
-                                        black_box(st.0.clone()),
+                                        black_box(&st.0),
                                         &mut st.1,
                                     )));
                                 }

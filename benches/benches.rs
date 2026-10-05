@@ -146,7 +146,7 @@ fn eval_cases(c: &mut Criterion, group: &str, cases: &[(&str, &str)], consts: &[
             .with_constants(consts.iter().cloned())
             .compile()
             .unwrap();
-        g.bench_function(*name, |b| b.iter(|| expr.eval(black_box([x]))));
+        g.bench_function(*name, |b| b.iter(|| expr.eval(black_box(&[x]))));
     }
     g.finish();
 }
@@ -173,7 +173,7 @@ fn eval_scaling(c: &mut Criterion, group: &str, sizes: &[usize], make: impl Fn(u
     for &n in sizes {
         let expr = Builder::<f64, 1>::new(&make(n), ["x"]).compile().unwrap();
         g.bench_function(BenchmarkId::from_parameter(n), |b| {
-            b.iter(|| expr.eval(black_box([x])))
+            b.iter(|| expr.eval(black_box(&[x])))
         });
     }
     g.finish();
@@ -250,7 +250,7 @@ fn bench_compile_invalid(c: &mut Criterion) {
 fn bench_eval_basic(c: &mut Criterion) {
     // Fixed overhead of the closure (stack allocation etc.): a single constant.
     let constant = Builder::<f64, 0>::new("42", []).compile().unwrap();
-    c.bench_function("eval/constant", |b| b.iter(|| constant.eval(black_box([]))));
+    c.bench_function("eval/constant", |b| b.iter(|| constant.eval(black_box(&[]))));
 
     eval_cases(c, "eval/basic", SIMPLE_CASES, &[]);
     eval_cases(c, "eval/practical", PRACTICAL_CASES, &practical_consts());
@@ -272,7 +272,7 @@ fn bench_eval_args(c: &mut Criterion) {
         ("without_paren", "x0+x1*x2-x3/x4+x5"),
     ] {
         let expr = Builder::<f64, 6>::new(formula, names).compile().unwrap();
-        g.bench_function(name, |b| b.iter(|| expr.eval(black_box(args))));
+        g.bench_function(name, |b| b.iter(|| expr.eval(black_box(&args))));
     }
     g.finish();
 
@@ -281,7 +281,7 @@ fn bench_eval_args(c: &mut Criterion) {
     let refs: [&str; 100] = std::array::from_fn(|i| names[i].as_str());
     let args: [C; 100] = std::array::from_fn(|i| Complex::new(1.0 + i as f64 * 0.01, 0.1));
     let expr = Builder::<f64, 100>::new(&sum_of_args(100), refs).compile().unwrap();
-    c.bench_function("eval/args_many/100", |b| b.iter(|| expr.eval(black_box(args))));
+    c.bench_function("eval/args_many/100", |b| b.iter(|| expr.eval(black_box(&args))));
 }
 
 fn bench_eval_user_function(c: &mut Criterion) {
@@ -290,17 +290,17 @@ fn bench_eval_user_function(c: &mut Criterion) {
 
     let f = UserFn::<f64>::new("f", |[x]| x * x + Complex::new(1.0, 0.0));
     let expr = Builder::<f64, 1>::new("f(x)", ["x"]).with_user_functions([f.clone()]).compile().unwrap();
-    g.bench_function("unary_x1", |b| b.iter(|| expr.eval(black_box([x]))));
+    g.bench_function("unary_x1", |b| b.iter(|| expr.eval(black_box(&[x]))));
 
     let expr = Builder::<f64, 1>::new("f(x) + f(x+1) + f(x+2)", ["x"])
         .with_user_functions([f])
         .compile()
         .unwrap();
-    g.bench_function("unary_x3", |b| b.iter(|| expr.eval(black_box([x]))));
+    g.bench_function("unary_x3", |b| b.iter(|| expr.eval(black_box(&[x]))));
 
     let h = UserFn::<f64>::new("h", |[a, b]| a * b);
     let expr = Builder::<f64, 1>::new("h(x, x+1)", ["x"]).with_user_functions([h]).compile().unwrap();
-    g.bench_function("binary", |b| b.iter(|| expr.eval(black_box([x]))));
+    g.bench_function("binary", |b| b.iter(|| expr.eval(black_box(&[x]))));
 
     g.finish();
 }
@@ -323,7 +323,7 @@ macro_rules! bench_builtin_unary {
                 let expr = Builder::<f64, 1>::new(concat!(stringify!($f), "(x)"), ["x"])
                     .compile()
                     .unwrap();
-                g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box([x]))));
+                g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box(&[x]))));
                 g.finish();
             }
         )*
@@ -352,7 +352,7 @@ fn bench_eval_builtin_pow(c: &mut Criterion) {
         b.iter(|| formulac::core::ComplexMath::powc(black_box(x), black_box(y)))
     });
     let expr = Builder::<f64, 2>::new("pow(x, y)", ["x", "y"]).compile().unwrap();
-    g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box([x, y]))));
+    g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box(&[x, y]))));
     g.finish();
 
     let n = 3_i32;
@@ -363,7 +363,7 @@ fn bench_eval_builtin_pow(c: &mut Criterion) {
         b.iter(|| formulac::core::ComplexMath::powi(black_box(x), black_box(n)))
     });
     let expr = Builder::<f64, 2>::new("powi(x, y)", ["x", "y"]).compile().unwrap();
-    g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box([x, yi]))));
+    g.bench_function("parsed", |b| b.iter(|| expr.eval(black_box(&[x, yi]))));
     g.finish();
 }
 
