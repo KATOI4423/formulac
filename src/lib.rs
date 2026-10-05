@@ -65,6 +65,8 @@
 //! ## License
 //! Licensed under either **MIT** or **Apache-2.0** at your option.
 
+#![warn(missing_docs)]
+
 mod astnode;
 pub mod builder;
 pub mod constants;
@@ -75,9 +77,11 @@ pub mod lexer;
 pub mod operators;
 mod token;
 
-pub type Builder<T, const N: usize> = builder::Builder<T, N>;
-pub type UserFn<T> = functions::UserFn<T>;
 pub use builder::{
+    Builder,
     CompiledFormula,
     Scratch,
+};
+pub use functions::{
+    UserFn,
 };

@@ -113,6 +113,10 @@ where
 
 macro_rules! define_builtin_constants {
     ($( $name:expr => $func:ident ),* $(,)? ) => {
+        /// Names of the mathematical constants built into [`Constants`].
+        ///
+        /// These names are recognized by [`Constants::get`] even when they
+        /// have not been explicitly inserted into a constant table.
         pub const BUILTIN_CONSTANT_NAMES: &'static [&'static str] = &[
             $( $name, )*
         ];

@@ -28,6 +28,22 @@ use crate::token::{
 };
 
 #[derive(Debug, Clone)]
+/// Configures and compiles a mathematical expression.
+///
+/// A `Builder` stores the expression text, the names of its arguments,
+/// user-provided constants, and user-defined functions. The configuration is
+/// consumed by [`Builder::compile`] or one of the derivative compilation
+/// methods to produce a reusable [`CompiledFormula`].
+///
+/// `N` is the number of arguments accepted by the resulting compiled formula.
+/// Argument values are supplied to [`CompiledFormula::eval`] in the same order
+/// as the `arg_names` passed to [`Builder::new`].
+///
+/// # Type Parameters
+///
+/// * `T` - The real scalar type used for the real and imaginary components of
+///   complex values.
+/// * `N` - The number of named arguments in the formula.
 pub struct Builder<T: Real, const N: usize>
 {
     formula: String,
@@ -415,7 +431,7 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
 
     /// Creates a [`Scratch`] sized for this formula.
     ///
-    /// Equivalent to [`Scratch::new`] with this formula's maximum stack depth, so the
+    /// Equivalent to `Scratch::new` with this formula's maximum stack depth, so the
     /// first call to [`eval_with_scratch`](Self::eval_with_scratch) does not allocate.
     /// Create one per thread.
     pub fn new_scratch(&self) -> Scratch<T> {

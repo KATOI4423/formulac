@@ -10,25 +10,36 @@
 use std::ops::Range;
 
 /// Constant char representing an imaginary unit
+/// The character used to denote the imaginary unit in numeric literals.
+///
+/// For example, `3i` is lexed as a single numeric lexeme representing a
+/// purely imaginary value.
 pub const IMAGINARY_UNIT: char = 'i';
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// A half-open byte range within the source expression.
+///
+/// `start` is inclusive and `end` is exclusive. The indices correspond to
+/// byte offsets in the original UTF-8 source string.
 pub struct Span {
     start: usize,
     end: usize,
 }
 
 impl Span {
+    /// Creates an empty span with both bounds set to zero.
     pub fn new() -> Self
     {
         Self { start: 0, end: 0 }
     }
 
+    /// Returns the inclusive start byte offset.
     pub fn start(&self) -> usize
     {
         self.start
     }
 
+    /// Returns the exclusive end byte offset.
     pub fn end(&self) -> usize
     {
         self.end

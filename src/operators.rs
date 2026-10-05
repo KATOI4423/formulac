@@ -11,13 +11,21 @@ use crate::core::{
     Real,
 };
 
+/// The identifier used for the differential operator in formulas.
 pub const DIFFERENTIAL_OPERATOR_STR: &str = "diff";
 
 macro_rules! operator_kind {
     ($($symbol:expr => $kind:ident), *$(,)?) => {
+        /// Represents an operator used in a mathematical expression.
+        ///
+        /// Each variant corresponds to one of the operators recognized by
+        /// the expression parser.
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub enum OperatorKind {
-            $( $kind ), *
+            $(
+                #[doc = "An operator represented by the corresponding expression symbol."]
+                $kind
+            ), *
         }
 
         impl FromStr for OperatorKind {
@@ -32,6 +40,7 @@ macro_rules! operator_kind {
         }
 
         impl OperatorKind {
+            /// Returns the symbols recognized as binary or unary operators.
             pub fn symbols() -> &'static [&'static str]
             {
                 &[$($symbol), *]

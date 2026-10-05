@@ -7,73 +7,166 @@ use num_traits::{
 };
 use std::f64;
 
+/// Defines the real-number operations required by the formula engine.
+///
+/// The trait abstracts over the scalar type used for the real and imaginary
+/// components of [`num_complex::Complex`] values. The crate provides an
+/// implementation for `f64`; additional implementations can be supplied by
+/// downstream users when their scalar type satisfies the required operations.
+///
+/// In addition to arithmetic, the trait exposes mathematical constants and
+/// elementary functions used by the expression evaluator.
 pub trait Real: Num + std::ops::Neg<Output = Self>
     + Clone
     + PartialEq + PartialOrd
     + std::fmt::Debug
 {
     // Basic
+    /// Creates a value from an [`f64`].
     fn from_f64(v: f64) -> Self;
+
+    /// Converts the value to an [`i32`], using the implementation-defined conversion semantics.
     fn to_i32(&self) -> i32;
+
+    /// Returns whether the value can be represented exactly as an [`i32`].
     fn is_i32_compatible(&self) -> bool {
         self.clone().fract().is_zero()
             && *self >= Self::from_f64(i32::MIN as f64)
             && *self <= Self::from_f64(i32::MAX as f64)
     }
+    /// Returns the fractional part of the value.
     fn fract(self) -> Self;
+
+    /// Returns the value with its fractional part removed.
     fn trunc(self) -> Self;
 
     // Constants
+    /// Returns Euler's number, *e*.
     fn e() -> Self;
+
+    /// Returns 1 / π.
     fn frac_1_pi() -> Self;
+
+    /// Returns 1 / √2.
     fn frac_1_sqrt_2() -> Self;
+
+    /// Returns 2 / π.
     fn frac_2_pi() -> Self;
+
+    /// Returns 2 / √π.
     fn frac_2_sqrt_pi() -> Self;
+
+    /// Returns π / 2.
     fn frac_pi_2() -> Self;
+
+    /// Returns π / 3.
     fn frac_pi_3() -> Self;
+
+    /// Returns π / 4.
     fn frac_pi_4() -> Self;
+
+    /// Returns π / 6.
     fn frac_pi_6() -> Self;
+
+    /// Returns π / 8.
     fn frac_pi_8() -> Self;
+
+    /// Returns ln(2).
     fn ln_2() -> Self;
+
+    /// Returns ln(10).
     fn ln_10() -> Self;
+
+    /// Returns log₂(10).
     fn log2_10() -> Self;
+
+    /// Returns log₂(e).
     fn log2_e() -> Self;
+
+    /// Returns log₁₀(2).
     fn log10_2() -> Self;
+
+    /// Returns log₁₀(e).
     fn log10_e() -> Self;
+
+    /// Returns π.
     fn pi() -> Self;
+
+    /// Returns √2.
     fn sqrt_2() -> Self;
+
+    /// Returns τ, equal to 2π.
     fn tau() -> Self;
 
     // Trigonometric functions
+    /// Returns the sine of the value.
     fn sin(self) -> Self;
+
+    /// Returns the cosine of the value.
     fn cos(self) -> Self;
+
+    /// Returns the tangent of the value.
     fn tan(self) -> Self;
+
+    /// Returns the inverse sine of the value.
     fn asin(self) -> Self;
+
+    /// Returns the inverse cosine of the value.
     fn acos(self) -> Self;
+
+    /// Returns the inverse tangent of the value.
     fn atan(self) -> Self;
+
+    /// Returns the four-quadrant inverse tangent of `self / other`.
     fn atan2(self, other: Self) -> Self;
+
+    /// Returns the sine and cosine of the value as `(sin, cos)`.
     fn sin_cos(self) -> (Self, Self);
 
     // Hyperbolic functions
+    /// Returns the hyperbolic sine of the value.
     fn sinh(self) -> Self;
+
+    /// Returns the hyperbolic cosine of the value.
     fn cosh(self) -> Self;
+
+    /// Returns the hyperbolic tangent of the value.
     fn tanh(self) -> Self;
+
+    /// Returns the inverse hyperbolic sine of the value.
     fn asinh(self) -> Self;
+
+    /// Returns the inverse hyperbolic cosine of the value.
     fn acosh(self) -> Self;
+
+    /// Returns the inverse hyperbolic tangent of the value.
     fn atanh(self) -> Self;
 
     // Exponential and Logarithmic
+    /// Returns the exponential function of the value.
     fn exp(self) -> Self;
+
+    /// Returns the natural logarithm of the value.
     fn ln(self) -> Self;
+
+    /// Returns the base-10 logarithm of the value.
     fn log10(self) -> Self;
 
     // Others
+    /// Returns the square root of the value.
     fn sqrt(self) -> Self;
+
+    /// Returns the absolute value of the value.
     fn abs(self) -> Self;
+
+    /// Returns the Euclidean norm of the pair `(self, other)`.
     fn hypot(self, other: Self) -> Self;
 
     // Power
+    /// Raises the value to a real-valued power.
     fn pow(self, rhs: Self) -> Self;
+
+    /// Raises the value to an integer power.
     fn powi(self, n: i32) -> Self;
 }
 
@@ -150,35 +243,67 @@ impl Real for f64 {
     fn powi(self, n: i32) -> Self { self.powi(n) }
 }
 
+/// Provides elementary complex-valued mathematical operations.
+///
+/// This trait supplies the operations needed to evaluate built-in functions
+/// on [`num_complex::Complex`] values. The crate implements it for
+/// `Complex<T>` where `T` implements [`Real`].
 pub trait ComplexMath {
     // Trigonometric functions
+    /// Returns the complex sine.
     fn sin(self) -> Self;
+    /// Returns the complex cosine.
     fn cos(self) -> Self;
+    /// Returns the complex tangent.
     fn tan(self) -> Self;
+    /// Returns the complex inverse sine.
     fn asin(self) -> Self;
+    /// Returns the complex inverse cosine.
     fn acos(self) -> Self;
+    /// Returns the complex inverse tangent.
     fn atan(self) -> Self;
 
     // Hyperbolic functions
+    /// Returns the complex hyperbolic sine.
     fn sinh(self) -> Self;
+
+    /// Returns the hyperbolic cosine of the value.
     fn cosh(self) -> Self;
+
+    /// Returns the hyperbolic tangent of the value.
     fn tanh(self) -> Self;
+
+    /// Returns the inverse hyperbolic sine of the value.
     fn asinh(self) -> Self;
+
+    /// Returns the inverse hyperbolic cosine of the value.
     fn acosh(self) -> Self;
+
+    /// Returns the inverse hyperbolic tangent of the value.
     fn atanh(self) -> Self;
 
     // Exponential and Logarithmic
+    /// Returns the exponential function of the value.
     fn exp(self) -> Self;
+
+    /// Returns the natural logarithm of the value.
     fn ln(self) -> Self;
+
+    /// Returns the base-10 logarithm of the value.
     fn log10(self) -> Self;
 
     // Others
+    /// Returns the square root of the value.
     fn sqrt(self) -> Self;
+    /// Returns the magnitude as a real complex value.
     fn abs(self) -> Self;
+    /// Returns the complex conjugate.
     fn conj(self) -> Self;
 
     // Power
+    /// Raises the complex value to a complex power.
     fn powc(self, rhs: Self) -> Self;
+    /// Raises the complex value to an integer power.
     fn powi(self, n: i32) -> Self;
 }
 

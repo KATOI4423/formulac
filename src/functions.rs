@@ -35,12 +35,21 @@ where
     U: Apply<T> + Arity,
 {}
 
+/// Provides evaluation of a mathematical function.
+///
+/// Implementors receive their arguments as a vector of complex values and
+/// return the resulting complex value. The expected number of arguments is
+/// described separately by [`Arity::arity`].
+///
+/// Implementations are used by the expression evaluator for both built-in
+/// and user-defined functions.
 pub trait Apply<T: Real>
 {
     /// Evaluates the function with the given arguments.
     fn apply(&self, arg: Vec<Complex<T>>) -> Complex<T>;
 }
 
+/// Describes the number of arguments accepted by a mathematical function.
 pub trait Arity
 {
     /// Returns the number of arguments this function expects.
@@ -62,7 +71,10 @@ macro_rules! functions {
         /// Represents a built-in mathematical function.
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub enum FunctionKind {
-            $( $variant, )*
+            $(
+                #[doc = "A built-in mathematical function."]
+                $variant,
+            )*
         }
 
         impl FromStr for FunctionKind {
@@ -219,10 +231,19 @@ mod function_tests {
     }
 }
 
-/// Tye closure type for user-defined custom functions.
+/// Closure type for user-defined custom functions.
 type FuncType<T> = dyn Fn(Vec<Complex<T>>) -> Complex<T> + Send + Sync;
 
 #[derive(Clone)]
+/// A user-defined mathematical function.
+///
+/// A `UserFn` stores a named function, its arity, and optionally one analytic
+/// derivative function for each argument. User-defined functions can be
+/// registered with [`crate::builder::Builder::with_user_functions`] and then
+/// called from formulas by name.
+///
+/// The function and all registered derivatives are required to be thread-safe
+/// so that a compiled formula can be evaluated concurrently.
 pub struct UserFn<T: Real>
 {
     func: Arc<FuncType<T>>,
@@ -237,7 +258,7 @@ impl<T: Real> UserFn<T> {
     /// # Arguments
     ///
     /// * `name`  - The name of the function.
-    /// * `func`  - A closure that receives `[Complex<f64>; N]` and returns `Complex<f64>`.
+    /// * `func`  - A closure that receives an array of `N` complex values and returns a complex value.
     pub fn new<F, S, const N: usize>(name: S, func: F) -> Self
     where
         F: Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
