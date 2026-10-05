@@ -598,7 +598,6 @@ mod tests {
 
         let result = z.clone().powc(w.clone());
 
-        // 検証：exp(w ln z)
         let expected = (w * z.ln()).exp();
 
         approx_eq(result, expected);
