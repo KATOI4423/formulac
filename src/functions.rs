@@ -431,6 +431,16 @@ mod userfn_tests {
             f.apply(vec![c(1.0, 0.0), c(2.0, 0.0), c(3.0, 0.0)]),
             c(6.0, 0.0),
         );
+
+        let f = UserFn::new(
+            "poly",
+            |[x, y, z]|
+                c(100.0, 0.0) * x + c(10.0, 0.0) * y + z
+        );
+        assert_eq!(
+            f.apply(vec![c(1.0, 0.0), c(2.0, 0.0), c(3.0, 0.0)]),
+            c(123.0, 0.0),
+        );
     }
 
     #[test]

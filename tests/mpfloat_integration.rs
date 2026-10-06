@@ -488,6 +488,19 @@ fn mp_user_function() {
 }
 
 #[test]
+fn mp_ternary_user_function() {
+    let poly = UserFn::<MpFloat>::new("poly", |[x, y, z]|
+        mp(100.0, 0.0) * x + mp(10.0, 0.0) * y + z
+    );
+    let f = Builder::<MpFloat, 3>::new("poly(x, y, z)", ["x", "y", "z"])
+        .with_user_functions([poly])
+        .compile()
+        .expect("compile failed");
+    let result = to_f64(&f.eval(&[mp(1.0, 0.0), mp(2.0, 0.0), mp(3.0, 0.0)]));
+    assert_close(result, Complex::new(123.0, 0.0), 1e-12, "user fn poly(1, 2, 3)");
+}
+
+#[test]
 fn mp_differentiation_polynomial() {
     // diff(x^2, x) = 2*x
     let f = Builder::<MpFloat, 1>::new("diff(x^2, x)", ["x"])
