@@ -517,13 +517,7 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
                     scratch.stack.push(kind.apply(l, r));
                 },
                 Token::Function { kind, .. } => {
-                    let n = kind.arity();
-                    let mut call_args: Vec<Complex<T>> = Vec::with_capacity(n);
-                    for _ in 0..n {
-                        call_args.push(scratch.stack.pop().unwrap())
-                    }
-                    call_args.reverse();
-                    scratch.stack.push(kind.apply(call_args));
+                    kind.apply_stack(&mut scratch.stack);
                 },
                 Token::UserFunction { func, .. } => {
                     let n = func.arity();

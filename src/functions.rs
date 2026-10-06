@@ -93,6 +93,24 @@ macro_rules! functions {
             pub fn symbols() -> &'static [&'static str] {
                 &[$( $name, )*]
             }
+
+            #[inline(always)]
+            fn pop_array<T: Real, const N: usize>(stack: &mut Vec<Complex<T>>) -> [Complex<T>; N] {
+                let base = stack.len() - N;
+                let mut it = stack.drain(base..); // move in the same order
+                std::array::from_fn(|_| it.next().unwrap()) // No alloc. No reverse.
+            }
+
+            #[inline]
+            pub(crate) fn apply_stack<T: Real>(&self, stack: &mut Vec<Complex<T>>) {
+                match self {
+                    $( Self::$variant => {
+                        const N: usize = count_args!($($arg),+);
+                        let [$($arg),+] = Self::pop_array::<T, N>(stack);
+                        stack.push($body);
+                    } )*
+                }
+            }
         }
 
         impl Arity for FunctionKind
