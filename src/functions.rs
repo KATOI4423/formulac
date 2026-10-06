@@ -6,6 +6,7 @@
 use num_complex::Complex;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::vec::Drain;
 
 use crate::core::{
     ComplexMath,
@@ -250,7 +251,7 @@ mod function_tests {
 }
 
 /// Closure type for user-defined custom functions.
-type FuncType<T> = dyn Fn(Vec<Complex<T>>) -> Complex<T> + Send + Sync;
+type FuncType<T> = dyn Fn(&mut Drain<'_, Complex<T>>) -> Complex<T> + Send + Sync;
 
 #[derive(Clone)]
 /// A user-defined mathematical function.
@@ -283,8 +284,8 @@ impl<T: Real> UserFn<T> {
         S: Into<String>,
     {
         Self {
-            func: Arc::new(move |args| {
-                let arr = args.try_into().unwrap_or_else(|_| unreachable!("arity mismatch"));
+            func: Arc::new(move |it| {
+                let arr = std::array::from_fn(|_| it.next().expect("arity mismatch"));
                 func(arr)
             }),
             deriv: Vec::new(),
@@ -353,6 +354,14 @@ impl<T: Real> UserFn<T> {
     pub fn derivative(&self, var: usize) -> Option<&Self> {
         self.deriv.get(var)
     }
+
+    pub(crate) fn apply_stack(&self, stack: &mut Vec<Complex<T>>) {
+        let base = stack.len() - self.arity;
+        let mut drain = stack.drain(base..);
+        let result = (self.func)(&mut drain);
+        drop(drain);
+        stack.push(result)
+    }
 }
 
 impl<T: Real> Arity for UserFn<T>
@@ -363,8 +372,8 @@ impl<T: Real> Arity for UserFn<T>
 }
 
 impl<T: Real> Apply<T> for UserFn<T> {
-    fn apply(&self, args: Vec<Complex<T>>) -> Complex<T> {
-        (self.func)(args)
+    fn apply(&self, mut args: Vec<Complex<T>>) -> Complex<T> {
+        (self.func)(&mut args.drain(..))
     }
 }
 

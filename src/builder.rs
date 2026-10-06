@@ -15,11 +15,7 @@ use crate::astnode::compile::Program;
 use crate::core::Real;
 use crate::constants::Constants;
 use crate::err::ParseError;
-use crate::functions::{
-    Arity,
-    Apply,
-    UserFn,
-};
+use crate::functions::UserFn;
 use crate::lexer;
 use crate::token::{
     Token,
@@ -520,14 +516,7 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
                     kind.apply_stack(&mut scratch.stack);
                 },
                 Token::UserFunction { func, .. } => {
-                    let n = func.arity();
-                    let mut call_args: Vec<Complex<T>> = Vec::with_capacity(n);
-
-                    for _ in 1..=n {
-                        call_args.push(scratch.stack.pop().unwrap());
-                    }
-                    call_args.reverse();
-                    scratch.stack.push(func.apply(call_args));
+                    func.apply_stack(&mut scratch.stack);
                 },
                 _ => unreachable!("Invalid tokens found: use compiled tokens"),
             }
@@ -541,6 +530,7 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
 #[cfg(test)]
 mod compile_test {
     use crate::functions::{
+        Arity,
         UserFn,
     };
 
