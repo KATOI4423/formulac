@@ -3,7 +3,6 @@
 //! This module provides structures and utilities for building function object.
 
 use num_complex::Complex;
-use num_traits::Zero;
 use std::ops::{
     AddAssign,
     MulAssign,
@@ -529,11 +528,11 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
                 Token::UserFunction { func, .. } => {
                     let n = func.arity();
                     let mut call_args: Vec<Complex<T>> = Vec::with_capacity(n);
-                    call_args.resize(n, Complex::zero());
 
-                    for i in (0..n).rev() {
-                        call_args[i] = scratch.stack.pop().unwrap();
+                    for _ in 1..=n {
+                        call_args.push(scratch.stack.pop().unwrap());
                     }
+                    call_args.reverse();
                     scratch.stack.push(func.apply(call_args));
                 },
                 _ => unreachable!("Invalid tokens found: use compiled tokens"),
