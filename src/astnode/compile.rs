@@ -1,33 +1,94 @@
 //! # astnode/compile.rs
 //!
-//! Compiles an [`AstNode`] tree into a flat sequence of postfix [`Token`]s
+//! Compiles an [`AstNode`] tree into a flat sequence of postfix [`Instruction`]s
 //! (Reverse Polish Notation) for stack-based evaluation.
 //!
 //! ## Entry point
 //! [`AstNode::compile`] performs a depth-first traversal of the AST
-//! and emits tokens in evaluation order.
-//! The resulting token sequence is consumed by the executor in [`builder`].
+//! and emits instructions in evaluation order.
+//! The resulting instruction sequence is consumed by the executor in [`builder`].
+
+use num_complex::Complex;
 
 use crate::astnode::AstNode;
 use crate::core::Real;
-use crate::token::Token;
+use crate::functions::{
+    FunctionKind,
+    UserFn,
+};
+use crate::operators::{
+    BinaryOperatorKind,
+    UnaryOperatorKind,
+};
+
+/// A single executable instruction of the stack machine.
+///
+/// Unlike [`Token`](crate::token::Token), which exists only for the parser,
+/// an `Instruction` carries no source span and no parser-only variants, so
+/// the evaluator can `match` it exhaustively.
+///
+/// Instructions are emitted in postfix order by [`AstNode::compile`].
+/// Each one consumes values from the evaluation stack and pushes exactly one
+/// result, except the two leaf instructions which only push.
+///
+/// | Instruction                              | Pops      | Pushes | Net stack effect |
+/// |------------------------------------------|-----------|--------|------------------|
+/// | [`Constant`](Self::Constant)             | 0         | 1      | `+1`             |
+/// | [`Argument`](Self::Argument)             | 0         | 1      | `+1`             |
+/// | [`UnaryOperator`](Self::UnaryOperator)   | 1         | 1      | `0`              |
+/// | [`BinaryOperator`](Self::BinaryOperator) | 2         | 1      | `-1`             |
+/// | [`Function`](Self::Function)             | `arity`   | 1      | `1 - arity`      |
+/// | [`UserFunction`](Self::UserFunction)     | `arity`   | 1      | `1 - arity`      |
+///
+/// A valid program leaves exactly one value on the stack, and its maximum
+/// depth equals [`Program::stack_size`].
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Instruction<T: Real> {
+    /// Pushes a clone of a numeric literal.
+    Constant(Complex<T>),
+
+    /// Pushes a clone of the evaluation argument at this position.
+    ///
+    /// The index is resolved from the argument names when the formula is
+    /// parsed, so it is always within the `N` arguments of the formula.
+    Argument(usize),
+
+    /// Pops one value, applies the unary operator, and pushes the result.
+    UnaryOperator(UnaryOperatorKind),
+
+    /// Pops the right operand, then the left operand (the right one is on top),
+    /// applies the binary operator, and pushes the result.
+    BinaryOperator(BinaryOperatorKind),
+
+    /// Pops `arity` values and pushes the result of a built-in function.
+    ///
+    /// The arguments are consumed in their original order: the first
+    /// argument is the deepest of the popped values, so `pow(x, y)` has `y`
+    /// on top of the stack.
+    Function(FunctionKind),
+
+    /// Pops `arity` values and pushes the result of a user-defined function.
+    ///
+    /// The argument order is the same as for [`Function`](Self::Function).
+    UserFunction(UserFn<T>),
+}
 
 /// Analyzed executable (immutable and shareable)
 #[derive(Debug, Clone)]
 pub(crate) struct Program<T: Real> {
-    code: Vec<Token<T>>,
+    code: Vec<Instruction<T>>,
     stack_size: usize,
 }
 
 impl<T: Real> Program<T> {
-    pub(crate) fn new(code: Vec<Token<T>>, stack_size: usize) -> Self {
+    pub(crate) fn new(code: Vec<Instruction<T>>, stack_size: usize) -> Self {
         Self {
             code,
             stack_size,
         }
     }
 
-    pub(crate) fn code(&self) -> &[Token<T>] {
+    pub(crate) fn code(&self) -> &[Instruction<T>] {
         &self.code
     }
 
@@ -45,26 +106,26 @@ impl<T: Real> AstNode<T> {
         Program::new(code, stack_size)
     }
 
-    fn compile_into(&self, out: &mut Vec<Token<T>>) {
+    fn compile_into(&self, out: &mut Vec<Instruction<T>>) {
         match self {
-            Self::Number { value, span } => out.push(Token::Number { value: value.clone(), span: *span }),
-            Self::Argument { index, span } => out.push(Token::Argument { index: *index, span: *span }),
-            Self::UnaryOperator { kind, expr, span } => {
+            Self::Number { value, .. } => out.push(Instruction::Constant(value.clone())),
+            Self::Argument { index, .. } => out.push(Instruction::Argument(*index)),
+            Self::UnaryOperator { kind, expr, .. } => {
                 expr.compile_into(out);
-                out.push(Token::UnaryOperator { kind: *kind, span: *span });
+                out.push(Instruction::UnaryOperator(*kind));
             }
-            Self::BinaryOperator { kind, left, right, span } => {
+            Self::BinaryOperator { kind, left, right, .. } => {
                 left.compile_into(out);
                 right.compile_into(out);
-                out.push(Token::BinaryOperator { kind: *kind, span: *span });
+                out.push(Instruction::BinaryOperator(*kind));
             }
-            Self::FunctionCall { kind, args, span } => {
-                for arg in args { arg.compile_into(out); }
-                out.push(Token::Function { kind: *kind, span: *span });
+            Self::FunctionCall { kind, args, .. } => {
+                args.iter().for_each(|arg| arg.compile_into(out));
+                out.push(Instruction::Function(*kind));
             }
-            Self::UserFunctionCall { func, args, span } => {
-                for arg in args { arg.compile_into(out); }
-                out.push(Token::UserFunction { func: func.clone(), span: *span });
+            Self::UserFunctionCall { func, args, .. } => {
+                args.iter().for_each(|arg| arg.compile_into(out));
+                out.push(Instruction::UserFunction(func.clone()));
             }
             Self::Derivative { .. } => {
                 unreachable!("Derivative nodes must be resolved before compile()")
@@ -114,7 +175,7 @@ mod astnode_tests {
     fn test_compile_number() {
         let ast = AstNode::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) };
         let program = ast.compile();
-        assert_eq!(program.code, vec![Token::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) }]);
+        assert_eq!(program.code, vec![Instruction::Constant(Complex::new(1.0, 0.0))]);
         assert_eq!(program.stack_size, 1);
     }
 
@@ -122,7 +183,7 @@ mod astnode_tests {
     fn test_compile_argument() {
         let ast = AstNode::<f64>::Argument { index: 1, span: Span::from(0..1) };
         let program = ast.compile();
-        assert_eq!(program.code, vec![Token::Argument { index: 1, span: Span::from(0..1) }]);
+        assert_eq!(program.code, vec![Instruction::Argument(1)]);
         assert_eq!(program.stack_size, 1);
     }
 
@@ -132,7 +193,7 @@ mod astnode_tests {
         let program = ast.compile();
         assert_eq!(
             program.code,
-            vec![Token::Number { value: Complex::new(1.0, 0.0), span: Span::from(2..3) }, Token::UnaryOperator { kind: UnaryOperatorKind::Negative, span: Span::from(2..3) }]
+            vec![Instruction::Constant(Complex::new(1.0, 0.0)), Instruction::UnaryOperator(UnaryOperatorKind::Negative)],
         );
         assert_eq!(program.stack_size, 1);
     }
@@ -144,9 +205,9 @@ mod astnode_tests {
         assert_eq!(
             program.code,
             vec![
-                Token::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) },
-                Token::Argument { index: 1, span: Span::from(4..5) },
-                Token::BinaryOperator { kind: BinaryOperatorKind::Add, span: Span::from(0..1) },
+                Instruction::Constant(Complex::new(1.0, 0.0)),
+                Instruction::Argument(1),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
             ]
         );
         assert_eq!(program.stack_size, 2);
@@ -156,7 +217,7 @@ mod astnode_tests {
     fn test_compile_function_single_argument() {
         let ast = AstNode::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) }.sin();
         let program = ast.compile();
-        assert_eq!(program.code, vec![Token::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) }, Token::Function { kind: FunctionKind::Sin, span: Span::from(0..1) }]);
+        assert_eq!(program.code, vec![Instruction::Constant(Complex::new(1.0, 0.0)), Instruction::Function(FunctionKind::Sin)]);
         assert_eq!(program.stack_size, 1);
     }
 
@@ -167,9 +228,9 @@ mod astnode_tests {
         assert_eq!(
             program.code,
             vec![
-                Token::Number { value: Complex::new(2.0, 0.0), span: Span::from(0..1) },
-                Token::Argument { index: 0, span: Span::from(4..5) },
-                Token::Function { kind: FunctionKind::Pow, span: Span::from(0..1) },
+                Instruction::Constant(Complex::new(2.0, 0.0)),
+                Instruction::Argument(0),
+                Instruction::Function(FunctionKind::Pow),
             ]
         );
         assert_eq!(program.stack_size, 2);
@@ -183,10 +244,10 @@ mod astnode_tests {
         assert_eq!(
             program.code,
             vec![
-                Token::Number { value: Complex::new(1.0, 0.0), span: Span::from(0..1) },
-                Token::Number { value: Complex::new(2.0, 0.0), span: Span::from(4..5) },
-                Token::BinaryOperator { kind: BinaryOperatorKind::Add, span: Span::from(0..1) },
-                Token::Function { kind: FunctionKind::Cos, span: Span::from(0..1) },
+                Instruction::Constant(Complex::new(1.0, 0.0)),
+                Instruction::Constant(Complex::new(2.0, 0.0)),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+                Instruction::Function(FunctionKind::Cos),
             ]
         );
         assert_eq!(program.stack_size, 2);

@@ -11,14 +11,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::astnode::AstNode;
-use crate::astnode::compile::Program;
+use crate::astnode::compile::{
+    Instruction,
+    Program,
+};
 use crate::core::Real;
 use crate::constants::Constants;
 use crate::err::ParseError;
 use crate::functions::UserFn;
 use crate::lexer;
 use crate::token::{
-    Token,
     UserFnTable,
 };
 
@@ -499,26 +501,25 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
         scratch.stack.reserve(self.program.stack_size());
         scratch.stack.clear();
 
-        for token in self.program.code().iter() {
-            match token {
-                Token::Number { value, .. } => scratch.stack.push(value.clone()),
-                Token::Argument { index, .. } => scratch.stack.push(args[*index].clone()),
-                Token::UnaryOperator { kind, .. } => {
+        for instruction in self.program.code().iter() {
+            match instruction {
+                Instruction::Constant(value) => scratch.stack.push(value.clone()),
+                Instruction::Argument(index) => scratch.stack.push(args[*index].clone()),
+                Instruction::UnaryOperator(kind) => {
                     let expr = scratch.stack.pop().unwrap();
                     scratch.stack.push(kind.apply(expr));
                 },
-                Token::BinaryOperator { kind, .. } => {
+                Instruction::BinaryOperator(kind) => {
                     let r = scratch.stack.pop().unwrap();
                     let l = scratch.stack.pop().unwrap();
                     scratch.stack.push(kind.apply(l, r));
                 },
-                Token::Function { kind, .. } => {
+                Instruction::Function(kind) => {
                     kind.apply_stack(&mut scratch.stack);
                 },
-                Token::UserFunction { func, .. } => {
+                Instruction::UserFunction(func) => {
                     func.apply_stack(&mut scratch.stack);
                 },
-                _ => unreachable!("Invalid tokens found: use compiled tokens"),
             }
         }
 
@@ -730,16 +731,15 @@ mod compile_test {
         assert_send_sync::<Scratch<f64>>();
     }
 
-    fn simulate_max_depth<T: Real>(code: &[Token<T>]) -> usize {
+    fn simulate_max_depth<T: Real>(code: &[Instruction<T>]) -> usize {
         let (mut cur, mut max) = (0usize, 0usize);
         for t in code {
             match t {
-                Token::Number { .. } | Token::Argument { .. } => cur += 1,
-                Token::UnaryOperator { .. } => {}
-                Token::BinaryOperator { .. } => cur -= 1,
-                Token::Function { kind, .. } => cur = cur - kind.arity() + 1,
-                Token::UserFunction { func, .. } => cur = cur - func.arity() + 1,
-                _ => unreachable!(),
+                Instruction::Constant(..) | Instruction::Argument(..) => cur += 1,
+                Instruction::UnaryOperator(..) => {}
+                Instruction::BinaryOperator(..) => cur -= 1,
+                Instruction::Function(kind) => cur = cur - kind.arity() + 1,
+                Instruction::UserFunction(func) => cur = cur - func.arity() + 1,
             }
             max = max.max(cur);
         }
