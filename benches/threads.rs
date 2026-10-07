@@ -223,7 +223,6 @@ where
                             || ([mk(0.7, 0.1), mk(1.3, -0.4)], expr.new_scratch()),
                             |st: &mut ([Complex<T>; 2], Scratch<T>), n: u64| {
                                 for _ in 0..n {
-                                    // args are passed by value, so one array clone per call
                                     drop(black_box(expr.eval_with_scratch(
                                         black_box(&st.0),
                                         &mut st.1,
