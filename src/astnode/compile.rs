@@ -276,4 +276,9 @@ mod astnode_tests {
 
         assert_eq!(program.stack_size, 4);
     }
+
+    #[test]
+    fn test_instruction_large_enum_variant() {
+        assert!(size_of::<Instruction<f64>>() <= 32);
+    }
 }

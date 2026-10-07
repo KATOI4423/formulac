@@ -253,7 +253,6 @@ mod function_tests {
 /// Closure type for user-defined custom functions.
 type FuncType<T> = dyn Fn(&mut Drain<'_, Complex<T>>) -> Complex<T> + Send + Sync;
 
-#[derive(Clone)]
 /// A user-defined mathematical function.
 ///
 /// A `UserFn` stores a named function, its arity, and optionally one analytic
@@ -263,7 +262,14 @@ type FuncType<T> = dyn Fn(&mut Drain<'_, Complex<T>>) -> Complex<T> + Send + Syn
 ///
 /// The function and all registered derivatives are required to be thread-safe
 /// so that a compiled formula can be evaluated concurrently.
+#[derive(Clone)]
 pub struct UserFn<T: Real>
+{
+    inner: Arc<UserFnInner<T>>,
+}
+
+#[derive(Clone)]
+struct UserFnInner<T: Real>
 {
     func: Arc<FuncType<T>>,
     deriv: Vec<UserFn<T>>,
@@ -283,7 +289,7 @@ impl<T: Real> UserFn<T> {
         F: Fn([Complex<T>; N]) -> Complex<T> + Send + Sync + 'static,
         S: Into<String>,
     {
-        Self {
+        let inner = UserFnInner {
             func: Arc::new(move |it| {
                 let arr = std::array::from_fn(|_| it.next().expect("arity mismatch"));
                 func(arr)
@@ -291,6 +297,10 @@ impl<T: Real> UserFn<T> {
             deriv: Vec::new(),
             arity: N,
             name: name.into(),
+        };
+
+        Self {
+            inner: Arc::new(inner),
         }
     }
 
@@ -315,18 +325,19 @@ impl<T: Real> UserFn<T> {
     /// ```
     pub fn with_derivative(mut self, diffs: impl IntoIterator<Item = Self>) -> Result<Self, InitializeError> {
         let diffs: Vec<Self> = diffs.into_iter().collect();
-        if diffs.len() != self.arity {
+        if diffs.len() != self.inner.arity {
             return Err(InitializeError::DerivativesNumberMismatched {
-                expected: self.arity, number: diffs.len()
+                expected: self.inner.arity, number: diffs.len()
             });
         }
-        self.deriv = diffs;
+        Arc::make_mut(&mut self.inner).deriv = diffs;
+
         Ok(self)
     }
 
     /// Returns the function name.
     pub fn name(&self) -> &str {
-        &self.name
+        &self.inner.name
     }
 
     /// Returns the analytically registered derivative for argument `var`,
@@ -352,13 +363,13 @@ impl<T: Real> UserFn<T> {
     /// assert!(f.derivative(1).is_none()); // out of range
     /// ```
     pub fn derivative(&self, var: usize) -> Option<&Self> {
-        self.deriv.get(var)
+        self.inner.deriv.get(var)
     }
 
     pub(crate) fn apply_stack(&self, stack: &mut Vec<Complex<T>>) {
-        let base = stack.len() - self.arity;
+        let base = stack.len() - self.inner.arity;
         let mut drain = stack.drain(base..);
-        let result = (self.func)(&mut drain);
+        let result = (self.inner.func)(&mut drain);
         drop(drain);
         stack.push(result)
     }
@@ -367,21 +378,21 @@ impl<T: Real> UserFn<T> {
 impl<T: Real> Arity for UserFn<T>
 {
     fn arity(&self) -> usize {
-        self.arity
+        self.inner.arity
     }
 }
 
 impl<T: Real> Apply<T> for UserFn<T> {
     fn apply(&self, mut args: Vec<Complex<T>>) -> Complex<T> {
-        (self.func)(&mut args.drain(..))
+        (self.inner.func)(&mut args.drain(..))
     }
 }
 
 impl<T: Real> std::fmt::Debug for UserFn<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UserFn")
-            .field("name",  &self.name)
-            .field("arity", &self.arity)
+            .field("name",  &self.inner.name)
+            .field("arity", &self.inner.arity)
             .finish_non_exhaustive()
     }
 }
@@ -389,7 +400,8 @@ impl<T: Real> std::fmt::Debug for UserFn<T> {
 impl<T: Real> PartialEq for UserFn<T> {
     /// Equality is based on `name` and `arity` only (closure cannot be compared).
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.arity == other.arity
+        Arc::ptr_eq(&self.inner, &other.inner) ||
+        self.inner.name == other.inner.name && self.inner.arity == other.inner.arity
     }
 }
 
