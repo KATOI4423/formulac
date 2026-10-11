@@ -123,6 +123,18 @@ const INVALID_CASES: &[(&str, &str)] = &[
     ("unknown_lexeme", "1 + @"),
 ];
 
+/// Formulas whose exponent is a compile-time constant.
+///
+/// `simplify()` rewrites `x^n` into `powi(x, n)`, so these exercise the
+/// constant-exponent path. The existing `eval/builtin/powi` bench passes the
+/// exponent as an argument and therefore does not cover it.
+const POWI_CONST_CASE: &[(&str, &str)] = &[
+    ("x^2", "x^2"),
+    ("x^3", "x^3"),
+    ("x^10", "x^10"),
+    ("diff_poly", "diff(x^10 + x^5 + x^2, x)"),
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -257,6 +269,13 @@ fn bench_eval_basic(c: &mut Criterion) {
     eval_cases(c, "eval/diff", DIFF_CASES, &[]);
 }
 
+/// Benchmarks evaluation of formulas with constant integer exponents.
+///
+/// `compile()` is excluded from the measured loop (see `eval_cases`).
+fn bench_eval_powi_const(c: &mut Criterion) {
+    eval_cases(c, "eval.powi_const", POWI_CONST_CASE, &[]);
+}
+
 fn bench_eval_scaling(c: &mut Criterion) {
     eval_scaling(c, "eval/deep_nesting", &[1, 10, 100, 1000], nested_sin);
     eval_scaling(c, "eval/distinct_terms", &[1, 10, 100, 1000], distinct_terms);
@@ -383,6 +402,7 @@ criterion_group!(
 criterion_group!(
     eval_benches,
     bench_eval_basic,
+    bench_eval_powi_const,
     bench_eval_scaling,
     bench_eval_args,
     bench_eval_user_function,

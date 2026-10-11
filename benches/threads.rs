@@ -32,7 +32,7 @@
 //!
 //! Record `nproc`, toolchain and CPU governor next to the results.
 
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId,Criterion,criterion_group,criterion_main};
 use formulac::builder::{Builder, Scratch};
 use formulac::core::Real;
 use num_complex::Complex;
@@ -57,6 +57,10 @@ const FORMULAS: &[(&str, &str)] = &[
     ("add", "x + y"),
     ("poly", "a0 + a1*x + a2*x^2 + a3*x^3"),
     ("wave", "A*sin(w*x + phy) + B*cos(w*x + phy)"),
+     // Constant-exponent powi path (used to decide whether PowiConst is worth it).
+    ("pow2", "x^2"),
+    ("pow3", "x^3"),
+    ("pow10", "x^10"),
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,6 +197,66 @@ where
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// part/powi_* : cost components of the constant exponent
+//   part/powi_exponent_clone : clone + drop of the exponent `Complex<T>`
+//   part/powi_to_i32         : `y.re.to_i32()` only
+//   part/powi_exponent_path  : clone + to_i32 + drop, i.e. the exponent-related
+//                              cost of the generic `Function(Powi)` path
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Runs a single-threaded micro benchmark on a constant exponent `3 + 0i`.
+///
+/// `body` receives the exponent through `black_box`, so the optimizer cannot
+/// fold the work away. Each (`group`, `tname`) pair becomes one benchmark ID.
+fn powi_part<T>(
+    c: &mut Criterion,
+    group: &str,
+    tname: &str,
+    mk: fn(f64, f64) -> Complex<T>,
+    body: impl Fn(&Complex<T>),
+) where
+    T: Real + Send + Sync + 'static,
+{
+    let exponent = mk(3.0, 0.0);
+    let mut g = c.benchmark_group(group);
+    g.bench_function(tname, |b| b.iter(|| body(black_box(&exponent))));
+    g.finish();
+}
+
+/// Registers the `part/powi_*` benchmarks for `f64` and `MpFloat`.
+fn bench_powi_parts(c: &mut Criterion) {
+    // Clone + drop of the exponent.
+    powi_part::<f64>(c, "part/powi_exponent_clone", "f64", mk_f64, |e| {
+        let _ = black_box(e.clone());
+    });
+    powi_part::<MpFloat>(c, "part/powi_exponent_clone", "mpfloat", mk_mp, |e| {
+        drop(black_box(e.clone()));
+    });
+
+    // `to_i32` only.
+    powi_part::<f64>(c, "part/powi_to_i32", "f64", mk_f64, |e| {
+        black_box(Real::to_i32(&e.re));
+    });
+    powi_part::<MpFloat>(c, "part/powi_to_i32", "mpfloat", mk_mp, |e| {
+        black_box(Real::to_i32(&e.re));
+    });
+
+    // Clone + to_i32 + drop (exponent cost of the old path).
+    powi_part::<f64>(c, "part/powi_exponent_path", "f64", mk_f64, |e| {
+        let y = e.clone();
+        let n = Real::to_i32(&y.re);
+        let _ = black_box(y);
+        black_box(n);
+    });
+    powi_part::<MpFloat>(c, "part/powi_exponent_path", "mpfloat", mk_mp, |e| {
+        let y = e.clone();
+        let n = Real::to_i32(&y.re);
+        drop(black_box(y));
+        black_box(n);
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // mt/eval : compiled closure
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -247,6 +311,7 @@ fn bench_all(c: &mut Criterion) {
     bench_eval::<f64>(c, "f64", mk_f64);
     bench_parts::<MpFloat>(c, "mpfloat", mk_mp);
     bench_eval::<MpFloat>(c, "mpfloat", mk_mp);
+    bench_powi_parts(c);
 }
 
 criterion_group!(benches, bench_all);
