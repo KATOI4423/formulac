@@ -517,6 +517,10 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
                 Instruction::Function(kind) => {
                     kind.apply_stack(&mut scratch.stack);
                 },
+                Instruction::PowiConst(n) => {
+                    let x = scratch.stack.pop().unwrap();
+                    scratch.stack.push(x.powi(*n));
+                },
                 Instruction::UserFunction(func) => {
                     func.apply_stack(&mut scratch.stack);
                 },
@@ -739,6 +743,7 @@ mod compile_test {
                 Instruction::UnaryOperator(..) => {}
                 Instruction::BinaryOperator(..) => cur -= 1,
                 Instruction::Function(kind) => cur = cur - kind.arity() + 1,
+                Instruction::PowiConst(..) => {}, // pop 1, push 1 -> net 0
                 Instruction::UserFunction(func) => cur = cur - func.arity() + 1,
             }
             max = max.max(cur);
@@ -750,10 +755,22 @@ mod compile_test {
     #[test]
     fn stack_size_matches_simulation() {
         for f in ["x", "x + y", "x+y*x-y/(x+1)", "pow(x, y + sin(x*y))",
-                  "sin(cos(sin(x)))", "diff(x^3 + sin(x*y), x)", "(x+y)*(x-y)*(x+1)*(y+2)"] {
+                  "sin(cos(sin(x)))", "diff(x^3 + sin(x*y), x)", "(x+y)*(x-y)*(x+1)*(y+2)",
+                  "x^3", "x^3 + y^2 * x", "powi(x, y)", "powi(x + y, 3) * powi(x, y)",
+        ] {
             let p = Builder::<f64, 2>::new(f, ["x", "y"]).build_tokens().unwrap();
             assert_eq!(p.stack_size(), simulate_max_depth(p.code()), "formula: {f}");
         }
+    }
+
+    #[test]
+    fn powi_const_eval_matches() {
+        let f = Builder::new("x^3 + powi(x, -2)", ["x"]).compile().unwrap();
+        let x = Complex::new(1.2, -0.7);
+        let ret = f.eval(&[x]);
+        let expexted = x * x * x + (x * x).inv();
+        assert_abs_diff_eq!(ret.re, expexted.re);
+        assert_abs_diff_eq!(ret.im, expexted.im);
     }
 
     #[test]

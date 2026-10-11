@@ -67,6 +67,9 @@ pub(crate) enum Instruction<T: Real> {
     /// on top of the stack.
     Function(FunctionKind),
 
+    /// Pops one value, raises it to the compile-time integer power, pushes the result.
+    PowiConst(i32),
+
     /// Pops `arity` values and pushes the result of a user-defined function.
     ///
     /// The argument order is the same as for [`Function`](Self::Function).
@@ -106,6 +109,20 @@ impl<T: Real> AstNode<T> {
         Program::new(code, stack_size)
     }
 
+    fn get_const_powi_exponent(&self) -> Option<i32> {
+        let Self::FunctionCall { kind: FunctionKind::Powi, args, .. } = self else {
+            return None;
+        };
+        let Self::Number { value, .. } = args[1].as_ref() else {
+            return None;
+        };
+        if Self::is_i32_compatible(value) {
+            Some(value.re.to_i32())
+        } else {
+            None
+        }
+    }
+
     fn compile_into(&self, out: &mut Vec<Instruction<T>>) {
         match self {
             Self::Number { value, .. } => out.push(Instruction::Constant(value.clone())),
@@ -119,6 +136,12 @@ impl<T: Real> AstNode<T> {
                 right.compile_into(out);
                 out.push(Instruction::BinaryOperator(*kind));
             }
+            Self::FunctionCall { kind: FunctionKind::Powi, args, .. }
+                if let Some(n) = self.get_const_powi_exponent() =>
+            {
+                args[0].compile_into(out);
+                out.push(Instruction::PowiConst(n)); // Convert only once during compilation.
+            },
             Self::FunctionCall { kind, args, .. } => {
                 args.iter().for_each(|arg| arg.compile_into(out));
                 out.push(Instruction::Function(*kind));
@@ -148,6 +171,11 @@ impl<T: Real> AstNode<T> {
                 lhs.max(rhs)
             },
             Self::Derivative { .. } => unreachable!("Derivative nodes must be resolved before required_stack_size()"),
+            Self::FunctionCall { kind: FunctionKind::Powi, args, .. }
+                if self.get_const_powi_exponent().is_some() =>
+            {
+                args[0].required_stack_size()
+            },
             Self::FunctionCall { args, .. }
             | Self::UserFunctionCall { args, .. } => {
                 args.iter().enumerate().map(|(index, arg)| {
