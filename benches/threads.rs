@@ -32,9 +32,9 @@
 //!
 //! Record `nproc`, toolchain and CPU governor next to the results.
 
-use criterion::{BenchmarkId,Criterion,criterion_group,criterion_main};
+use criterion::{BatchSize,BenchmarkId,Criterion,criterion_group,criterion_main};
 use formulac::builder::{Builder, Scratch};
-use formulac::core::Real;
+use formulac::core::{ComplexMath, Real};
 use num_complex::Complex;
 use std::hint::black_box;
 use std::ops::{AddAssign, MulAssign};
@@ -257,6 +257,39 @@ fn bench_powi_parts(c: &mut Criterion) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// part/complex_powi : cost of `ComplexMath::powi` alone (no VM involved)
+//   part/complex_powi/<type>/n=<exponent>
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Benchmarks `ComplexMath::powi` for several exponents.
+///
+/// The base is cloned in the setup closure, so the clone is not part of the
+/// measured time. Only the multiplications / inversion (and dropping the result) are.
+fn bench_complex_powi_for<T>(c: &mut Criterion, tname: &str, mk: fn(f64, f64) -> Complex<T>)
+where
+    T: Real + Send + Sync + 'static,
+{
+    let base = mk(0.7, 0.1);
+    let mut g = c.benchmark_group(format!("part/complex_powi/{tname}"));
+    for n in [2, 3, 10, -1, -3] {
+        g.bench_function(format!("n={n}"), |b| {
+            b.iter_batched(
+                || black_box(&base).clone(),
+                |x| ComplexMath::powi(x, black_box(n)),
+                BatchSize::SmallInput,
+            )
+        });
+    }
+    g.finish();
+}
+
+/// Registers `part/complex_powi/*` for `f64` and `MpFloat`.
+fn bench_complex_powi(c: &mut Criterion) {
+    bench_complex_powi_for::<f64>(c, "f64", mk_f64);
+    bench_complex_powi_for::<MpFloat>(c, "mpfloat", mk_mp);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // mt/eval : compiled closure
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -312,6 +345,7 @@ fn bench_all(c: &mut Criterion) {
     bench_parts::<MpFloat>(c, "mpfloat", mk_mp);
     bench_eval::<MpFloat>(c, "mpfloat", mk_mp);
     bench_powi_parts(c);
+    bench_complex_powi(c);
 }
 
 criterion_group!(benches, bench_all);
