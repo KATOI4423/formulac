@@ -21,7 +21,7 @@
 use formulac::{Builder, UserFn};
 use num_complex::Complex;
 use num_traits::{Num, One, Zero};
-use rug::{Float, ops::Pow};
+use rug::{Float, ops::{NegAssign, Pow}};
 use std::ops::{Add, Div, Mul, Neg, Rem, Sub, AddAssign, SubAssign, MulAssign, DivAssign, RemAssign};
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -65,26 +65,30 @@ impl MpFloat {
 
 impl Add for MpFloat {
     type Output = Self;
-    fn add(self, rhs: Self) -> Self {
-        Self { inner: Float::with_val(self.prec(), &self.inner + &rhs.inner) }
+    fn add(mut self, rhs: Self) -> Self {
+        self.inner += &rhs.inner;
+        self
     }
 }
 impl Sub for MpFloat {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self {
-        Self { inner: Float::with_val(self.prec(), &self.inner - &rhs.inner) }
+    fn sub(mut self, rhs: Self) -> Self {
+        self.inner -= &rhs.inner;
+        self
     }
 }
 impl Mul for MpFloat {
     type Output = Self;
-    fn mul(self, rhs: Self) -> Self {
-        Self { inner: Float::with_val(self.prec(), &self.inner * &rhs.inner) }
+    fn mul(mut self, rhs: Self) -> Self {
+        self.inner *= &rhs.inner;
+        self
     }
 }
 impl Div for MpFloat {
     type Output = Self;
-    fn div(self, rhs: Self) -> Self {
-        Self { inner: Float::with_val(self.prec(), &self.inner / &rhs.inner) }
+    fn div(mut self, rhs: Self) -> Self {
+        self.inner /= &rhs.inner;
+        self
     }
 }
 impl Rem for MpFloat {
@@ -98,8 +102,9 @@ impl Rem for MpFloat {
 }
 impl Neg for MpFloat {
     type Output = Self;
-    fn neg(self) -> Self {
-        Self { inner: Float::with_val(self.prec(), -&self.inner) }
+    fn neg(mut self) -> Self {
+        self.inner.neg_assign();
+        self
     }
 }
 
