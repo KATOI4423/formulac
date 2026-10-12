@@ -163,6 +163,21 @@ fn eval_cases(c: &mut Criterion, group: &str, cases: &[(&str, &str)], consts: &[
     g.finish();
 }
 
+/// eval_s/<group>/<name> for one-argument formulas. compile() is outside the loop.
+fn eval_cases_scratch(c: &mut Criterion, group: &str, cases: &[(&str, &str)], consts: &[(&str, C)]) {
+    let x = Complex::new(0.7, 0.1);
+    let mut g = c.benchmark_group(group);
+    for (name, formula) in cases {
+        let expr = Builder::<f64, 1>::new(formula, ["x"])
+            .with_constants(consts.iter().cloned())
+            .compile()
+            .unwrap();
+        let mut scratch = expr.new_scratch();
+        g.bench_function(*name, |b| b.iter(|| expr.eval_with_scratch(black_box(&[x]), &mut scratch)));
+    }
+    g.finish();
+}
+
 /// compile/<group>/<n> for generated formulas of growing size.
 fn compile_scaling(c: &mut Criterion, group: &str, sizes: &[usize], make: impl Fn(usize) -> String) {
     let mut g = c.benchmark_group(group);
@@ -262,11 +277,16 @@ fn bench_compile_invalid(c: &mut Criterion) {
 fn bench_eval_basic(c: &mut Criterion) {
     // Fixed overhead of the closure (stack allocation etc.): a single constant.
     let constant = Builder::<f64, 0>::new("42", []).compile().unwrap();
+    let mut scratch = constant.new_scratch();
     c.bench_function("eval/constant", |b| b.iter(|| constant.eval(black_box(&[]))));
+    c.bench_function("eval_s/constant", |b| b.iter(|| constant.eval_with_scratch(black_box(&[]), &mut scratch)));
 
     eval_cases(c, "eval/basic", SIMPLE_CASES, &[]);
     eval_cases(c, "eval/practical", PRACTICAL_CASES, &practical_consts());
     eval_cases(c, "eval/diff", DIFF_CASES, &[]);
+    eval_cases_scratch(c, "eval_s/basic", SIMPLE_CASES, &[]);
+    eval_cases_scratch(c, "eval_s/practical", PRACTICAL_CASES, &practical_consts());
+    eval_cases_scratch(c, "eval_s/diff", DIFF_CASES, &[]);
 }
 
 /// Benchmarks evaluation of formulas with constant integer exponents.
@@ -274,6 +294,7 @@ fn bench_eval_basic(c: &mut Criterion) {
 /// `compile()` is excluded from the measured loop (see `eval_cases`).
 fn bench_eval_powi_const(c: &mut Criterion) {
     eval_cases(c, "eval.powi_const", POWI_CONST_CASE, &[]);
+    eval_cases_scratch(c, "eval_s.powi_const", POWI_CONST_CASE, &[]);
 }
 
 fn bench_eval_scaling(c: &mut Criterion) {
