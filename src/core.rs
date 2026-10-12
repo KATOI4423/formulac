@@ -307,6 +307,32 @@ pub trait ComplexMath {
     fn powi(self, n: i32) -> Self;
 }
 
+/// Raises `base` to a positive integer power by squaring, without redundant clones.
+fn powu<T: Real>(mut base: Complex<T>, mut exp: u32) -> Complex<T> {
+    debug_assert!(exp > 0);
+    // Skip the low zero bits so that `result` never starts from 1.
+    while exp & 1 == 0 {
+        base = base.clone() * base;
+        exp >>= 1;
+    }
+    if exp == 1 {
+        return base;
+    }
+    let mut result = base.clone();
+    exp >>= 1;
+    loop {
+        base = base.clone() * base;
+        if exp & 1 == 1 {
+            if exp == 1 {
+                return result * base; // Last multiplication: no clone needed.
+            }
+            result = result * base.clone();
+        }
+        exp >>= 1;
+    }
+}
+
+
 impl<T: Real> ComplexMath for Complex<T> {
     fn sin(self) -> Self
     {
@@ -480,27 +506,13 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn powi(self, n: i32) -> Self {
-        if n == 0 {
-            return Complex::new(T::one(), T::zero());
+        match n {
+            0 => return Complex::new(T::one(), T::zero()),
+            1 => return self,
+            -1 => return self.inv(),
+            _ if n > 0 => powu(self, n as u32),
+            _ => powu(self, n.unsigned_abs()).inv(), // Also correct for i32::MIN.
         }
-
-        if n < 0 {
-            return Complex::new(T::one(), T::zero()) / self.powi(-n);
-        }
-
-        let mut result = Complex::new(T::one(), T::zero());
-        let mut base = self;
-        let mut exp = n;
-
-        while exp > 1 {
-            if exp & 1 == 1 {
-                result = result * base.clone();
-            }
-            base = base.clone() * base;
-            exp >>=1;
-        }
-
-        result * base
     }
 }
 
