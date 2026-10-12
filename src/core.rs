@@ -511,7 +511,7 @@ impl<T: Real> ComplexMath for Complex<T> {
             1 => return self,
             -1 => return self.inv(),
             _ if n > 0 => powu(self, n as u32),
-            _ => powu(self, n.unsigned_abs()).inv(), // Also correct for i32::MIN.
+            _ => powu(self.inv(), n.unsigned_abs()), // Also correct for i32::MIN.
         }
     }
 }
@@ -619,11 +619,17 @@ mod tests {
     fn test_powi() {
         let z = Complex::new(1.1, -0.4);
 
-        let result = z.clone().powi(5);
+        for n in -8..12 {
+            let result = z.clone().powi(n);
+            let expected = num_complex::ComplexFloat::powi(z, n);
+            approx_eq(result, expected);
+        }
 
-        let expected = z.clone() * z.clone() * z.clone() * z.clone() * z;
-
-        approx_eq(result, expected);
+        {
+            let result = z.clone().powi(i32::MIN);
+            let expected = num_complex::ComplexFloat::powi(z, i32::MIN);
+            approx_eq(result, expected);
+        }
     }
 
     #[test]
