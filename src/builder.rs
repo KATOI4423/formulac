@@ -279,7 +279,7 @@ impl<T: Real, const N: usize> Builder<T, N>
 
         let astnode = self.build_astnode()?;
         let program = astnode.clone().compile();
-        let derive_program = astnode.differentiate(idx)?.compile();
+        let derive_program = astnode.differentiate(idx)?.simplify().compile();
 
         Ok((CompiledFormula::from_program(program), CompiledFormula::from_program(derive_program)))
     }
@@ -337,7 +337,7 @@ impl<T: Real, const N: usize> Builder<T, N>
 
         let partials = (0..N)
             .map(|idx| {
-                let derived_program = astnode.clone().differentiate(idx)?.compile();
+                let derived_program = astnode.clone().differentiate(idx)?.simplify().compile();
                 Ok(CompiledFormula::from_program(derived_program))
             })
             .collect::<Result<Vec<_>, ParseError>>()?;

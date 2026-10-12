@@ -116,6 +116,14 @@ const DIFF_CASES: &[(&str, &str)] = &[
     ("x^10+x^5+x^2", "diff(x^10 + x^5 + x^2, x)"),
 ];
 
+const DIFF_CASE_SOURCES: &[(&str, &str)] = &[
+    ("x^2", "x^2"),
+    ("sin(x)", "sin(x)"),
+    ("exp(x^2+3*x+1)", "exp(x^2+3*x+1)"),
+    ("sin(cos(x))", "sin(cos(x))"),
+    ("x^10+x^5+x^2", "x^10 + x^5 + x^2"),
+];
+
 const INVALID_CASES: &[(&str, &str)] = &[
     ("unknown_func", "unknown_func(x)"),
     ("missing_rparen", "1 + (2 * 3"),
@@ -407,6 +415,21 @@ fn bench_eval_builtin_pow(c: &mut Criterion) {
     g.finish();
 }
 
+/// eval_s/derivative_api/<name>: evaluates the derivative returned by `compile_with_derivative`.
+fn bench_eval_derivative_api(c: &mut Criterion) {
+    let x = Complex::new(0.7, 0.1);
+    let mut g = c.benchmark_group("eval_s/derivative_api");
+    for (name, formula) in DIFF_CASE_SOURCES {
+        // Pass the plain formula (without `diff`) so the derivative goes through `compile_with_derivative`.
+        let (_, df) = Builder::<f64, 1>::new(formula, ["x"])
+            .compile_with_derivative("x")
+            .unwrap();
+        let mut scratch = df.new_scratch();
+        g.bench_function(*name, |b| b.iter(|| df.eval_with_scratch(black_box(&[x]), &mut scratch)));
+    }
+    g.finish();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -429,6 +452,7 @@ criterion_group!(
     bench_eval_user_function,
     bench_eval_builtin_unary,
     bench_eval_builtin_pow,
+    bench_eval_derivative_api,
 );
 
 criterion_main!(compile_benches, eval_benches);
