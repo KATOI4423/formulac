@@ -507,9 +507,9 @@ impl<T: Real> ComplexMath for Complex<T> {
 
     fn powi(self, n: i32) -> Self {
         match n {
-            0 => return Complex::new(T::one(), T::zero()),
-            1 => return self,
-            -1 => return self.inv(),
+            0 => Complex::new(T::one(), T::zero()),
+            1 => self,
+            -1 => self.inv(),
             _ if n > 0 => powu(self, n as u32),
             _ => powu(self.inv(), n.unsigned_abs()), // Also correct for i32::MIN.
         }
