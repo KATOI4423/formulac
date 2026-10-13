@@ -124,6 +124,13 @@ const DIFF_CASE_SOURCES: &[(&str, &str)] = &[
     ("x^10+x^5+x^2", "x^10 + x^5 + x^2"),
 ];
 
+const ARITH_CASES: &[(&str, &str)] = &[
+    ("sub", "sin(x) - cos(x)"),
+    ("one_minus", "1 - sin(x)"),
+    ("sub_mul", "sin(x) - cos(x) * exp(x)"),
+    ("sub_chain", "sin(x) - cos(x) - exp(x)"),
+];
+
 const INVALID_CASES: &[(&str, &str)] = &[
     ("unknown_func", "unknown_func(x)"),
     ("missing_rparen", "1 + (2 * 3"),
@@ -293,6 +300,7 @@ fn bench_eval_basic(c: &mut Criterion) {
     eval_cases(c, "eval/practical", PRACTICAL_CASES, &practical_consts());
     eval_cases(c, "eval/diff", DIFF_CASES, &[]);
     eval_cases_scratch(c, "eval_s/basic", SIMPLE_CASES, &[]);
+    eval_cases_scratch(c, "eval_s/arith", ARITH_CASES, &[]);
     eval_cases_scratch(c, "eval_s/practical", PRACTICAL_CASES, &practical_consts());
     eval_cases_scratch(c, "eval_s/diff", DIFF_CASES, &[]);
 }
