@@ -39,6 +39,7 @@ use crate::operators::{
 /// | [`UnaryOperator`](Self::UnaryOperator)   | 1         | 1      | `0`              |
 /// | [`BinaryOperator`](Self::BinaryOperator) | 2         | 1      | `-1`             |
 /// | [`Function`](Self::Function)             | `arity`   | 1      | `1 - arity`      |
+/// | [`PowiConst`](Self::PowiConst)           | 1         | 1      | `0`              |
 /// | [`UserFunction`](Self::UserFunction)     | `arity`   | 1      | `1 - arity`      |
 ///
 /// A valid program leaves exactly one value on the stack, and its maximum
