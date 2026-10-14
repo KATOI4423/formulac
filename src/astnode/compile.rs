@@ -13,6 +13,7 @@ use num_complex::Complex;
 use crate::astnode::AstNode;
 use crate::core::Real;
 use crate::functions::{
+    Arity,
     FunctionKind,
     UserFn,
 };
@@ -76,6 +77,21 @@ pub(crate) enum Instruction<T: Real> {
     UserFunction(UserFn<T>),
 }
 
+impl<T: Real> Instruction<T> {
+    /// Returns the stack depth after executing this instruction.
+    pub(crate) fn stack_size_after(&self, current_stack_size: usize) -> usize {
+        match self {
+            Self::Constant(..) | Self::Argument(..) => current_stack_size + 1,
+            Self::UnaryOperator(..) => current_stack_size,
+            Self::BinaryOperator(..) => current_stack_size - 1,
+            // Add first, so a zero-arity function does not underflow
+            Self::Function(kind) => current_stack_size + 1 - kind.arity(),
+            Self::UserFunction(kind) => current_stack_size + 1 - kind.arity(),
+            Self::PowiConst(..) => current_stack_size,
+        }
+    }
+}
+
 /// Analyzed executable (immutable and shareable)
 #[derive(Debug, Clone)]
 pub(crate) struct Program<T: Real> {
@@ -84,11 +100,25 @@ pub(crate) struct Program<T: Real> {
 }
 
 impl<T: Real> Program<T> {
-    pub(crate) fn new(code: Vec<Instruction<T>>, stack_size: usize) -> Self {
+    pub(crate) fn new(code: Vec<Instruction<T>>) -> Self {
+        let stack_size = Self::calc_stack_size(&code);
+
         Self {
             code,
             stack_size,
         }
+    }
+
+    /// Calculates the minimum stack capacity required to evaluate this code.
+    fn calc_stack_size(code: &[Instruction<T>]) -> usize {
+        let (mut cur, mut max) = (0, 0);
+        for instruction in code {
+            cur = instruction.stack_size_after(cur);
+            max = max.max(cur);
+        }
+
+        debug_assert_eq!(cur, 1, "Final stack depth must be 1");
+        max
     }
 
     pub(crate) fn code(&self) -> &[Instruction<T>] {
@@ -105,8 +135,7 @@ impl<T: Real> AstNode<T> {
     pub(crate) fn compile(&self) -> Program<T> {
         let mut code = Vec::new();
         self.compile_into(&mut code);
-        let stack_size = self.required_stack_size();
-        Program::new(code, stack_size)
+        Program::new(code)
     }
 
     fn get_const_powi_exponent(&self) -> Option<i32> {
@@ -155,36 +184,183 @@ impl<T: Real> AstNode<T> {
             }
         }
     }
+}
 
-    /// Returns the minimum stack capacity required to evaluate this node.
-    ///
-    /// ## Note:
-    /// Every AST node is assumed to consume the values produced by its children
-    /// and leave exactly one value on the stack.
-    pub(crate) fn required_stack_size(&self) -> usize {
-        match self {
-            Self::Number { .. } | Self::Argument { .. } => 1,
-            Self::UnaryOperator { expr, .. } => expr.required_stack_size(),
-            Self::BinaryOperator { left, right, .. } => {
-                let lhs = left.required_stack_size();
-                let rhs = 1 + right.required_stack_size(); // One value (rhs result of lhs) is already on the stack.
-                lhs.max(rhs)
-            },
-            Self::Derivative { .. } => unreachable!("Derivative nodes must be resolved before required_stack_size()"),
-            Self::FunctionCall { kind: FunctionKind::Powi, args, .. }
-                if self.get_const_powi_exponent().is_some() =>
-            {
-                args[0].required_stack_size()
-            },
-            Self::FunctionCall { args, .. }
-            | Self::UserFunctionCall { args, .. } => {
-                args.iter().enumerate().map(|(index, arg)| {
-                    index + arg.required_stack_size()
-                })
-                .max()
-                .unwrap_or(1) // respond to no argument function, such as pi()
-            }
-        }
+#[cfg(test)]
+mod stack_size_tests {
+    use super::*;
+    use crate::operators::{BinaryOperatorKind, UnaryOperatorKind};
+
+    fn arg() -> Instruction<f64> {
+        Instruction::Argument(0)
+    }
+
+    fn constant() -> Instruction<f64> {
+        Instruction::Constant(Complex::ONE)
+    }
+
+    fn assert_stack_size(code: &[Instruction<f64>], expected: usize) {
+        let prog = Program::new(Vec::from(code));
+        assert_eq!(prog.stack_size(), expected);
+    }
+
+    #[test]
+    fn test_calc_stack_size_single_value() {
+        assert_stack_size(&[constant()], 1);
+        assert_stack_size(&[arg()], 1);
+    }
+
+    #[test]
+    fn test_calc_stack_size_unary_operator() {
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::UnaryOperator(UnaryOperatorKind::Positive),
+            ],
+            1,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_binary_operator() {
+        assert_stack_size(
+            &[
+                arg(),
+                arg(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+            2,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_left_associative_expression() {
+        // (a + b) * (c + d)
+        assert_stack_size(
+            &[
+                arg(),
+                arg(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+                arg(),
+                arg(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+            ],
+            3,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_right_nested_expression() {
+        // a + (b * (c + d))
+        assert_stack_size(
+            &[
+                arg(),
+                arg(),
+                arg(),
+                arg(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+            4,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_function_call() {
+        // sin(a)
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::Function(FunctionKind::Sin),
+            ],
+            1,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_nested_function_calls() {
+        // sin(cos(a))
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::Function(FunctionKind::Cos),
+                Instruction::Function(FunctionKind::Sin),
+            ],
+            1,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_powi_const() {
+        // powi(a, 3) is compiled to a single argument followed by PowiConst.
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::PowiConst(3),
+            ],
+            1,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_optimized_subtraction() {
+        // a + (-1) * b => a - b
+        assert_stack_size(
+            &[
+                arg(),
+                arg(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Sub),
+            ],
+            2,
+        );
+    }
+
+    #[test]
+    fn test_calc_stack_size_unary() {
+        // (+x)
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::UnaryOperator(UnaryOperatorKind::Positive),
+            ],
+            1,
+        );
+
+        // (-x)
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::UnaryOperator(UnaryOperatorKind::Negative),
+            ],
+            1,
+        );
+
+        // x + (+y)
+        assert_stack_size(
+            &[
+                arg(),
+                constant(),
+                Instruction::UnaryOperator(UnaryOperatorKind::Positive),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+            2,
+        );
+    }
+
+    #[test]
+    fn test_stack_size_arg0_userfn() {
+        let func = UserFn::new("f", |[]| { Complex::<f64>::ONE });
+        // 1 + f()
+        assert_stack_size(
+            &[
+                constant(),
+                Instruction::UserFunction(func),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+            2,
+        );
     }
 }
 
