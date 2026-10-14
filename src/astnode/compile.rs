@@ -152,6 +152,28 @@ impl<T: Real> AstNode<T> {
         }
     }
 
+    /// Returns true if the leftmost factor of a product chain is the constant -1.
+    fn has_leading_neg_one(&self) -> bool {
+        match self {
+            Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, .. } => {
+                left.is_neg_one() || left.has_leading_neg_one()
+            }
+            _ => false,
+        }
+    }
+
+    /// Compiles a product chain whose leading factor is -1, without that factor.
+    fn compile_without_leading_neg_one(&self, out: &mut Vec<Instruction<T>>) {
+        let Self::BinaryOperator { left, right, .. } = self else { unreachable!() };
+        if left.is_neg_one() {
+            right.compile_into(out);
+        } else {
+            left.compile_without_leading_neg_one(out);
+            right.compile_into(out);
+            out.push(Instruction::BinaryOperator(BinaryOperatorKind::Mul));
+        }
+    }
+
     fn compile_into(&self, out: &mut Vec<Instruction<T>>) {
         match self {
             Self::Number { value, .. } => out.push(Instruction::Constant(value.clone())),
@@ -163,6 +185,22 @@ impl<T: Real> AstNode<T> {
                 expr.compile_into(out);
                 out.push(Instruction::UnaryOperator(*kind));
             }
+            // a + (-1)*b ... => a - b ...
+            Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right, .. }
+                if right.has_leading_neg_one() =>
+            {
+                left.compile_into(out);
+                right.compile_without_leading_neg_one(out);
+                out.push(Instruction::BinaryOperator(BinaryOperatorKind::Sub));
+            },
+            // (-1)*a ... + b => b - a ...  (a constant is placed last by simplify, e.g. `1 - x`)
+            Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right, .. }
+                if left.has_leading_neg_one() =>
+            {
+                right.compile_into(out);
+                left.compile_without_leading_neg_one(out);
+                out.push(Instruction::BinaryOperator(BinaryOperatorKind::Sub));
+            },
             Self::BinaryOperator { kind, left, right, .. } => {
                 left.compile_into(out);
                 right.compile_into(out);

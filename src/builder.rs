@@ -538,6 +538,7 @@ mod compile_test {
         Arity,
         UserFn,
     };
+    use crate::operators::BinaryOperatorKind;
 
     use super::*;
     use num_complex::{Complex};
@@ -815,6 +816,31 @@ mod compile_test {
         }));
         assert!(r.is_err());
         assert_eq!(f.eval_with_scratch(&[Complex::new(1.0, 0.0)], &mut s), Complex::new(2.0, 0.0));
+    }
+
+    #[test]
+    fn sub_is_lowered_without_multiplication_by_minus_one() {
+        let x = Complex::new(0.7, 0.1);
+        let y = Complex::new(1.3, -0.4);
+        let cases: [(&str, usize, Complex<f64>); 4] = [
+            ("x - y", 1, x - y),
+            ("1 - x", 1, Complex::new(1.0, 0.0) - x),
+            ("x - y * x", 1, x - y * x),
+            ("x - y - x * y", 2, x - y - x * y),
+        ];
+        for (formula, subs, expected) in cases {
+            let p = Builder::<f64, 2>::new(formula, ["x", "y"]).build_tokens().unwrap();
+            let count = p.code().iter()
+                .filter(|i| matches!(i, Instruction::BinaryOperator(BinaryOperatorKind::Sub)))
+                .count();
+            assert_eq!(count, subs, "formula: {formula}");
+            // No `* -1` must remain.
+            assert!(!p.code().iter().any(|i| matches!(i, Instruction::Constant(c) if *c == Complex::new(-1.0, 0.0))));
+            let f = Builder::<f64, 2>::new(formula, ["x", "y"]).compile().unwrap();
+            let r = f.eval(&[x, y]);
+            assert_abs_diff_eq!(r.re, expected.re, epsilon = 1.0e-12);
+            assert_abs_diff_eq!(r.im, expected.im, epsilon = 1.0e-12);
+        }
     }
 }
 

@@ -104,6 +104,10 @@ impl<T: Real> AstNode<T> {
     pub(crate) fn zero(span: Span) -> Self { Self::Number { value: Complex::zero(), span } }
     pub(crate) fn one(span: Span)  -> Self { Self::Number { value: Complex::one(), span } }
 
+    pub(crate) fn is_neg_one(&self) -> bool {
+        matches!(self, Self::Number { value, .. } if value.im.is_zero() && value.re == -T::one())
+    }
+
     pub(crate) fn add(self, rhs: Self) -> Self {
         let span = self.span();
         Self::BinaryOperator { kind: BinaryOperatorKind::Add, left: Rc::new(self), right: Rc::new(rhs), span }
