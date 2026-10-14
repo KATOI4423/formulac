@@ -156,6 +156,9 @@ impl<T: Real> AstNode<T> {
         match self {
             Self::Number { value, .. } => out.push(Instruction::Constant(value.clone())),
             Self::Argument { index, .. } => out.push(Instruction::Argument(*index)),
+            Self::UnaryOperator { kind: UnaryOperatorKind::Positive, expr, .. } => {
+                expr.compile_into(out);
+            }
             Self::UnaryOperator { kind, expr, .. } => {
                 expr.compile_into(out);
                 out.push(Instruction::UnaryOperator(*kind));
