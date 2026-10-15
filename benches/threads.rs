@@ -56,6 +56,8 @@ const FORMULAS: &[(&str, &str)] = &[
     ("id", "x"),
     ("add", "x + y"),
     ("poly", "a0 + a1*x + a2*x^2 + a3*x^3"),
+    ("poly5", "a0 + a1*x + a2*x^2 + a3*x^3 + a4*x^4 + a5*x^5"),
+    ("poly10", "a0 + a1*x + a2*x^2 + a3*x^3 + a4*x^4 + a5*x^5 + a6*x^6 + a7*x^7 + a8*x^8 + a9*x^9 + a10*x^10"),
     ("wave", "A*sin(w*x + phy) + B*cos(w*x + phy)"),
      // Constant-exponent powi path (used to decide whether PowiConst is worth it).
     ("pow2", "x^2"),
@@ -81,8 +83,11 @@ fn mk_mp(re: f64, im: f64) -> Complex<MpFloat> {
     )
 }
 
+/// Extra coefficients used only by the polynomial formulas above.
+const EXTRA_COEFFS: [&str; 7] = ["a4", "a5", "a6", "a7", "a8", "a9", "a10"];
+
 fn consts<T: Real>(mk: fn(f64, f64) -> Complex<T>) -> Vec<(&'static str, Complex<T>)> {
-    vec![
+    let mut v = vec![
         ("a0", mk(1.0, 2.0)),
         ("a1", mk(-2.0, 3.5)),
         ("a2", mk(5.25, -0.22)),
@@ -91,7 +96,13 @@ fn consts<T: Real>(mk: fn(f64, f64) -> Complex<T>) -> Vec<(&'static str, Complex
         ("B", mk(-0.03, 4.03)),
         ("w", mk(0.25, 0.333)),
         ("phy", mk(-2.0, 3.5)),
-    ]
+    ];
+    for (i, name) in EXTRA_COEFFS.iter().enumerate() {
+        let k = (i + 4) as f64;
+        v.push((*name, mk(1.0 + 0.3 * k, 0.5 - 0.1 * k)));
+    }
+
+    v
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

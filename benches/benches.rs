@@ -74,6 +74,18 @@ fn sum_of_args(n: usize) -> String {
     (0..n).map(|i| format!("x{i}")).collect::<Vec<_>>().join(" + ")
 }
 
+/// `a0 + a1*x + a2*x^2 + ... + a{deg}*x^{deg}`
+fn polynomial(deg: usize) -> String {
+    (0..=deg)
+        .map(|k| match k {
+            0 => "a0".to_string(),
+            1 => "a1*x".to_string(),
+            _ => format!("a{k}*x^{k}"),
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared case tables
 // ─────────────────────────────────────────────────────────────────────────────
@@ -92,6 +104,16 @@ fn practical_consts() -> Vec<(&'static str, C)> {
         ("B", Complex::new(-0.03, 4.03)),
         ("lam", Complex::new(0.25, 0.333)),
     ]
+}
+
+/// Constants a0..=a{n}, kept near magnitude 1 so that x^10 does not overflow.
+fn poly_consts(n: usize) -> Vec<(String, C)> {
+    (0..=n)
+        .map(|k| {
+            let k = k as f64;
+            (format!("a{}", k as usize), Complex::new(1.0 + 0.3 * k, 0.5 - 0.1 * k))
+        })
+        .collect()
 }
 
 /// (name, formula) with one argument `x`.
@@ -193,6 +215,17 @@ fn eval_cases_scratch(c: &mut Criterion, group: &str, cases: &[(&str, &str)], co
     g.finish();
 }
 
+/// (name, formula) pairs for the Horner benchmarks.
+fn polynomial_cases() -> Vec<(&'static str, String)> {
+    vec![
+        ("deg2", polynomial(2)),
+        ("deg5", polynomial(5)),
+        ("deg10", polynomial(10)),
+        // Gaps in the exponents: exercises `powi(x, gap)` in the Horner chain.
+        ("sparse", "a0 + a2*x^2 + a5*x^5 + a10*x^10".to_string()),
+    ]
+}
+
 /// compile/<group>/<n> for generated formulas of growing size.
 fn compile_scaling(c: &mut Criterion, group: &str, sizes: &[usize], make: impl Fn(usize) -> String) {
     let mut g = c.benchmark_group(group);
@@ -278,6 +311,18 @@ fn bench_compile_derivative_apis(c: &mut Criterion) {
     g.bench_function("compile_with_all_partials", |b| {
         b.iter(|| black_box(builder.compile_with_all_partials()))
     });
+    g.finish();
+}
+
+/// compile/polynomial/<name>: Horner adds a pass, so its compile cost must be tracked too.
+fn bench_compile_polynomial(c: &mut Criterion) {
+    let consts = poly_consts(10);
+    let mut g = c.benchmark_group("compile/polynomial");
+    for (name, formula) in polynomial_cases() {
+        let builder = Builder::<f64, 1>::new(&formula, ["x"])
+            .with_constants(consts.iter().cloned());
+        g.bench_function(name, |b| b.iter(|| black_box(builder.compile())));
+    }
     g.finish();
 }
 
@@ -438,6 +483,24 @@ fn bench_eval_derivative_api(c: &mut Criterion) {
     g.finish();
 }
 
+/// eval_s/polynomial/<name>: compile() is outside the loop, Scratch is reused.
+fn bench_eval_polynomial(c: &mut Criterion) {
+    let x = Complex::new(0.7, 0.1);
+    let consts = poly_consts(10);
+    let mut g = c.benchmark_group("eval_s/polynomial");
+    for (name, formula) in polynomial_cases() {
+        let expr = Builder::<f64, 1>::new(&formula, ["x"])
+            .with_constants(consts.iter().cloned())
+            .compile()
+            .unwrap();
+        let mut scratch = expr.new_scratch();
+        g.bench_function(name, |b| {
+            b.iter(|| expr.eval_with_scratch(black_box(&[x]), &mut scratch))
+        });
+    }
+    g.finish();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -448,6 +511,7 @@ criterion_group!(
     bench_compile_scaling,
     bench_compile_many_names,
     bench_compile_derivative_apis,
+    bench_compile_polynomial,
     bench_compile_invalid,
 );
 
@@ -461,6 +525,7 @@ criterion_group!(
     bench_eval_builtin_unary,
     bench_eval_builtin_pow,
     bench_eval_derivative_api,
+    bench_eval_polynomial,
 );
 
 criterion_main!(compile_benches, eval_benches);
