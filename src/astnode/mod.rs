@@ -12,6 +12,7 @@
 pub(crate) mod compile;
 pub(crate) mod core;
 pub(crate) mod diff;
+pub(crate) mod horner;
 pub(crate) mod parser;
 pub(crate) mod simplify;
 

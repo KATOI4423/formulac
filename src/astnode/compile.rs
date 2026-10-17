@@ -133,9 +133,10 @@ impl<T: Real> Program<T> {
 
 impl<T: Real> AstNode<T> {
     /// Compiles the AST into a flat sequence of postfix `Token`s.
-    pub(crate) fn compile(&self) -> Program<T> {
+    pub(crate) fn compile(self) -> Program<T> {
+        let ast = self.horner();
         let mut code = Vec::new();
-        self.compile_into(&mut code);
+        ast.compile_into(&mut code);
         Program::new(code)
     }
 

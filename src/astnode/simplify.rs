@@ -151,7 +151,7 @@ impl<T: Real> AstNode<T> {
         Self::chain_add(terms, span)
     }
 
-    fn collect_add_terms(node: Self, out: &mut Vec<Self>) {
+    pub(crate) fn collect_add_terms(node: Self, out: &mut Vec<Self>) {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right, .. } => {
                 Self::collect_add_terms(
@@ -285,7 +285,7 @@ impl<T: Real> AstNode<T> {
         Self::chain_mul(factors, span)
     }
 
-    fn collect_mul_terms(node: Self, out: &mut Vec<Self>) {
+    pub(crate) fn collect_mul_terms(node: Self, out: &mut Vec<Self>) {
         match node {
             Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } => {
                 let left = Self::unwrap_rc(left);

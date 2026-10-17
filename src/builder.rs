@@ -874,6 +874,79 @@ mod compile_test {
         assert_matches("x^-1 + y", |x, y| x.powi(-1) + y);
         assert_matches("2^-x * y", |x, y| Complex::new(2.0, 0.0).powc(-x) * y);
     }
+
+    fn a(k: usize) -> Complex<f64> {
+        Complex::new(1.0 + 0.3 * k as f64, 0.5 - 0.1 * k as f64)
+    }
+
+    #[test]
+    fn horner_dense_polynomial_uses_n_multiplications() {
+        let consts: Vec<(String, Complex<f64>)> =
+            (0..=5).map(|k| (format!("a{k}"), a(k))).collect();
+        let p = Builder::<f64, 1>::new("a0 + a1*x + a2*x^2 + a3*x^3 + a4*x^4 + a5*x^5", ["x"])
+            .with_constants(consts)
+            .build_tokens()
+            .unwrap();
+        let muls = p.code().iter()
+            .filter(|i| matches!(i, Instruction::BinaryOperator(BinaryOperatorKind::Mul)))
+            .count();
+        assert_eq!(muls, 5);
+        assert!(!p.code().iter().any(|i| matches!(i, Instruction::PowiConst(_))));
+    }
+
+    #[test]
+    fn horner_dense_and_sparse_values() {
+        assert_matches("a0 + a1*x + a2*x^2 + a3*x^3", |x, _| a(0) + a(1)*x + a(2)*x*x + a(3)*x*x*x);
+        assert_matches("a0 + a2*x^2 + a5*x^5 + a10*x^10",
+            |x, _| a(0) + a(2)*x.powi(2) + a(5)*x.powi(5) + a(10)*x.powi(10));
+        assert_matches("a1*x + a3*x^3", |x, _| a(1)*x + a(3)*x.powi(3));       // no constant term
+    }
+
+    #[test]
+    fn horner_coefficients_one_and_minus_one() {
+        assert_matches("x^3 + x^2 + x + 1", |x, _| x.powi(3) + x.powi(2) + x + Complex::new(1.0, 0.0));
+        assert_matches("1 - x + x^2 - x^3", |x, _| Complex::new(1.0, 0.0) - x + x.powi(2) - x.powi(3));
+        assert_matches("-x^3 + a1*x", |x, _| -x.powi(3) + a(1)*x);
+    }
+
+    #[test]
+    fn horner_leaves_non_polynomial_terms() {
+        assert_matches("x^2 + x + sin(x)", |x, _| x.powi(2) + x + x.sin());
+        assert_matches("x^-1 + x + x^2", |x, _| x.powi(-1) + x + x.powi(2));   // negative exponent
+        assert_matches("x^2.5 + x + x^2", |x, _| x.powc(Complex::new(2.5, 0.0)) + x + x.powi(2));
+    }
+
+    #[test]
+    fn horner_multi_variable_and_symbolic_coefficients() {
+        assert_matches("x^2*y + x*y^2 + 1", |x, y| x*x*y + x*y*y + Complex::new(1.0, 0.0));
+        assert_matches("y*x^2 + a1*x + a0", |x, y| y*x*x + a(1)*x + a(0));
+        assert_matches("x^2*y + x^2*a1 + x", |x, y| x*x*y + x*x*a(1) + x);     // same degree, merged
+    }
+
+    #[test]
+    fn horner_nested_and_derivative() {
+        assert_matches("sin(x^2 + a1*x + a0)", |x, _| (x*x + a(1)*x + a(0)).sin());
+        assert_matches("diff(x^10 + x^5 + x^2, x)",
+            |x, _| Complex::new(10.0, 0.0)*x.powi(9) + Complex::new(5.0, 0.0)*x.powi(4) + Complex::new(2.0, 0.0)*x);
+    }
+
+    #[test]
+    fn horner_keeps_stack_size_consistent() {
+        for f in ["x^3 + y^2 * x", "a0 + a2*x^2 + a5*x^5", "1 - x + x^2 - x^3"] {
+            let p = Builder::<f64, 2>::new(f, ["x", "y"])
+                .with_constants((0..=5).map(|k| (format!("a{k}"), a(k))))
+                .build_tokens().unwrap();
+            assert_eq!(p.stack_size(), simulate_max_depth(p.code()), "formula: {f}");
+        }
+    }
+
+    #[test]
+    fn horner_at_zero() {
+        let f = Builder::new("a0 + a2 * x^2 + a5 * x^5", ["x"])
+            .with_constants((0..=5).map(|k| (format!("a{k}"), a(k))))
+            .compile().unwrap();
+        assert_eq!(f.eval(&[Complex::new(0.0, 0.0)]), a(0));
+    }
 }
 
 #[cfg(test)]
