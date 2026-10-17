@@ -93,6 +93,13 @@ macro_rules! unary_operator_kind {
                 }
             }
 
+            /// Returns the precedence of the operator, comparable with [`BinaryOperatorKind::precedence`]
+            ///
+            /// It must equal the precedence of `^` (which is right-associative), so that
+            /// `-x^2` is parsed as `-(x^2)` while `-x * y` and `-x + y` apply the negation first.
+            pub(crate) fn precedence(&self) -> u8 {
+                BinaryOperatorKind::Pow.precedence()
+            }
         }
 
         impl std::fmt::Display for UnaryOperatorKind {
@@ -235,6 +242,11 @@ mod tests {
         fn display() {
             assert_eq!(UnaryOperatorKind::Positive.to_string(), "+");
             assert_eq!(UnaryOperatorKind::Negative.to_string(), "-");
+        }
+
+        #[test]
+        fn precedence_equals_pow() {
+            assert_eq!(UnaryOperatorKind::Negative.precedence(), BinaryOperatorKind::Pow.precedence());
         }
     }
 

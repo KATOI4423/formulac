@@ -842,6 +842,38 @@ mod compile_test {
             assert_abs_diff_eq!(r.im, expected.im, epsilon = 1.0e-12);
         }
     }
+
+    /// Compares a compiled 2-argument formula against a closed-form reference.
+    fn assert_matches(formula: &str, reference: impl Fn(Complex<f64>, Complex<f64>) -> Complex<f64>) {
+        let consts: Vec<(String, Complex<f64>)> = (0..=10)
+            .map(|k| (format!("a{k}"), Complex::new(1.0 + 0.3 * k as f64, 0.5 - 0.1 * k as f64)))
+            .collect();
+        let f = Builder::<f64, 2>::new(formula, ["x", "y"])
+            .with_constants(consts)
+            .compile()
+            .unwrap();
+        for (x, y) in [
+            (Complex::new(0.7, 0.1), Complex::new(-0.3, 0.9)),
+            (Complex::new(-1.2, 0.8), Complex::new(0.5, -0.5)),
+            (Complex::new(0.3, -0.6), Complex::new(1.0, 0.0)),
+        ] {
+            let r = f.eval(&[x, y]);
+            let e = reference(x, y);
+            assert_abs_diff_eq!(r.re, e.re, epsilon = 1.0e-9);
+            assert_abs_diff_eq!(r.im, e.im, epsilon = 1.0e-9);
+        }
+    }
+
+    #[test]
+    fn unary_minus_binds_tighter_than_add_and_mul() {
+        let one = Complex::new(1.0, 0.0);
+        assert_matches("-x + y", |x, y| -x + y);
+        assert_matches("-x * y + 1", move |x, y| -x * y + one);
+        assert_matches("x - -y", |x, y| x - -y);
+        assert_matches("-x^2 + y", |x, y| -(x * x) + y);      // -x^2 is -(x^2)
+        assert_matches("x^-1 + y", |x, y| x.powi(-1) + y);
+        assert_matches("2^-x * y", |x, y| Complex::new(2.0, 0.0).powc(-x) * y);
+    }
 }
 
 #[cfg(test)]

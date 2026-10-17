@@ -128,6 +128,18 @@ impl<T: Real> AstNode<T> {
         Ok(())
     }
 
+    /// Returns the precedence of an operator token on the operator stack.
+    ///
+    /// `None` for tokens that are not operators (parentheses, function calls, ...);
+    /// they stop the popping loop in [`Self::push_binary_op`].
+    fn operator_precedence(token: &Token<T>) -> Option<u8> {
+        match token {
+            Token::UnaryOperator { kind, .. } => Some(kind.precedence()),
+            Token::BinaryOperator { kind, .. } => Some(kind.precedence()),
+            _ => None,
+        }
+    }
+
     /// Pops higher-precedence binary operators from the stack, then pushes the new one.
     fn push_binary_op(
         output: &mut Vec<Self>,
@@ -142,15 +154,16 @@ impl<T: Real> AstNode<T> {
             })?;
 
         // Shunting-yard precedence rule.
-        while let Some(Token::BinaryOperator { kind: top, span }) = ops.last() {
+        while let Some(top_prec) = ops.last().and_then(Self::operator_precedence)
+        {
             let should_pop = if oper.is_left_assoc() {
-                top.precedence() >= oper.precedence()
+                top_prec >= oper.precedence()
             } else {
-                top.precedence() > oper.precedence()
+                top_prec > oper.precedence()
             };
             if !should_pop { break; }
-            Self::apply_binary(output, *top, *span)?;
-            ops.pop();
+            let token = ops.pop().unwrap();
+            Self::apply_token(output, token)?;
         }
         ops.push(Token::BinaryOperator { kind: oper, span });
         Ok(())
