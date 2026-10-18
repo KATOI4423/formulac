@@ -363,8 +363,7 @@ impl<T: Real, const N: usize> Builder<T, N>
 ///   needed, and one `Scratch` may be used with different formulas (it grows on
 ///   demand).
 ///
-/// Create one with [`CompiledFormula::new_scratch`], which sizes it for that
-/// formula, or with [`Scratch::new`].
+/// Create one with [`CompiledFormula::new_scratch`], which sizes it for that formula.
 #[derive(Debug, Clone)]
 pub struct Scratch<T: Real> {
     stack: Vec<Complex<T>>,
@@ -472,7 +471,7 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
     /// multi-threaded evaluation.
     ///
     /// # Parameters
-    /// - `args`: argument values, taken by value (see [`eval`](Self::eval)).
+    /// - `args`: argument values (see [`eval`](Self::eval)).
     /// - `scratch`: working buffer. Its previous contents are discarded at the start of
     ///   every call, so it needs no reset and may be reused across different formulas
     ///   (it grows if necessary). Its contents after the call are unspecified.

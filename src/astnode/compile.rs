@@ -29,8 +29,7 @@ use crate::operators::{
 /// the evaluator can `match` it exhaustively.
 ///
 /// Instructions are emitted in postfix order by [`AstNode::compile`].
-/// Each one consumes values from the evaluation stack and pushes exactly one
-/// result, except the two leaf instructions which only push.
+/// Each one consumes values from the evaluation stack and pushes exactly some results.
 ///
 /// | Instruction                              | Pops      | Pushes | Net stack effect |
 /// |------------------------------------------|-----------|--------|------------------|
