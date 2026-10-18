@@ -301,7 +301,7 @@ impl<T: Real> AstNode<T> {
                 }
                 other => (other, Complex::one()),
             };
-            match map.iter_mut().find(|(b, _)| *b == base) {
+            match map.iter_mut().find(|(b, _)| b.structurally_eq(&base)) {
                 Some((_, e)) => *e += exp,
                 None         => map.push((base, exp)),
             }
@@ -682,6 +682,29 @@ mod fold_tests {
         } else {
             panic!("Could not extract exponent from expression: {:?}", expr);
         }
+    }
+
+    #[test]
+    fn combine_same_base_ignores_spans() {
+        // x * x with different spans -> powi(x, 2)
+        let x1 = AstNode::<f64>::Argument { index: 0, span: Span::from(0..1) };
+        let x2 = AstNode::<f64>::Argument { index: 0, span: Span::from(4..5) };
+        let expr = AstNode::fold_mul(Span::from(2..3), x1, x2);
+        match &expr {
+            AstNode::FunctionCall { kind: FunctionKind::Powi, args, .. } => {
+                assert!(matches!(args[0].as_ref(), AstNode::Argument { index: 0, .. }));
+                assert!(matches!(args[1].as_ref(), AstNode::Number { value, .. } if value.re == 2.0));
+            }
+            other => panic!("Expected powi(x, 2), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn exp_times_exp_becomes_powi() {
+        let e1 = AstNode::<f64>::Argument { index: 0, span: Span::from(4..5) }.exp();
+        let e2 = AstNode::<f64>::Argument { index: 0, span: Span::from(12..13) }.exp();
+        let expr = AstNode::fold_mul(Span::from(8..9), e1, e2);
+        assert!(matches!(&expr, AstNode::FunctionCall { kind: FunctionKind::Powi, .. }));
     }
 
     #[test]

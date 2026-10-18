@@ -121,13 +121,6 @@ mod tests {
         assert_eq!(parse("A*exp(-lam*x) + B").sin_cos_pairs(), 0);
     }
 
-    #[test]
-    fn exp_times_exp_is_a_duplicate() {
-        // Not merged by simplify (spans differ), but structurally identical.
-        let ast = parse("exp(x) * exp(x)");
-        assert!(ast.duplicate_subtrees().iter().any(|(_, n)| *n == 2));
-    }
-
     /// Prints a table for the formulas used in the benchmarks.
     #[test]
     fn report() {
