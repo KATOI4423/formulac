@@ -6,10 +6,14 @@
 //! Run the report with:
 //!   cargo test --lib duplicates::tests::report -- --nocapture
 
+#[cfg(test)]
 use crate::astnode::AstNode;
+#[cfg(test)]
 use crate::core::Real;
+#[cfg(test)]
 use crate::functions::FunctionKind;
 
+#[cfg(test)]
 impl<T: Real> AstNode<T> {
     /// Pushes every non-leaf node (pre-order) onto `out`.
     fn collect_inner_nodes<'a>(&'a self, out: &mut Vec<&'a Self>) {
