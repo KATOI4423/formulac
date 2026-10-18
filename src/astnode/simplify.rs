@@ -172,30 +172,6 @@ impl<T: Real> AstNode<T> {
     where
         Complex<T>: AddAssign,
     {
-        fn structurally_equal<T: Real>(a: &AstNode<T>, b: &AstNode<T>) -> bool {
-            match (a, b) {
-                (AstNode::Number { value: av, .. }, AstNode::Number { value: bv, .. }) => av == bv,
-                (AstNode::Argument { index: ai, .. }, AstNode::Argument { index: bi, .. }) => ai == bi,
-                (AstNode::UnaryOperator { kind: ak, expr: ae, .. }, AstNode::UnaryOperator { kind: bk, expr: be, .. }) => {
-                    ak == bk && structurally_equal(ae, be)
-                }
-                (AstNode::BinaryOperator { kind: ak, left: al, right: ar, .. }, AstNode::BinaryOperator { kind: bk, left: bl, right: br, .. }) => {
-                    ak == bk && structurally_equal(al, bl) && structurally_equal(ar, br)
-                }
-                (AstNode::FunctionCall { kind: ak, args: aa, .. }, AstNode::FunctionCall { kind: bk, args: ba, .. }) => {
-                    ak == bk && aa.len() == ba.len() && aa.iter().zip(ba.iter()).all(|(x, y)| structurally_equal(x, y))
-                }
-                (AstNode::UserFunctionCall { func: af, args: aa, .. }, AstNode::UserFunctionCall { func: bf, args: ba, .. }) => {
-                    af.name() == bf.name() && aa.len() == ba.len() && aa.iter().zip(ba.iter()).all(|(x, y)| structurally_equal(x, y))
-                }
-                (AstNode::Derivative { expr: ae, var: av, order: ao, .. }, AstNode::Derivative { expr: be, var: bv, order: bo, .. }) => {
-                    av == bv && ao == bo && structurally_equal(ae, be)
-                }
-                _ => false,
-            }
-        }
-
-        // Map: (variable node) → accumulated coefficient
         let mut map: Vec<(Self, Complex<T>)> = Vec::new();
 
         for term in terms {
@@ -211,7 +187,7 @@ impl<T: Real> AstNode<T> {
                 }
                 other => (other, Complex::one()),
             };
-            match map.iter_mut().find(|(v, _)| structurally_equal(v, &var)) {
+            match map.iter_mut().find(|(v, _)| v.structurally_eq(&var)) {
                 Some((_, c)) => *c += coeff,
                 None         => map.push((var, coeff)),
             }

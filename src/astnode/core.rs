@@ -181,6 +181,33 @@ impl<T: Real> AstNode<T> {
             span,
         }
     }
+
+    /// Compares two trees by structure only, ignoring every `span`.
+    ///
+    /// `PartialEq` on [`AstNode`] also compares spans, so two occurrences of the
+    /// same subexpression at different positions are never equal under it.
+    /// User functions are compared by name only (the closure cannot be compared).
+    pub(crate) fn structurally_eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Number { value: a, .. }, Self::Number { value: b, .. }) => a == b,
+            (Self::Argument { index: a, .. }, Self::Argument { index: b, .. }) => a == b,
+            (Self::UnaryOperator { kind: ak, expr: ae, .. }, Self::UnaryOperator { kind: bk, expr: be, .. })
+                => ak == bk && ae.structurally_eq(be),
+            (Self::BinaryOperator { kind: ak, left: al, right: ar, .. }, Self::BinaryOperator { kind: bk, left: bl, right: br, .. })
+                => ak == bk && al.structurally_eq(bl) && ar.structurally_eq(br),
+            (Self::FunctionCall { kind: ak, args: aa, .. }, Self::FunctionCall { kind: bk, args: ba, .. })
+                => ak == bk && Self::args_structually_eq(aa, ba),
+            (Self::UserFunctionCall { func: af, args: aa, .. }, Self::UserFunctionCall { func: bf, args: ba, .. })
+                => af == bf && Self::args_structually_eq(aa, ba),
+            (Self::Derivative { expr: ae, var: av, order: ao, .. }, Self::Derivative { expr: be, var: bv, order: bo, .. })
+                => av == bv && ao == bo && ae.structurally_eq(be),
+            _ => false,
+        }
+    }
+
+    fn args_structually_eq(a: &[Rc<Self>], b: &[Rc<Self>]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.structurally_eq(y))
+    }
 }
 
 impl<T: Real> std::ops::Add for AstNode<T> { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }
@@ -189,3 +216,27 @@ impl<T: Real> std::ops::Mul for AstNode<T> { type Output = Self; fn mul(self, rh
 impl<T: Real> std::ops::Div for AstNode<T> { type Output = Self; fn div(self, rhs: Self) -> Self { self.div(rhs) } }
 impl<T: Real> std::ops::BitXor for AstNode<T> { type Output = Self; fn bitxor(self, rhs: Self) -> Self { self.pow(rhs) } }
 impl<T: Real> std::ops::Neg for AstNode<T> { type Output = Self; fn neg(self) -> Self { self.negative() } }
+
+#[cfg(test)]
+mod structurally_eq_tests {
+    use super::*;
+
+    fn x(span: Span) -> AstNode<f64> { AstNode::Argument { index: 0, span } }
+
+    #[test]
+    fn ignores_spans() {
+        let a = x(Span::from(0..1)).sin();
+        let b = x(Span::from(7..8)).sin();
+        assert_ne!(a, b); // PartialEq includes spans
+        assert!(a.structurally_eq(&b));
+    }
+
+    #[test]
+    fn distinguishes_structure() {
+        let s = Span::from(0..1);
+        assert!(!x(s).sin().structurally_eq(&x(s).cos()));
+        assert!(!x(s).structurally_eq(&AstNode::Argument { index: 1, span: s }));
+        assert!(!x(s).powi(2).structurally_eq(&x(s).powi(3)));
+        assert!(!(x(s) + x(s)).structurally_eq(&(x(s) * x(s))));
+    }
+}
