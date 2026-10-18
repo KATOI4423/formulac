@@ -354,8 +354,8 @@ fn bench_eval_basic(c: &mut Criterion) {
 ///
 /// `compile()` is excluded from the measured loop (see `eval_cases`).
 fn bench_eval_powi_const(c: &mut Criterion) {
-    eval_cases(c, "eval.powi_const", POWI_CONST_CASE, &[]);
-    eval_cases_scratch(c, "eval_s.powi_const", POWI_CONST_CASE, &[]);
+    eval_cases(c, "eval/powi_const", POWI_CONST_CASE, &[]);
+    eval_cases_scratch(c, "eval_s/powi_const", POWI_CONST_CASE, &[]);
 }
 
 fn bench_eval_scaling(c: &mut Criterion) {
