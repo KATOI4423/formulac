@@ -2,6 +2,7 @@
 name = "formulac"
 version = "0.8.0"
 edition = "2024"
+rust-version = "1.95"
 authors = ["KATOI4423 <katoi4423@gmail.com>"]
 description = "A complex-number and extensible function supported math expression parser for Rust"
 license = "MIT OR Apache-2.0"
