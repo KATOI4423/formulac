@@ -350,6 +350,137 @@ where
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// part/complex_{add,sub,mul,div} : cost of one complex operation (no VM involved)
+//   part/complex_<op>/<type>
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Benchmarks a single complex operation on two operands.
+///
+/// The operands are cloned in the setup closure, so the clone is not part of the
+/// measured time. Only the operation (and dropping the result) is.
+fn bench_complex_ops_for<T>(c: &mut Criterion, tname: &str, mk: fn(f64, f64) -> Complex<T>)
+where
+    T: Real + Send + Sync + 'static,
+{
+    type Op<T> = fn(Complex<T>, Complex<T>) -> Complex<T>;
+    let ops: [(&str, Op<T>); 4] = [
+        ("add", |a, b| a + b),
+        ("sub", |a, b| a - b),
+        ("mul", |a, b| a * b),
+        ("div", |a, b| a / b),
+    ];
+    let (x, y) = (mk(0.7, 0.1), mk(1.3, -0.4));
+
+    for (name, op) in ops {
+        let mut g = c.benchmark_group(format!("part/complex_{name}"));
+        g.bench_function(tname, |b| {
+            b.iter_batched(
+                || (black_box(&x).clone(), black_box(&y).clone()),
+                |(l, r)| op(l, r),
+                BatchSize::SmallInput,
+            )
+        });
+        g.finish();
+    }
+}
+
+/// Registers `part/complex_{add,sub,mul,div}/*` for `f64` and `MpFloat`.
+fn bench_complex_ops(c: &mut Criterion) {
+    bench_complex_ops_for::<f64>(c, "f64", mk_f64);
+    bench_complex_ops_for::<MpFloat>(c, "mpfloat", mk_mp);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// part/complex_sin_cos : upper bound of sharing `sin(u)` and `cos(u)` (N10)
+//   part/complex_sin_cos/<type>/separate : ComplexMath::sin(z) + ComplexMath::cos(z)
+//   part/complex_sin_cos/<type>/shared   : sin_cos(a), cosh(b), sinh(b) called once each
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Computes `(sin(z), cos(z))` with one `sin_cos`, one `cosh` and one `sinh` call.
+///
+/// sin(a + bi) = sin(a) cosh(b) + i cos(a) sinh(b)
+/// cos(a + bi) = cos(a) cosh(b) - i sin(a) sinh(b)
+fn sin_cos_shared<T: Real>(z: Complex<T>) -> (Complex<T>, Complex<T>) {
+    let (a, b) = (z.re, z.im);
+    let (sin_a, cos_a) = a.sin_cos();
+    let cosh_b = b.clone().cosh();
+    let sinh_b = b.sinh();
+    let sin = Complex::new(sin_a.clone() * cosh_b.clone(), cos_a.clone() * sinh_b.clone());
+    let cos = Complex::new(cos_a * cosh_b, -(sin_a * sinh_b));
+    (sin, cos)
+}
+
+/// Benchmarks the two ways of getting both `sin(z)` and `cos(z)`.
+///
+/// Both variants receive two clones of `z` from the setup closure, so the
+/// measured time contains the same number of drops in either case.
+fn bench_complex_sin_cos_for<T>(c: &mut Criterion, tname: &str, mk: fn(f64, f64) -> Complex<T>)
+where
+    T: Real + Send + Sync + 'static,
+{
+    let z = mk(0.7, 0.1);
+    let mut g = c.benchmark_group(format!("part/complex_sin_cos/{tname}"));
+    g.bench_function("separate", |b| {
+        b.iter_batched(
+            || (black_box(&z).clone(), black_box(&z).clone()),
+            |(z1, z2)| (ComplexMath::sin(z1), ComplexMath::cos(z2)),
+            BatchSize::SmallInput,
+        )
+    });
+    g.bench_function("shared", |b| {
+        b.iter_batched(
+            || (black_box(&z).clone(), black_box(&z).clone()),
+            |(z1, z2)| {
+                drop(z2); // keep the number of drops equal to `separate`
+                sin_cos_shared(z1)
+            },
+            BatchSize::SmallInput,
+        )
+    });
+    g.finish();
+}
+
+/// Registers `part/complex_sin_cos/*` and checks that both variants agree (f64).
+fn bench_complex_sin_cos(c: &mut Criterion) {
+    let z = mk_f64(0.7, 0.1);
+    let (s, co) = sin_cos_shared(z);
+    let (es, eco) = (ComplexMath::sin(z), ComplexMath::cos(z));
+    assert!((s - es).norm() < 1e-12 && (co - eco).norm() < 1e-12, "sin_cos_shared disagrees");
+
+    bench_complex_sin_cos_for::<f64>(c, "f64", mk_f64);
+    bench_complex_sin_cos_for::<MpFloat>(c, "mpfloat", mk_mp);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// part/constant_push : clone + push + pop of a constant (approximates `Instruction::Constant`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Benchmarks cloning a value onto a pre-allocated stack and popping it again.
+///
+/// `Instruction` is crate-private, so the dispatch itself is not included.
+fn bench_constant_push_for<T>(c: &mut Criterion, tname: &str, mk: fn(f64, f64) -> Complex<T>)
+where
+    T: Real + Send + Sync + 'static,
+{
+    let value = mk(0.7, 0.1);
+    let mut stack: Vec<Complex<T>> = Vec::with_capacity(4);
+    let mut g = c.benchmark_group("part/constant_push");
+    g.bench_function(tname, |b| {
+        b.iter(|| {
+            stack.push(black_box(&value).clone());
+            drop(black_box(stack.pop()));
+        })
+    });
+    g.finish();
+}
+
+/// Registers `part/constant_push/*` for `f64` and `MpFloat`.
+fn bench_constant_push(c: &mut Criterion) {
+    bench_constant_push_for::<f64>(c, "f64", mk_f64);
+    bench_constant_push_for::<MpFloat>(c, "mpfloat", mk_mp);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registration
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -360,6 +491,9 @@ fn bench_all(c: &mut Criterion) {
     bench_eval::<MpFloat>(c, "mpfloat", mk_mp);
     bench_powi_parts(c);
     bench_complex_powi(c);
+    bench_complex_ops(c);
+    bench_complex_sin_cos(c);
+    bench_constant_push(c);
 }
 
 criterion_group!(benches, bench_all);
