@@ -1,6 +1,6 @@
 [package]
 name = "formulac"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.95"
 authors = ["KATOI4423 <katoi4423@gmail.com>"]
