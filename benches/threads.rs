@@ -12,7 +12,6 @@
 //!     alloc_stack_cap4 : `Vec::<Complex<T>>::with_capacity(4)` + drop
 //!     clone_complex    : one `Complex<T>::clone()` + drop
 //!     clone_args2      : `[Complex<T>; 2]::clone()` + drop
-//!                        (the harness passes args by value, so every eval pays this)
 //! - `mt/eval/<type>/<formula>/<threads>` : the compiled closure itself
 //!
 //! How to read the numbers
