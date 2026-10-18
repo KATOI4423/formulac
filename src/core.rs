@@ -504,7 +504,18 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn sqrt(self) -> Self {
-        // sqrt(z) = sqrt((|z| + re)/2) + i * sign(im) * sqrt((|z| - re)/2)
+        if self.im.is_zero() {
+            if self.re > T::zero() {
+                return Complex::new(self.re.sqrt(), T::zero());
+            } else if self.re < T::zero() {
+                return Complex::new(T::zero(), self.re.abs().sqrt());
+            } else {
+                return Complex::zero();
+            }
+        }
+
+        //  ________   _____________               _____________
+        // √ a + bi = √ (r + a) / 2   + i sign(b) √ (r - a) / 2
         let r = self.re.clone().hypot(self.im.clone());
         let half = T::from_f64(0.5);
 
@@ -513,6 +524,7 @@ impl<T: Real> ComplexMath for Complex<T> {
             (u.clone(), self.im * half / u)
         } else {
             let v = ((r - self.re) * half.clone()).sqrt();
+            let v = if self.im >= T::zero() { v } else { -v };
             (self.im * half / v.clone(), v)
         };
 
@@ -625,6 +637,26 @@ mod tests {
         let back = sqrt.clone() * sqrt;
 
         approx_eq(back, z);
+    }
+
+    #[test]
+    fn test_sqrt_branch() {
+        // (z, sqrt(z))
+        let list = [
+            (Complex::new(3.0, 4.0), Complex::new(2.0, 1.0)),
+            (Complex::new(3.0, -4.0), Complex::new(2.0, -1.0)),
+            (Complex::new(-3.0, 4.0), Complex::new(1.0, 2.0)),
+            (Complex::new(-3.0, -4.0), Complex::new(1.0, -2.0)),
+            (Complex::new(0.0, 2.0), Complex::new(1.0, 1.0)),
+            (Complex::new(0.0, -2.0), Complex::new(1.0, -1.0)),
+            (Complex::new(1.0, 0.0), Complex::new(1.0, 0.0)),
+            (Complex::new(-1.0, 0.0), Complex::new(0.0, 1.0)),
+            (Complex::new(0.0, 0.0), Complex::new(0.0, 0.0)),
+        ];
+
+        for (z, expected) in list {
+            approx_eq(ComplexMath::sqrt(z), expected);
+        }
     }
 
     #[test]
