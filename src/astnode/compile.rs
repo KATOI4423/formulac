@@ -39,6 +39,8 @@ use crate::operators::{
 /// | [`UnaryOperator`](Self::UnaryOperator)   | 1         | 1      | `0`              |
 /// | [`BinaryOperator`](Self::BinaryOperator) | 2         | 1      | `-1`             |
 /// | [`Function`](Self::Function)             | `arity`   | 1      | `1 - arity`      |
+/// | [`SinCos`](Self::SinCos)                 | 1         | 2      | `+1`             |
+/// | [`Swap`](Self::Swap)                     | 2         | 2      | `0`              |
 /// | [`PowiConst`](Self::PowiConst)           | 1         | 1      | `0`              |
 /// | [`UserFunction`](Self::UserFunction)     | `arity`   | 1      | `1 - arity`      |
 ///
@@ -69,6 +71,19 @@ pub(crate) enum Instruction<T: Real> {
     /// on top of the stack.
     Function(FunctionKind),
 
+    /// Pops one value and pushes its sine and cosine, sharing intermediate calculations.
+    ///
+    /// When `cos_first` is true, cosine is pushed before sine; otherwise sine
+    /// is pushed before cosine. This preserves the operand order of the original
+    /// binary expression.
+    SinCos { cos_first: bool },
+
+    /// Swaps the two topmost values of the stack.
+    ///
+    /// Used after [`SinCos`](Self::SinCos) when the operand that was pushed last
+    /// (the one on top) has to be consumed before the one below it.
+    Swap,
+
     /// Pops one value, raises it to the compile-time integer power, pushes the result.
     PowiConst(i32),
 
@@ -87,6 +102,8 @@ impl<T: Real> Instruction<T> {
             Self::BinaryOperator(..) => current_stack_size - 1,
             // Add first, so a zero-arity function does not underflow
             Self::Function(kind) => current_stack_size + 1 - kind.arity(),
+            Self::SinCos { .. } => current_stack_size + 1,
+            Self::Swap => current_stack_size,
             Self::UserFunction(kind) => current_stack_size + 1 - kind.arity(),
             Self::PowiConst(..) => current_stack_size,
         }
@@ -129,6 +146,17 @@ impl<T: Real> Program<T> {
     pub(crate) fn stack_size(&self) -> usize {
         self.stack_size
     }
+}
+
+
+/// An operand of the form `trig(u)`, `c * trig(u)` or `trig(u) * c`, where `trig` is `sin` or `cos`.
+struct TrigTerm<'a, T: Real> {
+    /// `FunctionKind::Sin` or `FunctionKind::Cos`.
+    kind: FunctionKind,
+    /// The shared argument `u`.
+    arg: &'a AstNode<T>,
+    /// The factor next to `trig(u)`, if any.
+    coeff: Option<&'a AstNode<T>>,
 }
 
 impl<T: Real> AstNode<T> {
@@ -176,6 +204,87 @@ impl<T: Real> AstNode<T> {
         }
     }
 
+    /// Returns whether evaluating this expression is free of user-defined
+    /// function calls, which may have observable side effects.
+    fn is_safe_to_evaluate_once(&self) -> bool {
+        match self {
+            Self::Number { .. } | Self::Argument { .. } => true,
+            Self::UnaryOperator { expr, .. } => expr.is_safe_to_evaluate_once(),
+            Self::BinaryOperator { left, right, .. } =>
+                left.is_safe_to_evaluate_once() && right.is_safe_to_evaluate_once(),
+            Self::FunctionCall { args, .. } =>
+                args.iter().all(|arg| arg.is_safe_to_evaluate_once()),
+            Self::UserFunctionCall { .. } | Self::Derivative { .. } => false,
+        }
+    }
+
+    /// Interprets this node as `trig(u)`, `c * trig(u)` or `trig(u) * c`.
+    fn trig_term(&self) -> Option<TrigTerm<'_, T>> {
+        fn bare<T: Real>(node: &AstNode<T>) -> Option<(FunctionKind, &AstNode<T>)> {
+            match node {
+                AstNode::FunctionCall { kind: kind @ (FunctionKind::Sin | FunctionKind::Cos), args, .. }
+                    if args.len() == 1 => Some((*kind, args[0].as_ref())),
+                _ => None,
+            }
+        }
+
+        if let Some((kind, arg)) = bare(self) {
+            return Some(TrigTerm { kind, arg, coeff: None });
+        }
+        let Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } = self else {
+            return None;
+        };
+        if let Some((kind, arg)) = bare(right) {
+            return Some(TrigTerm { kind, arg, coeff: Some(left.as_ref()) });
+        }
+        let (kind, arg) = bare(left)?;
+        Some(TrigTerm { kind, arg, coeff: Some(right.as_ref()) })
+    }
+
+    /// Returns the two operands of a binary expression when they are a `sin` term and a
+    /// `cos` term sharing a structurally identical argument that is safe to evaluate once.
+    fn sin_cos_pair(&self) -> Option<(TrigTerm<'_, T>, TrigTerm<'_, T>)> {
+        let Self::BinaryOperator { left, right, .. } = self else {
+            return None;
+        };
+        let (l, r) = (left.trig_term()?, right.trig_term()?);
+        let fusable = l.kind != r.kind
+            && l.arg.structurally_eq(r.arg)
+            && l.arg.is_safe_to_evaluate_once();
+        fusable.then_some((l, r))
+    }
+
+    fn compile_sin_cos_pair(kind: &BinaryOperatorKind, left: TrigTerm<T>, right: TrigTerm<T>, out: &mut Vec<Instruction<T>>) {
+        left.arg.compile_into(out);
+
+        // Without a left coefficient the natural order [l, r] works as is.
+        // With one, push r first so that l is on top, build `c * l`, then `Swap`.
+        let l_on_top = left.coeff.is_some();
+        let cos_first = if l_on_top {
+            right.kind == FunctionKind::Cos
+        } else {
+            left.kind == FunctionKind::Cos
+        };
+        out.push(Instruction::SinCos { cos_first });
+
+        if let Some(c) = left.coeff {
+            c.compile_into(out);
+            out.push(Instruction::BinaryOperator(BinaryOperatorKind::Mul));
+            out.push(Instruction::Swap);
+        }
+
+        let mut op = *kind;
+        if let Some(c) = right.coeff {
+            if op == BinaryOperatorKind::Add && c.is_neg_one() {
+                op = BinaryOperatorKind::Sub; // a + (-1) * b => a - b
+            } else {
+                c.compile_into(out);
+                out.push(Instruction::BinaryOperator(BinaryOperatorKind::Mul));
+            }
+        }
+        out.push(Instruction::BinaryOperator(op));
+    }
+
     fn compile_into(&self, out: &mut Vec<Instruction<T>>) {
         match self {
             Self::Number { value, .. } => out.push(Instruction::Constant(value.clone())),
@@ -187,6 +296,12 @@ impl<T: Real> AstNode<T> {
                 expr.compile_into(out);
                 out.push(Instruction::UnaryOperator(*kind));
             }
+            // sin(u) / cos(u) with a shared `u`: evaluate `u` once.
+            Self::BinaryOperator { kind, .. }
+                if let Some((l, r)) = self.sin_cos_pair() =>
+            {
+                Self::compile_sin_cos_pair(kind, l, r, out);
+            },
             // a + (-1)*b ... => a - b ...
             Self::BinaryOperator { kind: BinaryOperatorKind::Add, left, right, .. }
                 if right.has_leading_neg_one() =>
@@ -336,6 +451,15 @@ mod stack_size_tests {
     }
 
     #[test]
+    fn test_calc_stack_size_sin_cos() {
+        assert_stack_size(
+            &[arg(), Instruction::SinCos { cos_first: false },
+              Instruction::BinaryOperator(BinaryOperatorKind::Add)],
+            2,
+        );
+    }
+
+    #[test]
     fn test_calc_stack_size_powi_const() {
         // powi(a, 3) is compiled to a single argument followed by PowiConst.
         assert_stack_size(
@@ -403,6 +527,25 @@ mod stack_size_tests {
                 Instruction::BinaryOperator(BinaryOperatorKind::Add),
             ],
             2,
+        );
+    }
+
+    // in stack_size_tests
+    #[test]
+    fn test_calc_stack_size_swap() {
+        // u, SinCos, c, Mul, Swap, c, Mul, Add : max depth 3
+        assert_stack_size(
+            &[
+                arg(),
+                Instruction::SinCos { cos_first: true },
+                constant(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::Swap,
+                constant(),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+            3,
         );
     }
 }
@@ -525,7 +668,102 @@ mod astnode_tests {
     }
 
     #[test]
+    fn test_compile_fuses_sin_cos_with_same_argument() {
+        let x1 = AstNode::<f64>::Argument { index: 0, span: Span::from(0..1) };
+        let x2 = AstNode::<f64>::Argument { index: 0, span: Span::from(8..9) };
+        let ast = x1.sin() + x2.cos();
+        let program = ast.compile();
+        assert_eq!(
+            program.code,
+            vec![
+                Instruction::Argument(0),
+                Instruction::SinCos { cos_first: false },
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+        );
+        assert_eq!(program.stack_size, 2);
+    }
+
+    #[test]
+    fn test_compile_fuses_cos_sin_in_operand_order() {
+        let x1 = AstNode::<f64>::Argument { index: 0, span: Span::from(0..1) };
+        let x2 = AstNode::<f64>::Argument { index: 0, span: Span::from(8..9) };
+        let ast = x1.cos() - x2.sin();
+        let program = ast.compile();
+        assert_eq!(
+            program.code,
+            vec![
+                Instruction::Argument(0),
+                Instruction::SinCos { cos_first: true },
+                Instruction::BinaryOperator(BinaryOperatorKind::Sub),
+            ],
+        );
+    }
+
+    #[test]
     fn test_instruction_large_enum_variant() {
         assert!(size_of::<Instruction<f64>>() <= 32);
+    }
+
+    // in astnode_tests
+    fn num(v: f64) -> AstNode<f64> {
+        AstNode::Number { value: Complex::new(v, 0.0), span: Span::from(0..1) }
+    }
+
+    fn x_at(start: usize) -> AstNode<f64> {
+        AstNode::Argument { index: 0, span: Span::from(start..start + 1) }
+    }
+
+    #[test]
+    fn test_compile_fuses_sin_cos_with_coefficients() {
+        // A*sin(x) + B*cos(x)
+        let ast = num(2.0).mul(x_at(0).sin()) + num(3.0).mul(x_at(8).cos());
+        let program = ast.compile();
+        assert_eq!(
+            program.code,
+            vec![
+                Instruction::Argument(0),
+                Instruction::SinCos { cos_first: true },
+                Instruction::Constant(Complex::new(2.0, 0.0)),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::Swap,
+                Instruction::Constant(Complex::new(3.0, 0.0)),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+        );
+        assert_eq!(program.stack_size, 3);
+    }
+
+    #[test]
+    fn test_compile_fuses_sin_cos_right_coefficient_only() {
+        // sin(x) + B*cos(x): natural order, no Swap
+        let ast = x_at(0).sin() + num(3.0).mul(x_at(8).cos());
+        let program = ast.compile();
+        assert_eq!(
+            program.code,
+            vec![
+                Instruction::Argument(0),
+                Instruction::SinCos { cos_first: false },
+                Instruction::Constant(Complex::new(3.0, 0.0)),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
+                Instruction::BinaryOperator(BinaryOperatorKind::Add),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_compile_fuses_cos_minus_sin_as_sub() {
+        // cos(x) + (-1)*sin(x) is emitted as a subtraction, without `* -1`
+        let ast = x_at(0).cos() + num(-1.0).mul(x_at(8).sin());
+        let program = ast.compile();
+        assert_eq!(
+            program.code,
+            vec![
+                Instruction::Argument(0),
+                Instruction::SinCos { cos_first: true },
+                Instruction::BinaryOperator(BinaryOperatorKind::Sub),
+            ],
+        );
     }
 }

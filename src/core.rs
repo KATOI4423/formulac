@@ -254,6 +254,10 @@ pub trait ComplexMath {
     fn sin(self) -> Self;
     /// Returns the complex cosine.
     fn cos(self) -> Self;
+    /// Returns the sine and cosine of the value as `(sin, cos)`.
+    fn sin_cos(self) -> (Self, Self) where Self: Sized + Clone {
+        (self.clone().sin(), self.cos())
+    }
     /// Returns the complex tangent.
     fn tan(self) -> Self;
     /// Returns the complex inverse sine.
@@ -445,6 +449,26 @@ impl<T: Real> ComplexMath for Complex<T> {
         let one = Complex::new(T::one(), T::zero());
 
         ((one.clone() + self.clone()) / (one - self)).ln() * T::from_f64(0.5)
+    }
+
+    fn sin_cos(self) -> (Self, Self) {
+        // Compute all shared real and hyperbolic terms only once.
+        // sin(a + bi) = sin(a) cosh(b) + i cos(a) sinh(b)
+        // cos(a + bi) = cos(a) cosh(b) - i sin(a) sinh(b)
+        let (a, b) = (self.re, self.im);
+        let (sin_a, cos_a) = a.sin_cos();
+        let (sinh_b, cosh_b) = (b.clone().sinh(), b.cosh());
+
+        let sin = Self {
+            re: sin_a.clone() * cosh_b.clone(),
+            im: cos_a.clone() * sinh_b.clone(),
+        };
+        let cos = Self {
+            re: cos_a * cosh_b,
+            im: -sin_a * sinh_b,
+        };
+
+        (sin, cos)
     }
 
     fn exp(self) -> Self

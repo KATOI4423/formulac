@@ -15,7 +15,10 @@ use crate::astnode::compile::{
     Instruction,
     Program,
 };
-use crate::core::Real;
+use crate::core::{
+    ComplexMath,
+    Real,
+};
 use crate::constants::Constants;
 use crate::err::ParseError;
 use crate::functions::UserFn;
@@ -517,6 +520,21 @@ impl<T: Real, const N: usize> CompiledFormula<T, N> {
                 Instruction::Function(kind) => {
                     kind.apply_stack(&mut scratch.stack);
                 },
+                Instruction::SinCos { cos_first } => {
+                    let x = scratch.stack.pop().unwrap();
+                    let (sin, cos) = x.sin_cos();
+                    if *cos_first {
+                        scratch.stack.push(cos);
+                        scratch.stack.push(sin);
+                    } else {
+                        scratch.stack.push(sin);
+                        scratch.stack.push(cos);
+                    }
+                },
+                Instruction::Swap => {
+                    let n = scratch.stack.len();
+                    scratch.stack.swap(n - 1, n - 2);
+                },
                 Instruction::PowiConst(n) => {
                     let x = scratch.stack.pop().unwrap();
                     scratch.stack.push(x.powi(*n));
@@ -744,6 +762,8 @@ mod compile_test {
                 Instruction::UnaryOperator(..) => {}
                 Instruction::BinaryOperator(..) => cur -= 1,
                 Instruction::Function(kind) => cur = cur - kind.arity() + 1,
+                Instruction::SinCos { .. } => cur += 1, // pop 1, push 2
+                Instruction::Swap => {},
                 Instruction::PowiConst(..) => {}, // pop 1, push 1 -> net 0
                 Instruction::UserFunction(func) => cur = cur - func.arity() + 1,
             }
@@ -756,7 +776,9 @@ mod compile_test {
     #[test]
     fn stack_size_matches_simulation() {
         for f in ["x", "x + y", "x+y*x-y/(x+1)", "pow(x, y + sin(x*y))",
-                  "sin(cos(sin(x)))", "diff(x^3 + sin(x*y), x)", "(x+y)*(x-y)*(x+1)*(y+2)",
+                  "sin(cos(sin(x)))", "sin(x) + cos(x)", "cos(x) - sin(x)",
+                  "sin(x)*y + cos(x)*y", "sin(x*y) - y*cos(x*y)",
+                  "diff(x^3 + sin(x*y), x)", "(x+y)*(x-y)*(x+1)*(y+2)",
                   "x^3", "x^3 + y^2 * x", "powi(x, y)", "powi(x + y, 3) * powi(x, y)",
         ] {
             let p = Builder::<f64, 2>::new(f, ["x", "y"]).build_tokens().unwrap();
@@ -772,6 +794,90 @@ mod compile_test {
         let expexted = x * x * x + (x * x).inv();
         assert_abs_diff_eq!(ret.re, expexted.re);
         assert_abs_diff_eq!(ret.im, expexted.im);
+    }
+
+    #[test]
+    fn sin_cos_fusion_matches_separate_evaluation() {
+        for formula in ["sin(x) + cos(x)", "cos(x) - sin(x)", "sin(x) * cos(x)", "cos(x) / sin(x)"] {
+            let f = Builder::<f64, 1>::new(formula, ["x"]).compile().unwrap();
+            let x = Complex::new(0.7, -0.3);
+            let result = f.eval(&[x]);
+            let expected = match formula {
+                "sin(x) + cos(x)" => x.sin() + x.cos(),
+                "cos(x) - sin(x)" => x.cos() - x.sin(),
+                "sin(x) * cos(x)" => x.sin() * x.cos(),
+                _ => x.cos() / x.sin(),
+            };
+            assert_abs_diff_eq!(result.re, expected.re, epsilon = 1.0e-12);
+            assert_abs_diff_eq!(result.im, expected.im, epsilon = 1.0e-12);
+        }
+    }
+
+    fn count_sin_cos<T: Real>(p: &Program<T>) -> usize {
+        p.code().iter().filter(|i| matches!(i, Instruction::SinCos { .. })).count()
+    }
+
+    fn trig_consts() -> [(&'static str, Complex<f64>); 4] {
+        [
+            ("A", Complex::new(5.25, -0.22)),
+            ("B", Complex::new(-0.03, 4.03)),
+            ("w", Complex::new(0.25, 0.333)),
+            ("phy", Complex::new(-2.0, 3.5)),
+        ]
+    }
+
+    #[test]
+    fn sin_cos_fusion_fires_through_builder() {
+        for (formula, fused) in [
+            ("sin(x) + cos(x)", 1),
+            ("A*sin(w*x + phy) + B*cos(w*x + phy)", 1),
+            ("sin(x)*A + cos(x)", 1),
+            ("sin(x) - cos(x)", 1),
+            ("cos(x) - sin(x)", 1),
+            ("sin(x) + cos(x + 1)", 0),
+            ("sin(f(x)) + cos(f(x))", 0),
+        ] {
+            let program = Builder::<f64, 1>::new(formula, ["x"])
+                .with_constants(trig_consts())
+                .with_user_functions([UserFn::new("f", |[x]| x + Complex::ONE)])
+                .build_tokens()
+                .unwrap();
+            assert_eq!(count_sin_cos(&program), fused, "formula: {formula}");
+        }
+    }
+
+    #[test]
+    fn sin_cos_fusion_with_coefficients_matches() {
+        let consts = trig_consts();
+        let (a, b, w, phy) = (consts[0].1, consts[1].1, consts[2].1, consts[3].1);
+        let x = Complex::new(0.7, -0.3);
+        let u = w * x + phy;
+        for (formula, expected) in [
+            ("A*sin(w*x + phy) + B*cos(w*x + phy)", a * u.sin() + b * u.cos()),
+            ("B*cos(w*x + phy) + A*sin(w*x + phy)", b * u.cos() + a * u.sin()),
+            ("A*sin(w*x + phy) - B*cos(w*x + phy)", a * u.sin() - b * u.cos()),
+            ("sin(w*x + phy)*A + cos(w*x + phy)", u.sin() * a + u.cos()),
+            ("cos(w*x + phy) - sin(w*x + phy)", u.cos() - u.sin()),
+            ("A*sin(w*x + phy) / (B*cos(w*x + phy))", (a * u.sin()) / (b * u.cos())),
+        ] {
+            let f = Builder::<f64, 1>::new(formula, ["x"])
+                .with_constants(consts)
+                .compile()
+                .unwrap();
+            let r = f.eval(&[x]);
+            assert_abs_diff_eq!(r.re, expected.re, epsilon = 1.0e-10);
+            assert_abs_diff_eq!(r.im, expected.im, epsilon = 1.0e-10);
+        }
+    }
+
+    #[test]
+    fn sin_cos_fusion_does_not_merge_user_function_calls() {
+        let f = Builder::<f64, 1>::new("sin(f(x)) + cos(f(x))", ["x"])
+            .with_user_functions([UserFn::new("f", |[x]| x + Complex::ONE)])
+            .compile()
+            .unwrap();
+        let count = count_sin_cos(&f.program);
+        assert_eq!(count, 0);
     }
 
     #[test]
