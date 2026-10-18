@@ -14,7 +14,7 @@ impl<T: Real> AstNode<T> {
     /// Pushes every non-leaf node (pre-order) onto `out`.
     fn collect_inner_nodes<'a>(&'a self, out: &mut Vec<&'a Self>) {
         match self {
-            Self::Number { .. } | Self::Argument { .. } => return,
+            Self::Number { .. } | Self::Argument { .. } => (),
             Self::UnaryOperator { expr, .. } | Self::Derivative { expr, .. } => {
                 out.push(self);
                 expr.collect_inner_nodes(out);
