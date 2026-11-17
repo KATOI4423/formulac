@@ -174,7 +174,7 @@ impl<T: Real, const N: usize> Builder<T, N>
         AstNode::from(&lexemes, &args, &self.constants, &self.usrs)
     }
 
-    fn build_astnode(&self) -> Result<AstNode<T>, ParseError>
+    pub(crate) fn build_astnode(&self) -> Result<AstNode<T>, ParseError>
     where
         T: FromStr,
         Complex<T>: AddAssign + MulAssign,

@@ -32,6 +32,10 @@
 //! ```
 
 use num_complex::Complex;
+use std::ops::{
+    AddAssign,
+    MulAssign,
+};
 use std::rc::Rc;
 
 use crate::astnode::AstNode;
@@ -71,6 +75,38 @@ impl<T: Real, const N: usize> Expr<T, N> {
     /// Returns what the root node is. Shorthand for `self.view().kind()`.
     pub fn kind(&self) -> ExprKind<'_, T, N> {
         self.view().kind()
+    }
+
+    /// Simplifies the tree in the same way as [`Builder::compile`](crate::Builder::compile).
+    ///
+    /// Constant subexpressions are folded, sums and products are flattened,
+    /// like terms are combined, `x - y` becomes `x + (-1)*y` and `x / y`
+    /// becomes `x * y^-1`. Integer powers become [`FunctionKind::Powi`].
+    ///
+    /// The simplified tree computes the same value as the original one, but
+    /// its exact shape is an implementation detail: it may change in a future
+    /// version as the simplifier improves. Code that inspects it should not
+    /// depend on, for example, the order of terms.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    /// use formulac::functions::FunctionKind;
+    ///
+    /// let expr = Builder::<f64, 1>::new("1 / z", ["z"]).parse().unwrap().simplify();
+    ///
+    /// // z^-1
+    /// let ExprKind::FunctionCall { kind: FunctionKind::Powi, args } = expr.kind() else {
+    ///     panic!("expected an integer power");
+    /// };
+    /// assert!(matches!(args[1].kind(), ExprKind::Number { value } if value.re == -1.0));
+    /// ```
+    pub fn simplify(self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
+        Self { root: self.root.simplify(), args: self.args }
     }
 }
 
@@ -283,6 +319,26 @@ mod tests {
         let ExprKind::BinaryOperator { left, .. } = e.kind() else { panic!("expected Add") };
         let sub = left.to_expr();
         assert!(matches!(sub.kind(), ExprKind::FunctionCall { kind: FunctionKind::Sin, .. }));
+    }
+
+    #[test]
+    fn simplify_matches_compile_pipeline() {
+        for formula in ["2 - -x", "3*x^2 + 2*x - 5", "x / y", "sin(x)^2 + cos(x)^2", "(x + y)^2"] {
+            let builder = Builder::<f64, 2>::new(formula, ["x", "y"]);
+            let simplified = builder.parse().unwrap().simplify();
+            assert!(simplified.root.structurally_eq(&builder.build_astnode().unwrap()), "{formula}");
+        }
+    }
+
+    #[test]
+    fn simplify_rewrites_division_and_folds_constants() {
+        // 6 / x => 6 * x^-1
+        let e = parse("6 / x").simplify();
+        let ExprKind::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right } = e.kind() else {
+            panic!("expected Mul");
+        };
+        assert!(matches!(left.kind(), ExprKind::Number { value } if value.re == 6.0));
+        assert!(matches!(right.kind(), ExprKind::FunctionCall { kind: FunctionKind::Powi, .. }));
     }
 
     #[test]
