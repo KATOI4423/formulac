@@ -68,11 +68,14 @@ operator_kind! {
 #[doc(hidden)]
 /// Internal macro to define all unary operators.
 macro_rules! unary_operator_kind {
-    ($($name:ident => { kind: $kind:ident, apply: $apply:expr }),* $(,)?) => {
+    ($($(#[$meta:meta])* $name:ident => { kind: $kind:ident, apply: $apply:expr }),* $(,)?) => {
         /// Represents a unary operator in a mathematical expression.
+        ///
+        /// Appears as a node kind in the expression tree of a parsed formula.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum UnaryOperatorKind {
-            $($name),*
+        #[non_exhaustive]
+        pub enum UnaryOperatorKind {
+            $($(#[$meta])* $name),*
         }
 
         impl TryFrom<OperatorKind> for UnaryOperatorKind {
@@ -113,23 +116,28 @@ macro_rules! unary_operator_kind {
 }
 
 unary_operator_kind! {
+    /// Unary plus, `+x`.
     Positive => { kind: Plus, apply: |x| x },
+    /// Unary minus (negation), `-x`.
     Negative => { kind: Minus, apply: |x: Complex<_>| -x },
 }
 
 #[doc(hidden)]
 /// Internal macro to define all binary operators.
 macro_rules! binary_operators {
-    ($($name:ident => {
+    ($($(#[$meta:meta])* $name:ident => {
         kind: $kind:ident,
         precedence: $prec:expr,
         left_assoc: $assoc:expr,
         apply: $apply:expr
     }),* $(,)?) => {
         /// Represents a binary operator in a mathematical expression.
+        ///
+        /// Appears as a node kind in the expression tree of a parsed formula.
         #[derive(Debug, Clone, Copy, PartialEq)]
-        pub(crate) enum BinaryOperatorKind {
-            $($name),*
+        #[non_exhaustive]
+        pub enum BinaryOperatorKind {
+            $($(#[$meta])* $name),*
         }
 
         impl TryFrom<OperatorKind> for BinaryOperatorKind {
@@ -176,10 +184,15 @@ macro_rules! binary_operators {
 }
 
 binary_operators! {
+    /// Addition, `x + y`.
     Add => { kind: Plus, precedence: 0, left_assoc: true,  apply: |l, r| l + r },
+    /// Subtraction, `x - y`.
     Sub => { kind: Minus, precedence: 0, left_assoc: true,  apply: |l, r| l - r },
+    /// Multiplication, `x * y`.
     Mul => { kind: Mul, precedence: 1, left_assoc: true,  apply: |l, r| l * r },
+    /// Division, `x / y`.
     Div => { kind: Div, precedence: 1, left_assoc: true,  apply: |l, r| l / r },
+    /// Exponentiation, `x ^ y` (right-associative).
     Pow => { kind: Pow, precedence: 2, left_assoc: false, apply: |l: Complex<T>, r: Complex<T>| l.powc(r) },
 }
 
