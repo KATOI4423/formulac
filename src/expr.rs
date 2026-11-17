@@ -78,6 +78,29 @@ impl<T: Real, const N: usize> Expr<T, N> {
         self.view().kind()
     }
 
+    /// Returns the argument names, in the order given to [`Builder::new`](crate::Builder::new).
+    pub fn arg_names(&self) -> &[String; N] {
+        &self.args
+    }
+
+    /// Returns the index of the argument called `name`, or `None` if there is none.
+    ///
+    /// The index is the one reported by [`ExprKind::Argument`].
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    ///
+    /// let expr = Builder::<f64, 2>::new("y", ["x", "y"]).parse().unwrap();
+    /// let y = expr.arg_index("y").unwrap();
+    /// assert!(matches!(expr.kind(), ExprKind::Argument { index, .. } if index == y));
+    /// assert_eq!(expr.arg_index("z"), None);
+    /// ```
+    pub fn arg_index(&self, name: &str) -> Option<usize> {
+        self.view().arg_index(name)
+    }
+
     /// Simplifies the tree in the same way as [`Builder::compile`](crate::Builder::compile).
     ///
     /// Constant subexpressions are folded, sums and products are flattened,
@@ -158,6 +181,16 @@ impl<'a, T: Real, const N: usize> ExprRef<'a, T, N> {
 
     fn children(&self, nodes: &'a [Rc<AstNode<T>>]) -> Vec<Self> {
         nodes.iter().map(|n| self.child(n)).collect()
+    }
+
+    /// Returns the argument names of the whole formula. See [`Expr::arg_names`].
+    pub fn arg_names(&self) -> &'a [String; N] {
+        self.args
+    }
+
+    /// Returns the index of the argument called `name`. See [`Expr::arg_index`].
+    pub fn arg_index(&self, name: &str) -> Option<usize> {
+        self.args.iter().position(|arg| arg == name)
     }
 
     /// Returns what this node is, with references to its children.
@@ -279,6 +312,20 @@ mod tests {
     fn argument_has_index_and_name() {
         let e = parse("y");
         assert!(matches!(e.kind(), ExprKind::Argument { index: 1, name: "y" }));
+    }
+
+    #[test]
+    fn argument_lookup_by_name() {
+        let e = parse("x + y");
+        assert_eq!(e.arg_names(), &["x".to_string(), "y".to_string()]);
+        assert_eq!(e.arg_index("x"), Some(0));
+        assert_eq!(e.arg_index("y"), Some(1));
+        assert_eq!(e.arg_index("z"), None);
+
+        // A subtree knows the names of the whole formula.
+        let ExprKind::BinaryOperator { right, .. } = e.kind() else { panic!("expected Add") };
+        assert_eq!(right.arg_index("x"), Some(0));
+        assert!(matches!(right.kind(), ExprKind::Argument { index: 1, name: "y" }));
     }
 
     #[test]
