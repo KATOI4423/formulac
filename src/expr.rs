@@ -104,6 +104,12 @@ impl<T: Real, const N: usize> Expr<T, N> {
         self.view().arg_index(name)
     }
 
+    /// Returns `true` if both trees have the same structure.
+    /// Shorthand for `self.view().structurally_eq(other.view())`.
+    pub fn structurally_eq(&self, other: &Self) -> bool {
+        self.view().structurally_eq(other.view())
+    }
+
     /// Simplifies the tree in the same way as [`Builder::compile`](crate::Builder::compile).
     ///
     /// Constant subexpressions are folded, sums and products are flattened,
@@ -264,6 +270,33 @@ impl<'a, T: Real, const N: usize> ExprRef<'a, T, N> {
             // The parser resolves `diff(...)` immediately, so an `Expr` never holds one.
             AstNode::Derivative { .. } => unreachable!("Derivative nodes are resolved during parsing"),
         }
+    }
+
+    /// Returns `true` if both subtrees have the same structure: the same node
+    /// kinds, operators, functions and numbers, in the same places.
+    ///
+    /// Only the tree is compared, not where it was written in the formula,
+    /// so the two `x*y` in `sin(x*y) + x*y` are equal. Arguments are compared
+    /// by index, numbers by value and user-defined functions by name.
+    ///
+    /// No algebra is done: `x + y` and `y + x` are different trees.
+    /// Simplifying both trees first (see [`Expr::simplify`]) makes more of
+    /// the trees that compute the same value compare equal, but not all of them.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    ///
+    /// let expr = Builder::<f64, 2>::new("sin(x*y) + x*y", ["x", "y"]).parse().unwrap();
+    /// let ExprKind::BinaryOperator { left, right, .. } = expr.kind() else { unreachable!() };
+    /// let ExprKind::FunctionCall { args, .. } = left.kind() else { unreachable!() };
+    ///
+    /// assert!(args[0].structurally_eq(right));
+    /// assert!(!left.structurally_eq(right));
+    /// ```
+    pub fn structurally_eq(&self, other: ExprRef<'_, T, N>) -> bool {
+        self.node.structurally_eq(other.node)
     }
 
     /// Copies the subtree rooted at this node into a new [`Expr`].
@@ -746,6 +779,30 @@ mod tests {
     fn differentiate_errors() {
         assert!(matches!(parse("x").differentiate(2), Err(ParseError::InvalidDerivative { .. })));
         assert!(parse("abs(x)").differentiate(0).is_err());
+    }
+
+    #[test]
+    fn structurally_eq_compares_trees() {
+        let a = parse("sin(x*y) + 2");
+        let b = parse("sin( x * y )+2");
+        assert!(a.structurally_eq(&b));
+        assert!(!a.structurally_eq(&parse("sin(y*x) + 2")));
+        assert!(!a.structurally_eq(&parse("sin(x*y) + 3")));
+        assert!(!parse("x").structurally_eq(&parse("y")));
+
+        // Subtrees at different positions of the same formula.
+        let e = parse("(x - 1)^2 + 3*(x - 1)");
+        let ExprKind::BinaryOperator { left, right, .. } = e.kind() else { panic!("expected Add") };
+        let ExprKind::BinaryOperator { left: base, .. } = left.kind() else { panic!("expected Pow") };
+        let ExprKind::BinaryOperator { right: factor, .. } = right.kind() else { panic!("expected Mul") };
+        assert!(base.structurally_eq(factor));
+        assert!(!left.structurally_eq(right));
+    }
+
+    #[test]
+    fn structurally_eq_after_simplify() {
+        assert!(!parse("x - y").structurally_eq(&parse("x + -1*y")));
+        assert!(parse("x - y").simplify().structurally_eq(&parse("x + -1*y").simplify()));
     }
 
     #[test]
