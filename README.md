@@ -21,7 +21,8 @@ Ideal for symbolic computation, mathematical simulations, and evaluating formula
   - Supports `+`, `-`, `*`, `/`, `^`, and standard functions like `sin`, `cos`, `exp`, `ln`, and more
   - See the [API Overview](#core-types--api-overview) for the list of available functions, constants, and operator symbols
 - **Abstract Syntax Tree (AST)**
-  - Expressions are parsed into `AstNode` structures, enabling inspection, simplification, and compilation into an executable structure
+  - Expressions are parsed into an AST, which is simplified and compiled into an executable structure
+  - `Builder::parse()` exposes the tree as a read-only `Expr`, so you can inspect it, simplify it, print it, or compile any part of it (see [Inspecting the Expression Tree](#inspecting-the-expression-tree))
 - **Reusable compiled formulas**
   - `Builder::compile()` returns a `CompiledFormula<T, N>` that is evaluated with `eval(...)` or `eval_with_scratch(...)`
   - One formula can be shared across threads; give each thread its own `Scratch` to avoid per-call allocation
@@ -237,6 +238,68 @@ fn main() {
 }
 ```
 
+## Inspecting the Expression Tree
+
+`Builder::parse()` returns the parsed formula as an `Expr`, a read-only expression tree.
+Use it when you need to analyze a formula rather than only evaluate it,
+for example to handle each term of a sum differently.
+
+- `Expr::kind()` / `ExprRef::kind()` tell what a node is (`ExprKind`): a number, an argument,
+  a unary or binary operator, or a function call. Child nodes are returned as `ExprRef`s.
+- `Builder::parse()` keeps the formula as written (`x - y` stays a subtraction).
+  `Expr::simplify()` returns the tree that `Builder::compile()` works on (`x - y` becomes `x + (-1)*y`).
+- `Expr::compile()` turns a tree into a `CompiledFormula`. Use `ExprRef::to_expr()` to compile a subtree.
+- `Expr` and `ExprRef` implement `Display`, which writes the tree back as a formula string.
+- Arguments are reported by both index and name; `arg_index(name)` looks up an index.
+- `Expr::differentiate(index)` returns the derivative tree, as used by `diff(...)` and `compile_with_derivative()`.
+- `structurally_eq()` tells whether two trees or subtrees are the same, and `contains_arg(index)`
+  tells whether a tree uses an argument.
+
+```rust
+use formulac::Builder;
+use formulac::expr::{ExprKind, ExprRef};
+use formulac::operators::BinaryOperatorKind;
+use num_complex::Complex;
+
+/// Collects the top-level terms of a sum.
+fn terms<'a>(e: ExprRef<'a, f64, 1>, out: &mut Vec<ExprRef<'a, f64, 1>>) {
+    match e.kind() {
+        ExprKind::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
+            terms(left, out);
+            terms(right, out);
+        }
+        _ => out.push(e),
+    }
+}
+
+fn main() {
+    let expr = Builder::<f64, 1>::new("3*z^2 - sin(z) + 1/z", ["z"])
+        .parse()
+        .unwrap()
+        .simplify();
+
+    let mut parts = Vec::new();
+    terms(expr.view(), &mut parts);
+
+    let z = Complex::new(2.0, 0.0);
+    for part in parts {
+        let value = part.to_expr().compile().eval(&[z]);
+        println!("{part} = {value}");
+    }
+    // 3*powi(z, 2) = 12+0i
+    // -1*sin(z) = -0.9092974268256817+0i
+    // powi(z, -1) = 0.5+-0i
+}
+```
+
+Notes:
+- The exact shape of a simplified tree (term order, how a negation is written, ...) is an
+  implementation detail and may change between versions; only the value it computes is meant to stay the same.
+  Use the tree from `Builder::parse()` when you need the formula as written.
+- `Expr` is not `Send` or `Sync`. Compile it into a `CompiledFormula` to share it across threads.
+- `ExprKind`, `UnaryOperatorKind` and `BinaryOperatorKind` are `#[non_exhaustive]`;
+  include a wildcard arm when matching them.
+
 ## Core Types & API Overview
 
 - **`Builder<T, const N: usize>`**
@@ -255,6 +318,11 @@ fn main() {
 - **`UserFn<T>`**
   Represents a user-defined function.
   Accepts a fixed-size array `[Complex<T>; N]` as arguments.
+
+- **`Expr<T, const N: usize>`, `ExprRef<'a, T, N>`, `ExprKind<'a, T, N>`**
+  A read-only view of the expression tree, returned by `Builder::parse()`.
+  `Expr` owns the tree, `ExprRef` refers to one node, and `ExprKind` tells what the node is.
+  `Expr` can also be simplified, differentiated, compiled and printed.
 
 ### Notes on Design
 
