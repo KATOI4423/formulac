@@ -32,6 +32,7 @@
 //! ```
 
 use num_complex::Complex;
+use std::fmt;
 use std::ops::{
     AddAssign,
     MulAssign,
@@ -228,6 +229,141 @@ impl<'a, T: Real, const N: usize> ExprRef<'a, T, N> {
     /// The copy is cheap: the nodes below are shared, not duplicated.
     pub fn to_expr(&self) -> Expr<T, N> {
         Expr { root: self.node.clone(), args: Rc::clone(self.args) }
+    }
+}
+
+// ─── Display ──────────────────────────────────────────────────────────────────
+
+/// Binding strength of a printed node, used to decide where parentheses are needed.
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+enum Prec {
+    /// `a + b`, `a - b`, and complex literals such as `1+2i`.
+    Add,
+    /// `a * b`, `a / b`.
+    Mul,
+    /// `a ^ b`, `-a`, and negative literals.
+    Pow,
+    /// Literals, arguments and function calls.
+    Atom,
+}
+
+impl<'a, T: Real, const N: usize> ExprRef<'a, T, N> {
+    /// Returns how tightly this node binds, and whether it starts with a sign
+    /// (a unary operator or a negative literal).
+    fn prec(&self) -> (Prec, bool) {
+        match self.node {
+            AstNode::Number { value, .. } => {
+                let negative = |v: &T| *v < T::zero();
+                if value.im.is_zero() {
+                    (if negative(&value.re) { Prec::Pow } else { Prec::Atom }, negative(&value.re))
+                } else if value.re.is_zero() {
+                    (if negative(&value.im) { Prec::Pow } else { Prec::Atom }, negative(&value.im))
+                } else {
+                    (Prec::Add, false)
+                }
+            }
+            AstNode::Argument { .. }
+            | AstNode::FunctionCall { .. }
+            | AstNode::UserFunctionCall { .. }
+            | AstNode::Derivative { .. } => (Prec::Atom, false),
+            AstNode::UnaryOperator { .. } => (Prec::Pow, true),
+            AstNode::BinaryOperator { kind, .. } => match kind {
+                BinaryOperatorKind::Add | BinaryOperatorKind::Sub => (Prec::Add, false),
+                BinaryOperatorKind::Mul | BinaryOperatorKind::Div => (Prec::Mul, false),
+                BinaryOperatorKind::Pow => (Prec::Pow, false),
+            },
+        }
+    }
+
+    fn fmt_paren(&self, f: &mut fmt::Formatter<'_>, paren: bool) -> fmt::Result
+    where
+        T: fmt::Display,
+    {
+        if paren { write!(f, "({self})") } else { write!(f, "{self}") }
+    }
+
+    fn fmt_args(&self, f: &mut fmt::Formatter<'_>, name: &str, args: &[ExprRef<'a, T, N>]) -> fmt::Result
+    where
+        T: fmt::Display,
+    {
+        write!(f, "{name}(")?;
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 { write!(f, ", ")?; }
+            write!(f, "{arg}")?;
+        }
+        write!(f, ")")
+    }
+}
+
+/// Writes the expression as a formula string.
+///
+/// The output uses the argument names, and parsing it again computes the same
+/// value as long as every number is finite. A tree from
+/// [`Builder::parse`](crate::Builder::parse) whose numbers are all written
+/// in the formula (no negative or complex named constants) parses back into
+/// the same tree.
+///
+/// Only the parentheses needed for that are written, plus a pair around a
+/// signed operand on the right (`x*(-y)`, `x^(-1)`) for readability.
+/// Negative and complex numbers are written as `-3` and `1+2i`. Built-in
+/// functions are written by name, so an integer power from
+/// [`Expr::simplify`] appears as `powi(x, 2)`.
+///
+/// # Example
+/// ```rust
+/// use formulac::Builder;
+///
+/// let expr = Builder::<f64, 1>::new("2 - -z  *(z+1)", ["z"]).parse().unwrap();
+/// assert_eq!(expr.to_string(), "2 - -z*(z + 1)");
+/// ```
+impl<T: Real + fmt::Display, const N: usize> fmt::Display for ExprRef<'_, T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.kind() {
+            ExprKind::Number { value } => {
+                if value.im.is_zero() {
+                    write!(f, "{}", value.re)
+                } else if value.re.is_zero() {
+                    write!(f, "{}i", value.im)
+                } else if value.im < T::zero() {
+                    write!(f, "{}-{}i", value.re, -value.im.clone())
+                } else {
+                    write!(f, "{}+{}i", value.re, value.im)
+                }
+            }
+            ExprKind::Argument { name, .. } => write!(f, "{name}"),
+            ExprKind::UnaryOperator { kind, expr } => {
+                let (p, signed) = expr.prec();
+                write!(f, "{kind}")?;
+                expr.fmt_paren(f, p < Prec::Pow || signed)
+            }
+            ExprKind::BinaryOperator { kind, left, right } => {
+                let (lp, _) = left.prec();
+                let (rp, r_signed) = right.prec();
+                let (own, _) = self.prec();
+                let (l_paren, r_paren) = if kind == BinaryOperatorKind::Pow {
+                    // right-associative: a^b^c is a^(b^c)
+                    let (_, l_signed) = left.prec();
+                    (lp <= own || l_signed, rp < own || r_signed)
+                } else {
+                    (lp < own, rp <= own || r_signed)
+                };
+                left.fmt_paren(f, l_paren)?;
+                match kind {
+                    BinaryOperatorKind::Add | BinaryOperatorKind::Sub => write!(f, " {kind} ")?,
+                    _ => write!(f, "{kind}")?,
+                }
+                right.fmt_paren(f, r_paren)
+            }
+            ExprKind::FunctionCall { kind, args } => self.fmt_args(f, &kind.to_string(), &args),
+            ExprKind::UserFunctionCall { func, args } => self.fmt_args(f, func.name(), &args),
+        }
+    }
+}
+
+/// Writes the expression as a formula string. See the implementation for [`ExprRef`].
+impl<T: Real + fmt::Display, const N: usize> fmt::Display for Expr<T, N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.view().fmt(f)
     }
 }
 
@@ -458,6 +594,87 @@ mod tests {
         let p = [Complex::new(1.1, 0.2), Complex::new(-0.4, 0.9)];
         let sum: Complex<f64> = parts.iter().map(|t| t.to_expr().compile().eval(&p)).sum();
         assert_close(sum, expr.compile().eval(&p), "sum of terms");
+    }
+
+    #[test]
+    fn display_examples() {
+        let cases = [
+            ("x+y*2", "x + y*2"),
+            ("(x+y)*2", "(x + y)*2"),
+            ("x-(y-1)", "x - (y - 1)"),
+            ("x/(y*2)", "x/(y*2)"),
+            ("-x^2", "-x^2"),
+            ("(-x)^2", "(-x)^2"),
+            ("x^y^2", "x^y^2"),
+            ("(x^y)^2", "(x^y)^2"),
+            ("x^-1", "x^(-1)"),
+            ("x*-y", "x*(-y)"),
+            ("-(-x)", "-(-x)"),
+            ("-(x*y)", "-(x*y)"),
+            ("2i*x", "2i*x"),
+            ("sin(x)^2 + pow(x, y)", "sin(x)^2 + pow(x, y)"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(parse(input).to_string(), expected, "{input}");
+        }
+    }
+
+    #[test]
+    fn display_numbers() {
+        let show = |c: Complex<f64>| {
+            Builder::<f64, 1>::new("a*x", ["x"]).with_constants([("a", c)]).parse().unwrap().to_string()
+        };
+        assert_eq!(show(Complex::new(-3.0, 0.0)), "-3*x");
+        assert_eq!(show(Complex::new(0.0, -2.0)), "-2i*x");
+        assert_eq!(show(Complex::new(1.5, 2.0)), "(1.5+2i)*x");
+        assert_eq!(show(Complex::new(1.0, -2.0)), "(1-2i)*x");
+    }
+
+    #[test]
+    fn display_simplified_tree() {
+        assert_eq!(parse("1 - x^2").simplify().to_string(), "-1*powi(x, 2) + 1");
+    }
+
+    #[test]
+    fn display_user_function() {
+        let double = UserFn::<f64>::new("double", |[v]| v * 2.0);
+        let e = Builder::new("double(x + 1)", ["x"]).with_user_functions([double]).parse().unwrap();
+        assert_eq!(e.to_string(), "double(x + 1)");
+    }
+
+    #[test]
+    fn display_round_trips_to_same_tree() {
+        let formulas = [
+            "x + y - 3", "x - (y - 3)", "x*y/2", "x/(y/2)", "-x^2*y", "(-x)^y", "x^y^2", "(x^y)^2",
+            "x^-y", "2 - -x", "--x", "+x", "-(x + y)", "sin(x - y)^-2", "pow(x, 2)*exp(-y)",
+            "3.25e-3*x + 1e20", "2i*x + (1+2i)", "PI*x - E",
+        ];
+        for formula in formulas {
+            let expr = Builder::<f64, 2>::new(formula, ["x", "y"]).parse().unwrap();
+            let printed = expr.to_string();
+            let reparsed = Builder::<f64, 2>::new(&printed, ["x", "y"]).parse().unwrap();
+            assert!(reparsed.root.structurally_eq(&expr.root), "{formula} -> {printed}");
+        }
+    }
+
+    #[test]
+    fn display_round_trips_to_same_value() {
+        let formulas = [
+            "x + y - 3", "x/(y/2)", "-x^2*y", "x^-y", "2 - -x", "-(x + y)", "sin(x - y)^-2",
+            "2i*x + (1+2i)", "a*x + b", "(a + x)^b", "x - a*y", "y^a",
+        ];
+        let constants = [("a", Complex::new(-2.0, 0.0)), ("b", Complex::new(1.0, -0.5))];
+        let p = [Complex::new(0.7, -0.3), Complex::new(-1.2, 0.4)];
+        for formula in formulas {
+            let builder = Builder::<f64, 2>::new(formula, ["x", "y"]).with_constants(constants);
+            for expr in [builder.parse().unwrap(), builder.parse().unwrap().simplify()] {
+                let printed = expr.to_string();
+                let reparsed = Builder::<f64, 2>::new(&printed, ["x", "y"])
+                    .parse()
+                    .unwrap_or_else(|e| panic!("{formula} -> {printed}: {e:?}"));
+                assert_close(reparsed.compile().eval(&p), expr.compile().eval(&p), &printed);
+            }
+        }
     }
 
     #[test]
