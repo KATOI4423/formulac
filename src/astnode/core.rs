@@ -208,6 +208,20 @@ impl<T: Real> AstNode<T> {
     fn args_structually_eq(a: &[Rc<Self>], b: &[Rc<Self>]) -> bool {
         a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.structurally_eq(y))
     }
+
+    /// Returns `true` if the tree refers to argument `var` anywhere.
+    pub(crate) fn contains_arg(&self, var: usize) -> bool {
+        match self {
+            Self::Number { .. } => false,
+            Self::Argument { index, .. } => *index == var,
+            Self::UnaryOperator { expr, .. } | Self::Derivative { expr, .. }
+                => expr.contains_arg(var),
+            Self::BinaryOperator { left, right, .. }
+                => left.contains_arg(var) || right.contains_arg(var),
+            Self::FunctionCall { args, .. } | Self::UserFunctionCall { args, .. }
+                => args.iter().any(|a| a.contains_arg(var)),
+        }
+    }
 }
 
 impl<T: Real> std::ops::Add for AstNode<T> { type Output = Self; fn add(self, rhs: Self) -> Self { self.add(rhs) } }

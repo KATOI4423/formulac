@@ -110,6 +110,12 @@ impl<T: Real, const N: usize> Expr<T, N> {
         self.view().structurally_eq(other.view())
     }
 
+    /// Returns `true` if the formula uses the argument at `index`.
+    /// Shorthand for `self.view().contains_arg(index)`.
+    pub fn contains_arg(&self, index: usize) -> bool {
+        self.view().contains_arg(index)
+    }
+
     /// Simplifies the tree in the same way as [`Builder::compile`](crate::Builder::compile).
     ///
     /// Constant subexpressions are folded, sums and products are flattened,
@@ -297,6 +303,30 @@ impl<'a, T: Real, const N: usize> ExprRef<'a, T, N> {
     /// ```
     pub fn structurally_eq(&self, other: ExprRef<'_, T, N>) -> bool {
         self.node.structurally_eq(other.node)
+    }
+
+    /// Returns `true` if this subtree uses the argument at `index`.
+    ///
+    /// A subtree that uses no argument at all is a constant. An `index` that
+    /// is not less than `N` is used nowhere, so the result is `false`.
+    /// Use [`ExprRef::arg_index`] to get `index` from an argument name.
+    ///
+    /// The tree is checked as it is: `x - x` uses `x` until it is simplified.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    ///
+    /// let expr = Builder::<f64, 2>::new("x*y + sin(y)", ["x", "y"]).parse().unwrap();
+    /// let x = expr.arg_index("x").unwrap();
+    /// let ExprKind::BinaryOperator { left, right, .. } = expr.kind() else { unreachable!() };
+    ///
+    /// assert!(left.contains_arg(x));
+    /// assert!(!right.contains_arg(x));
+    /// ```
+    pub fn contains_arg(&self, index: usize) -> bool {
+        self.node.contains_arg(index)
     }
 
     /// Copies the subtree rooted at this node into a new [`Expr`].
@@ -803,6 +833,27 @@ mod tests {
     fn structurally_eq_after_simplify() {
         assert!(!parse("x - y").structurally_eq(&parse("x + -1*y")));
         assert!(parse("x - y").simplify().structurally_eq(&parse("x + -1*y").simplify()));
+    }
+
+    #[test]
+    fn contains_arg_checks_subtrees() {
+        let e = parse("x*y + sin(y) + 2");
+        assert!(e.contains_arg(0));
+        assert!(e.contains_arg(1));
+        assert!(!e.contains_arg(2));
+
+        let ExprKind::BinaryOperator { left, right: constant, .. } = e.kind() else { panic!("expected Add") };
+        let ExprKind::BinaryOperator { left: xy, right: sin_y, .. } = left.kind() else { panic!("expected Add") };
+        assert!(xy.contains_arg(0) && xy.contains_arg(1));
+        assert!(!sin_y.contains_arg(0) && sin_y.contains_arg(1));
+        assert!(!constant.contains_arg(0) && !constant.contains_arg(1));
+    }
+
+    #[test]
+    fn contains_arg_follows_simplification() {
+        let e = parse("y + x - x");
+        assert!(e.contains_arg(0));
+        assert!(!e.simplify().contains_arg(0));
     }
 
     #[test]
