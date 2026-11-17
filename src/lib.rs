@@ -73,6 +73,7 @@ pub mod constants;
 pub mod core;
 pub mod functions;
 pub mod err;
+pub mod expr;
 pub mod lexer;
 pub mod operators;
 mod token;
@@ -81,6 +82,11 @@ pub use builder::{
     Builder,
     CompiledFormula,
     Scratch,
+};
+pub use expr::{
+    Expr,
+    ExprKind,
+    ExprRef,
 };
 pub use functions::{
     UserFn,

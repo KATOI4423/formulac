@@ -21,6 +21,7 @@ use crate::core::{
 };
 use crate::constants::Constants;
 use crate::err::ParseError;
+use crate::expr::Expr;
 use crate::functions::UserFn;
 use crate::lexer;
 use crate::token::{
@@ -164,16 +165,58 @@ impl<T: Real, const N: usize> Builder<T, N>
         Ok(tokens)
     }
 
+    fn parse_astnode(&self) -> Result<AstNode<T>, ParseError>
+    where
+        T: FromStr,
+    {
+        let lexemes = lexer::from(&self.formula);
+        let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
+        AstNode::from(&lexemes, &args, &self.constants, &self.usrs)
+    }
+
     fn build_astnode(&self) -> Result<AstNode<T>, ParseError>
     where
         T: FromStr,
         Complex<T>: AddAssign + MulAssign,
     {
-        let lexemes = lexer::from(&self.formula);
-        let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
-        let astnode = AstNode::from(&lexemes, &args, &self.constants, &self.usrs)?
-            .simplify();
-        Ok(astnode)
+        Ok(self.parse_astnode()?.simplify())
+    }
+
+    /// Parses the formula into an expression tree, without simplifying it.
+    ///
+    /// The tree follows the formula as written: operator precedence and
+    /// parentheses are resolved, named constants are replaced by their values,
+    /// and `diff(...)` is differentiated. No other rewriting is done, so
+    /// `x - y` stays a subtraction and `2^3` stays a power.
+    ///
+    /// Inspect the result with [`Expr::kind`] and [`ExprRef::kind`](crate::expr::ExprRef::kind).
+    ///
+    /// # Errors
+    /// Returns a [`ParseError`] if the formula is invalid, in the same cases as
+    /// [`compile`](Self::compile).
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    /// use formulac::operators::{BinaryOperatorKind, UnaryOperatorKind};
+    ///
+    /// let expr = Builder::<f64, 1>::new("2 - -z", ["z"]).parse().unwrap();
+    ///
+    /// // 2 - (-z)
+    /// let ExprKind::BinaryOperator { kind: BinaryOperatorKind::Sub, right, .. } = expr.kind() else {
+    ///     panic!("expected a subtraction");
+    /// };
+    /// assert!(matches!(
+    ///     right.kind(),
+    ///     ExprKind::UnaryOperator { kind: UnaryOperatorKind::Negative, .. }
+    /// ));
+    /// ```
+    pub fn parse(&self) -> Result<Expr<T, N>, ParseError>
+    where
+        T: FromStr,
+    {
+        Ok(Expr::new(self.parse_astnode()?, self.args.clone()))
     }
 
     /// Compiles a mathematical expression into an executable structure.
