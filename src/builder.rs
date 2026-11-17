@@ -465,7 +465,7 @@ pub struct CompiledFormula<T: Real, const N: usize> {
 }
 
 impl<T: Real, const N: usize> CompiledFormula<T, N> {
-    fn from_program(program: Program<T>) -> Self {
+    pub(crate) fn from_program(program: Program<T>) -> Self {
         Self {
             program: Arc::new(program),
         }

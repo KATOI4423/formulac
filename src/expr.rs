@@ -39,6 +39,7 @@ use std::ops::{
 use std::rc::Rc;
 
 use crate::astnode::AstNode;
+use crate::builder::CompiledFormula;
 use crate::core::Real;
 use crate::functions::{
     FunctionKind,
@@ -107,6 +108,37 @@ impl<T: Real, const N: usize> Expr<T, N> {
         Complex<T>: AddAssign + MulAssign,
     {
         Self { root: self.root.simplify(), args: self.args }
+    }
+
+    /// Compiles the tree into a [`CompiledFormula`].
+    ///
+    /// The tree is compiled as it is; it is not simplified first. Thus
+    /// `builder.parse()?.simplify().compile()` gives the same formula as
+    /// [`Builder::compile`](crate::Builder::compile), while
+    /// `builder.parse()?.compile()` skips simplification.
+    ///
+    /// Any subtree can be compiled too, through [`ExprRef::to_expr`]. The
+    /// result takes the same `N` arguments as the whole formula.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use formulac::expr::ExprKind;
+    /// use num_complex::Complex;
+    ///
+    /// let expr = Builder::<f64, 1>::new("sin(z) + z^2", ["z"]).parse().unwrap();
+    /// let ExprKind::BinaryOperator { left, right, .. } = expr.kind() else { unreachable!() };
+    ///
+    /// // Compile each term on its own.
+    /// let sin_z = left.to_expr().compile();
+    /// let z_sq  = right.to_expr().compile();
+    ///
+    /// let z = Complex::new(0.5, 0.0);
+    /// assert_eq!(sin_z.eval(&[z]), z.sin());
+    /// assert_eq!(z_sq.eval(&[z]), z * z);
+    /// ```
+    pub fn compile(&self) -> CompiledFormula<T, N> {
+        CompiledFormula::from_program(self.root.clone().compile())
     }
 }
 
@@ -339,6 +371,46 @@ mod tests {
         };
         assert!(matches!(left.kind(), ExprKind::Number { value } if value.re == 6.0));
         assert!(matches!(right.kind(), ExprKind::FunctionCall { kind: FunctionKind::Powi, .. }));
+    }
+
+    fn assert_close(a: Complex<f64>, b: Complex<f64>, formula: &str) {
+        assert!((a - b).norm() <= 1e-12 * (1.0 + b.norm()), "{formula}: {a} != {b}");
+    }
+
+    #[test]
+    fn compile_raw_and_simplified_trees() {
+        let points = [[Complex::new(0.3, -1.2), Complex::new(2.0, 0.5)], [Complex::new(-1.5, 0.0), Complex::new(0.7, 0.7)]];
+        for formula in ["2 - -x", "3*x^2 + 2*x - 5", "x / y", "sin(x) - cos(x)", "-x^2 * y", "(x + y)^3"] {
+            let builder = Builder::<f64, 2>::new(formula, ["x", "y"]);
+            let expected = builder.compile().unwrap();
+            let raw = builder.parse().unwrap().compile();
+            let simplified = builder.parse().unwrap().simplify().compile();
+            for p in &points {
+                assert_close(raw.eval(p), expected.eval(p), formula);
+                assert_eq!(simplified.eval(p), expected.eval(p), "{formula}");
+            }
+        }
+    }
+
+    #[test]
+    fn compile_subtrees_sum_to_whole() {
+        let expr = parse("x^2 - 3*y + sin(x*y)").simplify();
+        fn terms<'a>(e: ExprRef<'a, f64, 2>, out: &mut Vec<ExprRef<'a, f64, 2>>) {
+            match e.kind() {
+                ExprKind::BinaryOperator { kind: BinaryOperatorKind::Add, left, right } => {
+                    terms(left, out);
+                    terms(right, out);
+                }
+                _ => out.push(e),
+            }
+        }
+        let mut parts = Vec::new();
+        terms(expr.view(), &mut parts);
+        assert_eq!(parts.len(), 3);
+
+        let p = [Complex::new(1.1, 0.2), Complex::new(-0.4, 0.9)];
+        let sum: Complex<f64> = parts.iter().map(|t| t.to_expr().compile().eval(&p)).sum();
+        assert_close(sum, expr.compile().eval(&p), "sum of terms");
     }
 
     #[test]
