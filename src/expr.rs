@@ -42,10 +42,12 @@ use std::rc::Rc;
 use crate::astnode::AstNode;
 use crate::builder::CompiledFormula;
 use crate::core::Real;
+use crate::err::ParseError;
 use crate::functions::{
     FunctionKind,
     UserFn,
 };
+use crate::lexer::Span;
 use crate::operators::{
     BinaryOperatorKind,
     UnaryOperatorKind,
@@ -163,6 +165,46 @@ impl<T: Real, const N: usize> Expr<T, N> {
     /// ```
     pub fn compile(&self) -> CompiledFormula<T, N> {
         CompiledFormula::from_program(self.root.clone().compile())
+    }
+
+    /// Differentiates the tree with respect to the argument at `index`.
+    ///
+    /// This is the symbolic differentiation that `diff(...)` in a formula and
+    /// [`Builder::compile_with_derivative`](crate::Builder::compile_with_derivative)
+    /// use. The result is not simplified; call [`Expr::simplify`] on it when
+    /// needed. Thus `builder.parse()?.simplify().differentiate(i)?.simplify().compile()`
+    /// gives the same derivative as `compile_with_derivative`.
+    ///
+    /// Use [`Expr::arg_index`] to get `index` from an argument name.
+    ///
+    /// # Errors
+    ///
+    /// - [`ParseError::InvalidDerivative`] if `index` is not less than `N`.
+    /// - The errors that `diff(...)` reports for the same tree, for example
+    ///   when it contains a function that cannot be differentiated (`abs`,
+    ///   `conj`) or a user-defined function without the needed derivative.
+    ///
+    /// # Example
+    /// ```rust
+    /// use formulac::Builder;
+    /// use num_complex::Complex;
+    ///
+    /// let expr = Builder::<f64, 2>::new("x^3 + x*y", ["x", "y"]).parse().unwrap();
+    /// let x = expr.arg_index("x").unwrap();
+    /// let dx = expr.differentiate(x).unwrap().simplify();
+    ///
+    /// let (a, b) = (Complex::new(2.0, 0.0), Complex::new(5.0, 0.0));
+    /// assert_eq!(dx.compile().eval(&[a, b]), 3.0 * a * a + b);
+    /// ```
+    pub fn differentiate(&self, index: usize) -> Result<Self, ParseError> {
+        if index >= N {
+            return Err(ParseError::InvalidDerivative {
+                span: Span::from(0..0),
+                reason: format!("argument index {index} is out of range (the formula has {N} arguments)"),
+            });
+        }
+        let root = self.root.clone().differentiate(index)?;
+        Ok(Self { root, args: Rc::clone(&self.args) })
     }
 }
 
@@ -675,6 +717,35 @@ mod tests {
                 assert_close(reparsed.compile().eval(&p), expr.compile().eval(&p), &printed);
             }
         }
+    }
+
+    #[test]
+    fn differentiate_matches_compile_with_derivative() {
+        let points = [[Complex::new(0.3, -1.2), Complex::new(2.0, 0.5)], [Complex::new(-1.5, 0.2), Complex::new(0.7, 0.7)]];
+        for formula in ["x^3 + x*y", "sin(x*y) / x", "exp(-x^2) * y", "sqrt(x + y)", "pow(x, y)"] {
+            let builder = Builder::<f64, 2>::new(formula, ["x", "y"]);
+            for (index, name) in ["x", "y"].into_iter().enumerate() {
+                let (_, expected) = builder.compile_with_derivative(name).unwrap();
+                let simplified = builder.parse().unwrap().simplify().differentiate(index).unwrap().simplify().compile();
+                let raw = builder.parse().unwrap().differentiate(index).unwrap().compile();
+                for p in &points {
+                    assert_eq!(simplified.eval(p), expected.eval(p), "{formula} by {name}");
+                    assert_close(raw.eval(p), expected.eval(p), formula);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn differentiate_keeps_argument_names() {
+        let d = parse("x*y").differentiate(1).unwrap();
+        assert_eq!(d.arg_names(), &["x".to_string(), "y".to_string()]);
+    }
+
+    #[test]
+    fn differentiate_errors() {
+        assert!(matches!(parse("x").differentiate(2), Err(ParseError::InvalidDerivative { .. })));
+        assert!(parse("abs(x)").differentiate(0).is_err());
     }
 
     #[test]
