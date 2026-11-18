@@ -23,8 +23,8 @@ use std::rc::Rc;
 use crate::astnode::AstNode;
 use crate::core::Real;
 use crate::functions::{
-    Arity,
     FunctionKind,
+    UserFn,
 };
 use crate::err::ParseError;
 use crate::lexer::Span;
@@ -58,14 +58,7 @@ impl<T: Real> AstNode<T> {
             }
 
             Self::UserFunctionCall { func, args, span } => {
-                if var >= func.arity() {
-                    return Err(ParseError::OutOfRange { func: func.name().into(), idx: var, span });
-                }
-                if let Some(deriv) = func.derivative(var).cloned() {
-                    Ok(Self::UserFunctionCall { func: deriv, args, span })
-                } else {
-                    Err(ParseError::DerivativeUndefined { func: func.name().into(), idx: var, span })
-                }
+                Self::diff_userfn(func, args, var, span)
             }
 
             Self::Derivative { expr, var: inner_var, order, span } => {
@@ -209,11 +202,37 @@ impl<T: Real> AstNode<T> {
             span: s,
         } * n * du)
     }
+
+    /// ∂/∂ai [f(a1, a2, ..., an)] = Σk [∂k f(a1, a2, ..., an) * ∂ak/∂ai]
+    fn diff_userfn(func: UserFn<T>, args: Vec<Rc<Self>>, var: usize, span: Span) -> Result<Self, ParseError> {
+        let mut result = None;
+
+        for (i, arg) in args.iter().enumerate() {
+            let Some(deriv) = func.derivative(i) else {
+                return Err(ParseError::DerivativeUndefined { func: func.name().into(), idx: i, span });
+            };
+
+            let term = AstNode::UserFunctionCall {
+                func: deriv.clone(),
+                args: args.clone(),
+                span,
+            } * Self::unwrap_rc(arg.clone()).differentiate(var)?;
+
+            if let Some(current) = result {
+                result = Some(current + term);
+            } else {
+                result = Some(term);
+            }
+        }
+
+        Ok(result.unwrap_or_else(|| AstNode::zero(span)))
+    }
 }
 
 #[cfg(test)]
 mod differentiate_tests {
     use super::*;
+    use crate::UserFn;
     use num_complex::Complex;
 
     #[test]
@@ -416,6 +435,132 @@ mod differentiate_tests {
 
         assert!(AstNode::FunctionCall { kind: FunctionKind::Abs, args: vec![Rc::new(x.clone())], span }.differentiate(0).is_err());
         assert!(AstNode::FunctionCall { kind: FunctionKind::Conj, args: vec![Rc::new(x.clone())], span }.differentiate(0).is_err());
+    }
+
+    #[test]
+    fn differentiate_chain_rule_tests() {
+        let span = Span::from(0..1);
+        let args = {
+            let x = AstNode::Argument { index: 0, span };
+            let y = AstNode::Argument { index: 1, span };
+            let pos = AstNode::Number { value: Complex::new(2.0, 1.0), span };
+            let neg = AstNode::Number { value: Complex::new(-2.0, 3.0), span };
+
+            [
+                pos.clone() * x.clone(),
+                neg.clone() * x.clone(),
+                pos.clone() * x.clone() * y.clone(),
+                neg.clone() * y.clone(),
+                x.clone() * y.clone() * y.clone(),
+            ]
+        };
+
+        let funcs = [
+            UserFn::new("x^2", |[x]| x * x)
+                .with_derivative([
+                    UserFn::new("2*x", |[x]| Complex::new(2.0, 0.0) * x),
+                ]).unwrap(),
+            UserFn::new("sin(x)", |[x]| x.sin())
+                .with_derivative([
+                    UserFn::new("cos(x)", |[x]| x.cos()),
+                ]).unwrap(),
+        ];
+
+        for func in funcs {
+            for arg in args.clone() {
+                // Differentiate with respect to x and y
+                for index in 0..2 {
+                    let ast = AstNode::UserFunctionCall { func: func.clone(), args: vec![Rc::new(arg.clone())], span };
+                    let result = ast.differentiate(index).unwrap();
+
+                    let expect = if let Some(deriv) = func.derivative(0) {
+                        AstNode::UserFunctionCall {
+                            func: deriv.clone(),
+                            args: vec![Rc::new(arg.clone())],
+                            span,
+                        } * arg.clone().differentiate(index).unwrap().clone()
+                    } else {
+                        AstNode::zero(span)
+                    };
+
+                    assert_eq!(result, expect);
+                }
+            }
+        }
+    }
+
+
+    #[test]
+    fn differentiate_chain_rule_2args_tests() {
+        let span = Span::from(0..1);
+
+        let x = AstNode::Argument { index: 0, span };
+        let y = AstNode::Argument { index: 1, span };
+
+        let pos = AstNode::Number {
+            value: Complex::new(2.0, 1.0),
+            span,
+        };
+        let neg = AstNode::Number {
+            value: Complex::new(-4.0, 3.0),
+            span,
+        };
+
+        // f(u, v) = u^2 + uv
+        // df/du = 2u + v
+        // df/dv = u
+        let func = UserFn::new("u^2+uv", |[u, v]| u * u + u * v)
+            .with_derivative([
+                UserFn::new("2*u+v", |[u, v]| {
+                    Complex::new(2.0, 0.0) * u + v
+                }),
+                UserFn::new("u", |[u, _v]| u),
+            ])
+            .unwrap();
+
+        // g(x, y), h(x, y)
+        let args = [
+            (pos.clone() * x.clone(), neg.clone() * y.clone()),
+            (x.clone() * y.clone(), pos.clone() * x.clone() * y.clone()),
+            (pos.clone() * x.clone() * y.clone(), neg.clone() * y.clone()),
+            (x.clone() * x.clone(), y.clone() * y.clone()),
+        ];
+
+        for (g, h) in args {
+            let call_args = vec![Rc::new(g.clone()), Rc::new(h.clone())];
+
+            let ast = AstNode::UserFunctionCall {
+                func: func.clone(),
+                args: call_args.clone(),
+                span,
+            };
+
+            // Differentiate with respect to x and y.
+            for index in 0..2 {
+                let result = ast.clone().differentiate(index).unwrap();
+
+                let dg = g.clone().differentiate(index).unwrap();
+                let dh = h.clone().differentiate(index).unwrap();
+
+                // (df/du)(g, h) * dg/dx
+                let term_u = AstNode::UserFunctionCall {
+                    func: func.derivative(0).unwrap().clone(),
+                    args: call_args.clone(),
+                    span,
+                } * dg;
+
+                // (df/dv)(g, h) * dh/dx
+                let term_v = AstNode::UserFunctionCall {
+                    func: func.derivative(1).unwrap().clone(),
+                    args: call_args.clone(),
+                    span,
+                } * dh;
+
+                let expect = term_u + term_v;
+
+                assert_eq!(result, expect);
+            }
+        }
     }
 
     // Note: differentiate_div is not tested due to complex span handling
