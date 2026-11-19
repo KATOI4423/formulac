@@ -107,6 +107,10 @@ impl<T: Real> AstNode<T> {
 
         // Both sides are numbers → evaluate immediately.
         if let (Self::Number { value: l, span: ls }, Self::Number { value: r, .. }) = (&left, &right) {
+            // Use powi instead of Pow::apply (powc) to avoid rounding errors.
+            if kind == BinaryOperatorKind::Pow && Self::is_i32_compatible(r) {
+                return Self::Number { value: l.powi(r.re.to_i32()), span: *ls }
+            }
             return Self::Number { value: kind.apply(l.clone(), r.clone()), span: *ls };
         }
 
@@ -377,7 +381,15 @@ impl<T: Real> AstNode<T> {
                 if b.is_zero() && e.re > T::zero()
                 => Self::zero(s),
             (Self::Number { value: b, span: s }, Self::Number { value: e, .. })
-                => Self::Number { value: b.powc(e), span: s },
+                =>
+            {
+                // Use powi instead of powc to avoid rounding errors.
+                if Self::is_i32_compatible(&e) {
+                    Self::Number { value: b.powi(e.re.to_i32()), span: s }
+                } else {
+                    Self::Number { value: b.powc(e), span: s }
+                }
+            },
             (b, Self::Number { value: e, .. }) if Self::is_i32_compatible(&e)
                 => b.powi(e.re.to_i32()),
             (b, e) => {
@@ -433,6 +445,10 @@ mod fold_tests {
             }
             inner(&$left, &$right);
         }};
+    }
+
+    fn c(re: f64, im: f64) -> Complex<f64> {
+        Complex::new(re, im)
     }
 
     #[test]
@@ -824,6 +840,40 @@ mod fold_tests {
     fn simplify_pow_to_powi() {
         let node = AstNode::Argument { index: 0, span: Span::from(0..1) }.pow(AstNode::Number { value: Complex::from(3.0), span: Span::from(4..5) }).simplify();
         assert_astnode_eq!(node, AstNode::Argument { index: 0, span: Span::from(0..1) }.powi(3));
+    }
+
+    #[test]
+    fn simplify_pow_constant_exponents() {
+        let span = Span::from(0..1);
+        let cases = [
+            //  base, exponent, expected
+            ( c(2.0, 0.0), c(3.0, 0.0), c(8.0, 0.0) ),
+            ( c(10.0, 0.0), c(2.0, 0.0), c(100.0, 0.0) ),
+            ( c(-2.0, 0.0), c(2.0, 0.0), c(4.0, 0.0) ),
+            ( c(1.0, 2.0), c(2.0, 0.0), c(-3.0, 4.0) ),
+            ( c(2.0, 0.0), c(-3.0, 0.0), c(0.125, 0.0) ),
+            ( c(3.0, 0.0), c(2.5, 0.0), c(3.0, 0.0).powc(c(2.5, 0.0)) ),
+            ( c(2.0, 0.0), c(0.0, 2.0), c(2.0, 0.0).powc(c(0.0, 2.0)) ),
+        ];
+
+        for (base, exp, expected) in cases {
+            let expected = AstNode::Number { value: expected, span };
+            let base = AstNode::Number { value: base, span };
+            let exp = AstNode::Number { value: exp, span };
+
+            // simplify for BinaryOperatorKind::Pow
+            let result = AstNode::BinaryOperator {
+                kind: BinaryOperatorKind::Pow,
+                left: Rc::new(base.clone()),
+                right: Rc::new(exp.clone()),
+                span,
+            }.simplify();
+            assert_eq!(result, expected);
+
+            // simplify for FunctionKind::Pow
+            let result = base.pow(exp).simplify();
+            assert_eq!(result, expected);
+        }
     }
 
     // Dummy user-defined function
