@@ -132,7 +132,7 @@ impl<T: Real> AstNode<T> {
     /// | `cosh(x)`  | `dx * sinh(x)`                      |
     /// | `tanh(x)`  | `dx / cosh(x)^2`                    |
     /// | `asinh(x)` | `dx / sqrt(x^2 + 1)`                |
-    /// | `acosh(x)` | `dx / sqrt(x^2 - 1)`                |
+    /// | `acosh(x)` | `dx / (sqrt(x-1) * sqrt(x+1)`       |
     /// | `atanh(x)` | `dx / (1 - x^2)`                    |
     /// | `exp(x)`   | `dx * exp(x)`                       |
     /// | `ln(x)`    | `dx / x`                            |
@@ -159,7 +159,7 @@ impl<T: Real> AstNode<T> {
             FunctionKind::Cosh  => Ok(dx * x.sinh()),
             FunctionKind::Tanh  => Ok(dx / x.cosh().powi(2)),
             FunctionKind::Asinh => Ok(dx / (x.powi(2) + Self::one(span)).sqrt()),
-            FunctionKind::Acosh => Ok(dx / (x.powi(2) - Self::one(span)).sqrt()),
+            FunctionKind::Acosh => Ok(dx / ((x.clone() - Self::one(span)).sqrt() * (x + Self::one(span)).sqrt())),
             FunctionKind::Atanh => Ok(dx / (Self::one(span) - x.powi(2))),
             FunctionKind::Exp   => Ok(dx * x.exp()),
             FunctionKind::Ln    => Ok(dx / x),
@@ -388,7 +388,7 @@ mod differentiate_tests {
             (
                 FunctionKind::Acosh,
                 AstNode::FunctionCall { kind: FunctionKind::Acosh, args: vec![Rc::new(x.clone())], span },
-                one.clone() / (x.clone().powi(2) - one.clone()).sqrt(),
+                one.clone() / ((x.clone() - one.clone()).sqrt() * (x.clone() + one.clone()).sqrt()),
             ),
             (
                 FunctionKind::Atanh,

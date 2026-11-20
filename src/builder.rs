@@ -1132,4 +1132,36 @@ mod issue_test {
         assert_abs_diff_eq!(result_3.re, expect_3.re, epsilon=1.0e-12);
         assert_abs_diff_eq!(result_3.im, expect_3.im, epsilon=1.0e-12);
     }
+
+    // acosh principal branch test
+    #[test]
+    fn test_issue_7() {
+        let cases = [
+            // input, expected derivative (principal branch)
+            (
+                Complex::new(-2.0, 0.1),
+                Complex::new(-0.5745, -0.0383),
+            ),
+            (
+                Complex::new(-0.5, 0.3),
+                Complex::new(-0.1807, -1.0433),
+            ),
+            (
+                Complex::new(2.0, 0.1),
+                Complex::new(0.5745, -0.0383),
+            ),
+        ];
+
+        let (_, expr) = Builder::new("acosh(z)", ["z"])
+            .compile_with_derivative("z")
+            .unwrap();
+
+        for (z, expected) in cases {
+            let actual = expr.eval(&[z]);
+            assert!(
+                (actual - expected).norm() < 1e-4,
+                "z = {z}: expected {expected}, got {actual}"
+            );
+        }
+    }
 }
