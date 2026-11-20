@@ -354,14 +354,16 @@ impl<T: Real> AstNode<T> {
         let mut base = base.simplify();
         let mut exp  = exp.simplify();
 
-        // (x^a)^b → x^(a*b)
+        // (x^a)^b → x^(a*b) is valid only when b is an i32-compatible integer
         loop {
+            if !matches!(&exp, Self::Number { value, .. } if Self::is_i32_compatible(value)) {
+                break;
+            }
+
             match base {
                 Self::FunctionCall { kind: FunctionKind::Pow | FunctionKind::Powi, mut args, .. } => {
-                    let inner_base = Self::unwrap_rc(args.remove(0))
-                        ;
-                    let inner_exp  = Self::unwrap_rc(args.remove(0))
-                        ;
+                    let inner_base = Self::unwrap_rc(args.remove(0));
+                    let inner_exp  = Self::unwrap_rc(args.remove(0));
                     exp  = inner_exp.mul(exp).simplify();
                     base = inner_base.simplify();
                 }
@@ -698,6 +700,65 @@ mod fold_tests {
         } else {
             panic!("Could not extract exponent from expression: {:?}", expr);
         }
+    }
+
+    #[test]
+    fn fold_pow_test() {
+        let span = Span::from(0..1);
+        let cases = [
+            // base, inner_exp, outer_exp, expected
+            ( c(-1.0, 0.0), c(2.0, 0.0), c(0.5, 0.0), c(1.0, 0.0) ),
+            ( c(-1.0, 0.0), c(0.5, 0.0), c(2.0, 0.0), c(-1.0, 0.0) ),
+            ( c(-2.0, 1.0), c(2.0, 0.0), c(0.5, 0.0), c(2.0, -1.0) ),
+            ( c(-1.0, 0.0), c(2.0, 0.0), c(-1.0, 0.0), c(1.0, 0.0) ),
+        ];
+
+        for (z, a, b, expected) in cases {
+            let result = AstNode::Number { value: z, span }
+                .pow(AstNode::Number { value: a, span })
+                .pow(AstNode::Number { value: b, span })
+                .simplify();
+            assert_astnode_eq!(result, AstNode::Number { value: expected, span });
+        }
+    }
+
+    #[test]
+    fn fold_nested_pow_test() {
+        let span = Span::from(0..1);
+        let x = AstNode::Argument { index: 0, span };
+
+        let result = x.clone().powi(2).powi(3)
+            .pow(AstNode::Number { value: c(0.5, 0.0), span })
+            .simplify();
+        let expected = x.clone().powi(6).pow(AstNode::Number { value: c(0.5, 0.0), span });
+        assert_eq!(result, expected);
+
+        let result = x.clone().powi(2)
+            .pow(AstNode::Number { value: c(0.5, 0.0), span })
+            .powi(3).simplify();
+        let expected = x.clone().powi(2)
+            .pow(AstNode::Number { value: c(1.5, 0.0), span });
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn fold_pow_keeps_non_integer_outer_exponent() {
+        let span = Span::from(0..1);
+        let x = AstNode::Argument { index: 0, span };
+        let result = x.clone()
+            .pow(AstNode::Number {
+                value: c(2.0, 0.0),
+                span,
+            })
+            .pow(AstNode::Number {
+                value: c(0.5, 0.0),
+                span,
+            }).simplify();
+        let expected = x.powi(2)
+            .pow(AstNode::Number { value: c(0.5, 0.0), span });
+
+        // Ensure that the simplified AST preserves the nested power.
+        assert_eq!(result, expected);
     }
 
     #[test]
