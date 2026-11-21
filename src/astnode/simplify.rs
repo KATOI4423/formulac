@@ -33,7 +33,10 @@ use crate::functions::{
     FunctionKind,
 };
 use crate::lexer::Span;
-use crate::operators::BinaryOperatorKind;
+use crate::operators::{
+    BinaryOperatorKind,
+    UnaryOperatorKind,
+};
 
 
 impl<T: Real> AstNode<T> {
@@ -44,11 +47,7 @@ impl<T: Real> AstNode<T> {
     {
         match self {
             Self::UnaryOperator { kind, expr, span } => {
-                let expr = Self::unwrap_rc(expr).simplify();
-                match expr {
-                    Self::Number { value, span } => Self::Number { value: kind.apply(value), span },
-                    other => Self::UnaryOperator { kind, expr: Rc::new(other), span },
-                }
+                Self::fold_unary(kind, span, Self::unwrap_rc(expr))
             }
             Self::BinaryOperator { kind, left, right, span } => {
                 Self::fold_binary(kind, span, (*left).clone(), (*right).clone())
@@ -95,6 +94,24 @@ impl<T: Real> AstNode<T> {
             Self::Number { value: func.apply(nums), span }
         } else {
             make_node(func, span, args)
+        }
+    }
+
+    fn fold_unary(kind: UnaryOperatorKind, span: Span, expr: Self) -> Self
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
+        let expr = expr.simplify();
+
+        // Assume that `UnaryOperatorKind` takes only `Positive` and `Negative`.
+        if kind == UnaryOperatorKind::Positive {
+            return expr;
+        }
+
+        // else => kind == unaryOperatorKind::Negative
+        match expr {
+            Self::Number { value, span } => Self::Number { value: kind.apply(value), span },
+            other => (-Self::one(span) * other).simplify(), // goto fold_mul(span, -1, other)
         }
     }
 
@@ -536,6 +553,11 @@ mod fold_tests {
             }
             _ => panic!("Expected simplified to Number"),
         }
+
+        // -x + x = 0
+        let x = AstNode::Argument { index: 0, span: Span::from(0..1) };
+        let result = -x.clone() + x;
+        assert_eq!(result.simplify(), AstNode::<f64>::zero(Span::from(0..1)));
     }
 
     #[test]
