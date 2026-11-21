@@ -34,6 +34,11 @@ use crate::token::{
     UserFnTable,
 };
 
+// Managements paten state
+struct ParenState {
+    comma_count: usize,
+}
+
 impl<T: Real> AstNode<T> {
     /// Parses a slice of `Lexeme`s into an AST using a shunting-yard algorithm.
     pub(crate) fn from(
@@ -68,6 +73,8 @@ impl<T: Real> AstNode<T> {
         // used to distinguish unary from binary operators.
         let mut prev_is_value = false;
 
+        let mut paren_states = Vec::new();
+
         for lexeme in lexemes {
             let token = Token::try_from(lexeme, args, constants, users)?;
             match token {
@@ -97,14 +104,39 @@ impl<T: Real> AstNode<T> {
                 // (e.g. `-` in `(-x)`) is treated as unary.
                 Token::LParen { .. } => {
                     ops.push(token);
+                    paren_states.push(ParenState { comma_count: 0 });
                     prev_is_value = false;
                 }
                 Token::RParen { .. } => {
-                    Self::flush_until_lparen(&mut output, &mut ops, lexeme)?;
+                    let state = paren_states.pop().ok_or(ParseError::InvalidFormula {
+                        reason: "mismatched ')'".into(), span: lexeme.span(),
+                    })?;
+
+                    if state.comma_count > 0 && !prev_is_value {
+                        return Err(ParseError::InvalidFormula {
+                            reason: "missing argument before ')'".into(), span: lexeme.span(),
+                        });
+                    }
+
+                    let arg_count = state.comma_count + if prev_is_value { 1 } else { 0 };
+                    Self::flush_until_lparen(&mut output, &mut ops, lexeme, arg_count)?;
                     prev_is_value = true;
                 }
                 Token::Comma { .. } => {
+                    if !prev_is_value {
+                        return Err(ParseError::InvalidFormula {
+                            reason: "missing argument before ','".into(),
+                            span: lexeme.span(),
+                        });
+                    }
+
                     Self::flush_until_lparen_keep(&mut output, &mut ops, lexeme)?;
+
+                    let state = paren_states.last_mut().ok_or(ParseError::InvalidFormula {
+                        reason: "mismatched ','".into(), span: lexeme.span()
+                    })?;
+
+                    state.comma_count += 1;
                     prev_is_value = false;
                 }
                 _ => return Err(ParseError::InvalidFormula {
@@ -194,6 +226,7 @@ impl<T: Real> AstNode<T> {
         output: &mut Vec<Self>,
         ops:    &mut Vec<Token<T>>,
         lex:    &Lexeme,
+        arg_count: usize,
     ) -> Result<(), ParseError> {
         loop {
             match ops.pop() {
@@ -208,8 +241,18 @@ impl<T: Real> AstNode<T> {
         // Check for a function/diff call sitting just below the '('.
         if let Some(top) = ops.pop() {
             match top {
-                Token::Function { kind, span } => Self::apply_fn(output, kind.arity(), span, |args| Self::FunctionCall { kind, args, span })?,
-                Token::UserFunction { func, span } => Self::apply_fn(output, func.arity(), span, |args| Self::UserFunctionCall { func, args, span })?,
+                Token::Function { kind, span } => {
+                    if arg_count != kind.arity() {
+                        return Err(ParseError::MissingArgs { func: kind.to_string(), span });
+                    }
+                    Self::apply_fn(output, kind.arity(), span, |args| Self::FunctionCall { kind, args, span })?;
+                },
+                Token::UserFunction { func, span } => {
+                    if arg_count != func.arity() {
+                        return Err(ParseError::MissingArgs { func: func.name().to_string(), span });
+                    }
+                    Self::apply_fn(output, func.arity(), span, |args| Self::UserFunctionCall { func, args, span })?;
+                },
                 Token::DiffOperator { span } => Self::apply_diff(output, span)?,
                 other => ops.push(other), // not a call; put it back
             }
@@ -525,4 +568,47 @@ mod astnode_tests {
         let res = AstNode::from(&lexemes, &[], &Constants::<f64>::new(), &UserFnTable::new());
         assert!(res.is_err());
     }
-}
+
+    #[test]
+    fn function_argument_count_tests() {
+        let valid = [
+            "sin(z)",
+            "pow(z, 3)",
+            "pow(sin(z), 3)",
+            "pow((z + 1), 3)",
+            "powi(z, 3)",
+        ];
+
+        let invalid = [
+            "sin(z, 2)",
+            "pow(z)",
+            "pow(z 3)",
+            "powi(z 3)",
+            "pow()",
+            "pow(z,)",
+            "pow(, z)",
+            "sin(1, 2) * pow(3)",
+        ];
+
+        for formula in valid {
+            let lexemes = lexer::from(formula);
+            let result = AstNode::from(
+                &lexemes,
+                &["z"],
+                &Constants::<f64>::new(),
+                &UserFnTable::new(),
+            );
+            assert!(result.is_ok(), "{formula}: {:?}", result.err());
+        }
+
+        for formula in invalid {
+            let lexemes = lexer::from(formula);
+            let result = AstNode::from(
+                &lexemes,
+                &["z"],
+                &Constants::<f64>::new(),
+                &UserFnTable::new(),
+            );
+            assert!(result.is_err(), "{formula} should fail");
+        }
+    }}
