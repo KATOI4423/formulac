@@ -317,6 +317,20 @@ impl<T: Real> AstNode<T> {
                 left.compile_without_leading_neg_one(out);
                 out.push(Instruction::BinaryOperator(BinaryOperatorKind::Sub));
             },
+            // (-1) * x => -x
+            Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. }
+                if left.is_neg_one() =>
+            {
+                right.compile_into(out);
+                out.push(Instruction::UnaryOperator(UnaryOperatorKind::Negative))
+            },
+            // x * (-1) => -x
+            Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. }
+                if right.is_neg_one() =>
+            {
+                left.compile_into(out);
+                out.push(Instruction::UnaryOperator(UnaryOperatorKind::Negative))
+            },
             Self::BinaryOperator { kind, left, right, .. } => {
                 left.compile_into(out);
                 right.compile_into(out);
@@ -762,6 +776,55 @@ mod astnode_tests {
                 Instruction::Argument(0),
                 Instruction::SinCos { cos_first: true },
                 Instruction::BinaryOperator(BinaryOperatorKind::Sub),
+            ],
+        );
+    }
+
+    #[test]
+    // (-1) * x -> Neg(x)
+    fn test_compile_to_negative_operator() {
+        let ast = num(-1.0) * x_at(0);
+        let program = ast.compile();
+        assert_eq!(
+            program.code(),
+            vec![
+                Instruction::Argument(0),
+                Instruction::UnaryOperator(UnaryOperatorKind::Negative),
+            ],
+        );
+
+        // (-1) * func(...) -> Neg(func(...))
+        let ast = (x_at(0) + num(2.0)).cos();
+        let program = (num(-1.0) * ast.clone()).compile();
+        let cos = ast.clone().compile();
+        let mut expected = cos.code().to_vec();
+        expected.push(Instruction::UnaryOperator(UnaryOperatorKind::Negative));
+
+        assert_eq!(
+            program.code(),
+            expected,
+        );
+
+        // x * (-1) -> Neg(x)
+        let ast = x_at(0) * num(-1.0);
+        let program = ast.compile();
+        assert_eq!(
+            program.code(),
+            vec![
+                Instruction::Argument(0),
+                Instruction::UnaryOperator(UnaryOperatorKind::Negative),
+            ],
+        );
+
+        // (-2) * x -> not changed
+        let ast = num(-2.0) * x_at(0);
+        let program = ast.compile();
+        assert_eq!(
+            program.code(),
+            vec![
+                Instruction::Constant(Complex::new(-2.0, 0.0)),
+                Instruction::Argument(0),
+                Instruction::BinaryOperator(BinaryOperatorKind::Mul),
             ],
         );
     }
