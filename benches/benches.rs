@@ -172,6 +172,22 @@ const POWI_CONST_CASE: &[(&str, &str)] = &[
     ("diff_poly", "diff(x^10 + x^5 + x^2, x)"),
 ];
 
+/// Like terms with two or more symbolic factors (simplify merges them).
+/// `*_ref` is the same value written as one term; the pair should now cost the same.
+const LIKE_TERMS_CASES: &[(&str, &str)] = &[
+    ("three_factors", "exp(x)*sin(x)*x + 2*exp(x)*sin(x)*x"),
+    ("three_factors_ref", "3*exp(x)*sin(x)*x"),
+    ("reordered", "x*sin(x) + sin(x)*x"),
+    ("reordered_ref", "2*x*sin(x)"),
+];
+
+/// Derivatives of products: the product rule produces many like terms.
+const DIFF_PRODUCT_CASES: &[(&str, &str)] = &[
+    ("x*sin*exp", "diff(x*sin(x)*exp(x), x)"),
+    ("x*sin*exp_2nd", "diff(x*sin(x)*exp(x), x, 2)"),
+    ("x^2*sin*exp", "diff(x^2*sin(x)*exp(x), x)"),
+];
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -262,6 +278,8 @@ fn bench_compile_basic(c: &mut Criterion) {
     compile_cases(c, "compile/basic", SIMPLE_CASES, &[]);
     compile_cases(c, "compile/practical", PRACTICAL_CASES, &practical_consts());
     compile_cases(c, "compile/diff", DIFF_CASES, &[]);
+    compile_cases(c, "compile/like_terms_multi", LIKE_TERMS_CASES, &[]);
+    compile_cases(c, "compile/diff_product", DIFF_PRODUCT_CASES, &[]);
 }
 
 fn bench_compile_scaling(c: &mut Criterion) {
@@ -348,6 +366,8 @@ fn bench_eval_basic(c: &mut Criterion) {
     eval_cases_scratch(c, "eval_s/arith", ARITH_CASES, &[]);
     eval_cases_scratch(c, "eval_s/practical", PRACTICAL_CASES, &practical_consts());
     eval_cases_scratch(c, "eval_s/diff", DIFF_CASES, &[]);
+    eval_cases_scratch(c, "eval_s/like_terms_multi", LIKE_TERMS_CASES, &[]);
+    eval_cases_scratch(c, "eval_s/diff_product", DIFF_PRODUCT_CASES, &[]);
 }
 
 /// Benchmarks evaluation of formulas with constant integer exponents.

@@ -11,10 +11,12 @@ use num_complex::Complex;
 use num_traits::{
     One, Zero,
 };
+use std::cmp::Ordering;
 use std::rc::Rc;
 
 use crate::core::Real;
 use crate::functions::{
+    Arity,
     FunctionKind,
     UserFn,
 };
@@ -209,6 +211,66 @@ impl<T: Real> AstNode<T> {
         a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.structurally_eq(y))
     }
 
+    fn rank(&self) ->u8 {
+        match self {
+            Self::Number { .. } => 0,
+            Self::Argument { .. } => 1,
+            Self::UnaryOperator { .. } => 2,
+            Self::BinaryOperator { .. } => 3,
+            Self::FunctionCall { .. } => 4,
+            Self::UserFunctionCall { .. } => 5,
+            Self::Derivative { .. } => 6,
+        }
+    }
+
+    /// NaN is the largest value and equal to other NaNs, so this is a total order.
+    #[allow(clippy::eq_op)]
+    fn cmp_real(a: &T, b: &T) -> Ordering {
+        a.partial_cmp(b).unwrap_or_else(|| {
+            let (an, bn) = (a != a, b != b);
+            an.cmp(&bn)
+        })
+    }
+
+    /// Total order on trees by structure only, ignoring every `span`.
+    ///
+    /// Consistent with [`Self::structurally_eq`]: two trees compare `Equal`
+    /// exactly when `structually_eq` returns `true` (NaN literals aside, which
+    /// are never `structually_eq` but compare `Equal` to each other here).
+    /// Used to put the factors of a product into a canonical order.
+    pub(crate) fn structural_cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Number { value: a, .. }, Self::Number { value: b, .. })
+                => Self::cmp_real(&a.re, &b.re).then_with(|| Self::cmp_real(&a.im, &b.im)),
+            (Self::Argument { index: a, .. }, Self::Argument { index: b, .. })
+                => a.cmp(b),
+            (Self::UnaryOperator { kind: ak, expr: ae, .. }, Self::UnaryOperator { kind: bk, expr: be, .. })
+                => (*ak as usize).cmp(&(*bk as usize)).then_with(|| ae.structural_cmp(be)),
+            (Self::BinaryOperator { kind: ak, left: al, right: ar, .. }, Self::BinaryOperator { kind: bk, left: bl, right: br, .. })
+                => (*ak as usize).cmp(&(*bk as usize))
+                    .then_with(|| al.structural_cmp(bl))
+                    .then_with(|| ar.structural_cmp(br)),
+            (Self::FunctionCall { kind: ak, args: aa, .. }, Self::FunctionCall { kind: bk, args: ba, .. })
+                => (*ak as usize).cmp(&(*bk as usize)).then_with(|| Self::args_structural_cmp(aa, ba)),
+            (Self::UserFunctionCall { func: af, args: aa, .. }, Self::UserFunctionCall { func: bf, args: ba, .. })
+                => af.name().cmp(bf.name())
+                    .then_with(|| af.arity().cmp(&bf.arity()))
+                    .then_with(|| Self::args_structural_cmp(aa, ba)),
+            (Self::Derivative { expr: ae, var: av, order: ao, .. }, Self::Derivative { expr: be, var: bv, order: bo, .. })
+                => av.cmp(bv).then_with(|| ao.cmp(bo)).then_with(|| ae.structural_cmp(be)),
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
+
+    fn args_structural_cmp(lhs: &[Rc<Self>], rhs: &[Rc<Self>]) -> Ordering {
+        lhs.len().cmp(&rhs.len()).then_with(|| {
+            lhs.iter().zip(rhs)
+                .map(|(l, r)| l.structural_cmp(r))
+                .find(|o| o.is_ne())
+                .unwrap_or(Ordering::Equal)
+        })
+    }
+
     /// Returns `true` if the tree refers to argument `var` anywhere.
     pub(crate) fn contains_arg(&self, var: usize) -> bool {
         match self {
@@ -252,5 +314,18 @@ mod structurally_eq_tests {
         assert!(!x(s).structurally_eq(&AstNode::Argument { index: 1, span: s }));
         assert!(!x(s).powi(2).structurally_eq(&x(s).powi(3)));
         assert!(!(x(s) + x(s)).structurally_eq(&(x(s) * x(s))));
+    }
+
+    #[test]
+    fn structural_cmp_ignores_spans_and_is_antisymmetric() {
+        let a = x(Span::from(0..1)).sin();
+        let b = x(Span::from(7..8)).sin();
+        assert_eq!(a.structural_cmp(&b), std::cmp::Ordering::Equal);
+
+        let s = Span::from(0..1);
+        let (p, q) = (x(s), x(s).sin());
+        assert_eq!(p.structural_cmp(&q), q.structural_cmp(&p).reverse());
+        assert_ne!(p.structural_cmp(&q), std::cmp::Ordering::Equal);
+        assert_ne!(x(s).powi(2).structural_cmp(&x(s).powi(3)), std::cmp::Ordering::Equal);
     }
 }

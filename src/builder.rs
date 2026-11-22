@@ -1095,6 +1095,14 @@ mod compile_test {
             .compile().unwrap();
         assert_eq!(f.eval(&[Complex::new(0.0, 0.0)]), a(0));
     }
+
+    #[test]
+    fn like_terms_with_several_factors_have_same_length_as_merged_form() {
+        let len = |f: &str| Builder::<f64, 1>::new(f, ["x"]).build_tokens().unwrap().code().len();
+        assert_eq!(len("exp(x)*sin(x)*x + 2*exp(x)*sin(x)*x"), len("3*exp(x)*sin(x)*x"));
+        assert_eq!(len("x*sin(x) + sin(x)*x"), len("2*x*sin(x)"));
+        assert_eq!(len("3*x*sin(x) - 3*x*sin(x)"), len("0"));
+    }
 }
 
 #[cfg(test)]

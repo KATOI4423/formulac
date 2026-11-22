@@ -38,6 +38,16 @@ use crate::operators::{
     UnaryOperatorKind,
 };
 
+/// One group of terms of an addition that share the same symbolic factors.
+struct LikeTermGroup<T: Real> {
+    /// Symbolic factors in canonical order (numeric factors removed).
+    key: Vec<AstNode<T>>,
+    /// Product of the numeric factors, summed over the group.
+    coeff: Complex<T>,
+    /// Only kept for terms that were split; a single-factor term is its own key.
+    original: Option<AstNode<T>>,
+    merged: bool,
+}
 
 impl<T: Real> AstNode<T> {
     /// Simplifies the AST by constant-folding and algebraic normalization.
@@ -188,39 +198,97 @@ impl<T: Real> AstNode<T> {
         }
     }
 
-    /// Combines `a*x + b*x → (a+b)*x`, removes zero-coefficient terms.
+    /// Splits a term into (symbolic factors in canonical order, numeric coefficient).
+    ///
+    /// `3*z*sin(z)`, `z*3*sin(z)` and `sin(z)*(3*z)` all give `([z, sin(z)], 3)`.
+    fn split_coefficient(self) -> (Vec<Self>, Complex<T>) {
+        let mut factors = Vec::new();
+        Self::collect_mul_terms(self, &mut factors);
+
+        let mut coeff = Complex::one();
+        let mut key = Vec::new();
+        for f in factors {
+            match f {
+                Self::Number { value, .. } => coeff = coeff * value,
+                other => key.push(other),
+            }
+        }
+
+        key.sort_by(Self::structural_cmp);
+        (key, coeff)
+    }
+
+    fn same_factors(lhs: &[Self], rhs: &[Self]) -> bool {
+        lhs.len() == rhs.len()
+            && lhs.iter().zip(rhs)
+                .all(|(l, r)| l.structurally_eq(&r))
+    }
+
+    /// Combines `a*X + b*X → (a+b)*X`, where `X` is any product of symbolic
+    /// factors (in any order), and removes zero-coefficient terms.
+    ///
+    /// Only the *numeric* coefficient is merged. Terms that share a common
+    /// symbolic factor but differ in a symbolic one, such as
+    /// `a*(x+y) + b*(x+y)`, are deliberately **not** factored into
+    /// `(a+b)*(x+y)`, for these reasons:
+    ///
+    /// - The result is not well defined. With `x*y + x*z + y*z` there are
+    ///   several common factors to extract, and a greedy choice depends on term
+    ///   order. For `x*y*sin(z) + x*sin(z)` it is unclear whether to extract
+    ///   `x`, `sin(z)` or both.
+    /// - It can break the shapes that later passes rely on. Factoring `x` out
+    ///   of `y*x^2 + a1*x` hides the polynomial from `horner()`, and factoring
+    ///   out of `A*sin(u) + B*cos(u)` removes the `sin`/`cos` pair that the
+    ///   `SinCos` fusion in `compile()` looks for.
+    /// - Floating-point behavior changes. `a*K + b*K` and `(a+b)*K` round
+    ///   differently and have different overflow boundaries: with `a = b = 1e308`
+    ///   and `K = 0.5` the former is finite while `a+b` overflows first in the
+    ///   latter.
+    ///
+    /// A term that has no like partner is returned unchanged, so the shape of
+    /// terms that were not merged does not depend on this function.
     fn combine_like_add_terms(terms: Vec<Self>) -> Vec<Self>
     where
         Complex<T>: AddAssign,
     {
-        let mut map: Vec<(Self, Complex<T>)> = Vec::new();
+        let mut groups: Vec<LikeTermGroup<T>> = Vec::new();
 
         for term in terms {
-            let (var, coeff) = match term {
-                Self::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } => {
-                    let left = Self::unwrap_rc(left);
-                    let right = Self::unwrap_rc(right);
-                    match (left, right) {
-                        (Self::Number { value: z, .. }, v) => (v, z),
-                        (v, Self::Number { value: z, .. }) => (v, z),
-                        (l, r)               => (l.mul(r), Complex::one()),
-                    }
-                }
-                other => (other, Complex::one()),
+            let (key, coeff, original) = match &term {
+                Self::BinaryOperator { kind: BinaryOperatorKind::Mul, .. } | Self::Number { .. } => {
+                    let original = term.clone();
+                    let (key, coeff) = term.split_coefficient();
+                    (key, coeff, Some(original))
+                },
+                // A lone symbolic factor: no splitting and no clone needed.
+                _ => (vec![term], Complex::one(), None),
             };
-            match map.iter_mut().find(|(v, _)| v.structurally_eq(&var)) {
-                Some((_, c)) => *c += coeff,
-                None         => map.push((var, coeff)),
+
+            match groups.iter_mut().find(|g| Self::same_factors(&g.key, &key)) {
+                Some(g) => {
+                    g.coeff += coeff;
+                    g.merged = true;
+                },
+                None => groups.push(LikeTermGroup { key, coeff, original, merged: false }),
             }
         }
 
-        map.into_iter()
-            .filter(|(_, c)| !(*c).is_zero())
-            .map(|(var, coeff)| {
-                if coeff.is_one() { var }
-                else { Self::Number { value: coeff, span: var.span() }.mul(var) }
-            })
-            .collect()
+        groups.into_iter()
+            .filter(|g| !g.coeff.is_zero())
+            .map(|g| {
+                if !g.merged {
+                    // Unmerged: hand back the term as it was written
+                    return g.original.unwrap_or_else(|| g.key.into_iter().next().unwrap());
+                }
+                let span = g.original.as_ref()
+                    .map_or_else(|| g.key[0].span(), |o| o.span());
+                if g.key.is_empty() {
+                    return Self::Number { value: g.coeff, span };
+                }
+                // ((c * a) * b) ..., the same left-nested shape as `fold_mul` produces.
+                let coeff = (!g.coeff.is_one()).then(|| Self::Number { value: g.coeff, span });
+                coeff.into_iter().chain(g.key).reduce(Self::mul).unwrap()
+            }).collect()
     }
 
     fn chain_add(terms: Vec<Self>, span: Span) -> Self {
@@ -470,6 +538,24 @@ mod fold_tests {
         Complex::new(re, im)
     }
 
+    fn x_at(start: usize) -> AstNode<f64> {
+        AstNode::Argument { index: 0, span: Span::from(start..start + 1) }
+    }
+
+    fn num_at(v: f64, start: usize) -> AstNode<f64> {
+        AstNode::Number { value: Complex::new(v, 0.0), span: Span::from(start..start + 1) }
+    }
+
+    /// (leading numeric coefficient, number of symbolic factors) of a product chain.
+    fn coeff_and_factors(node: AstNode<f64>) -> (Option<f64>, usize) {
+        let mut f = Vec::new();
+        AstNode::collect_mul_terms(node, &mut f);
+        match f.first() {
+            Some(AstNode::Number { value, .. }) => (Some(value.re), f.len() - 1),
+            _ => (None, f.len()),
+        }
+    }
+
     #[test]
     fn fold_add_constants() {
         let left = AstNode::Number { value: Complex::from(2.0), span: Span::from(0..1) };
@@ -567,6 +653,41 @@ mod fold_tests {
         let zero = AstNode::Number { value: Complex::from(0.0), span: Span::from(2..3) };
         let result = AstNode::fold_add(Span::from(1..2), x.clone(), zero);
         assert_astnode_eq!(result, x);
+    }
+
+    #[test]
+    fn like_terms_with_two_symbolic_factors_cancel() {
+        // 3*x*sin(x) - 3*x*sin(x) = 0
+        let t1 = num_at(3.0, 0).mul(x_at(2)).mul(x_at(4).sin());
+        let t2 = num_at(3.0, 10).mul(x_at(12)).mul(x_at(14).sin());
+        let r = (t1 - t2).simplify();
+        assert!(matches!(r, AstNode::Number { value, .. } if value.is_zero()), "{r:?}");
+    }
+
+    #[test]
+    fn like_terms_with_three_symbolic_factors_merge() {
+        // exp(x)*sin(x)*x + 2*exp(x)*sin(x)*x = 3*(...)
+        let t1 = x_at(0).exp().mul(x_at(10).sin()).mul(x_at(20));
+        let t2 = num_at(2.0, 30).mul(x_at(32).exp()).mul(x_at(40).sin()).mul(x_at(50));
+        let r = (t1 + t2).simplify();
+        assert_eq!(coeff_and_factors(r), (Some(3.0), 3));
+    }
+
+    #[test]
+    fn like_terms_ignore_factor_order() {
+        // x*sin(x) + sin(x)*x = 2*x*sin(x)
+        let r = (x_at(0).mul(x_at(2).sin()) + x_at(10).sin().mul(x_at(14))).simplify();
+        assert_eq!(coeff_and_factors(r), (Some(2.0), 2));
+    }
+
+    #[test]
+    fn unmerged_term_keeps_its_shape() {
+        // sin(x)*x has no partner: factor order is left as written.
+        let t = x_at(0).sin().mul(x_at(8)) + num_at(1.0, 20).mul(x_at(22).cos());
+        let r = t.simplify();
+        let AstNode::BinaryOperator { left, .. } = &r else { panic!("{r:?}") };
+        assert!(matches!(left.as_ref(), AstNode::BinaryOperator { left: l, .. }
+            if matches!(l.as_ref(), AstNode::FunctionCall { kind: FunctionKind::Sin, .. })));
     }
 
     #[test]
