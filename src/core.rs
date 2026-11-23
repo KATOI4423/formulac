@@ -554,7 +554,7 @@ impl<T: Real> ComplexMath for Complex<T> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::core::ComplexMath;
     use num_complex::Complex;
 
     const EPS: f64 = 1e-10;
@@ -578,8 +578,8 @@ mod tests {
     fn test_sin_cos_identity() {
         let z = Complex::new(1.2, -0.7);
 
-        let sin = z.clone().sin();
-        let cos = z.clone().cos();
+        let sin = ComplexMath::sin(z.clone());
+        let cos = ComplexMath::cos(z.clone());
 
         let lhs = sin.clone() * sin + cos.clone() * cos;
         let rhs = Complex::new(1.0, 0.0);
@@ -591,7 +591,7 @@ mod tests {
     fn test_exp_ln_identity() {
         let z = Complex::new(0.5, -1.3);
 
-        let result = z.clone().ln().exp();
+        let result = ComplexMath::exp(ComplexMath::ln(z.clone()));
 
         approx_eq(result, z);
     }
@@ -601,7 +601,7 @@ mod tests {
         let pi = std::f64::consts::PI;
         let z = Complex::new(0.0, pi);
 
-        let result = z.exp();
+        let result = ComplexMath::exp(z);
 
         approx_eq(result, Complex::new(-1.0, 0.0));
     }
@@ -610,7 +610,7 @@ mod tests {
     fn test_sin_i() {
         let z = Complex::new(0.0, 1.0);
 
-        let result = z.sin();
+        let result = ComplexMath::sin(z);
 
         // sin(i) = i sinh(1)
         let expected = Complex::new(0.0, 1.0_f64.sinh());
@@ -620,20 +620,20 @@ mod tests {
 
     #[test]
     fn test_real_consistency() {
-        let x = 0.7;
+        let x = 0.7_f64;
         let z = Complex::new(x, 0.0);
 
-        approx_eq(Complex::new(x.sin(), 0.0), z.clone().sin());
-        approx_eq(Complex::new(x.cos(), 0.0), z.clone().cos());
-        approx_eq(Complex::new(x.exp(), 0.0), z.clone().exp());
-        approx_eq(Complex::new(x.ln(), 0.0), z.clone().ln());
+        approx_eq(Complex::new(x.sin(), 0.0), ComplexMath::sin(z.clone()));
+        approx_eq(Complex::new(x.cos(), 0.0), ComplexMath::cos(z.clone()));
+        approx_eq(Complex::new(x.exp(), 0.0), ComplexMath::exp(z.clone()));
+        approx_eq(Complex::new(x.ln(), 0.0), ComplexMath::ln(z.clone()));
     }
 
     #[test]
     fn test_sqrt() {
         let z = Complex::new(3.0, 4.0);
 
-        let sqrt = z.clone().sqrt();
+        let sqrt = ComplexMath::sqrt(z.clone());
         let back = sqrt.clone() * sqrt;
 
         approx_eq(back, z);
@@ -664,7 +664,7 @@ mod tests {
         let z = Complex::new(1.2, 0.7);
         let w = Complex::new(-0.3, 0.5);
 
-        let result = z.clone().powc(w.clone());
+        let result = ComplexMath::powc(z.clone(), w.clone());
 
         let expected = (w * z.ln()).exp();
 
@@ -676,13 +676,13 @@ mod tests {
         let z = Complex::new(1.1, -0.4);
 
         for n in -8..12 {
-            let result = z.clone().powi(n);
+            let result = ComplexMath::powi(z.clone(), n);
             let expected = num_complex::ComplexFloat::powi(z, n);
             approx_eq(result, expected);
         }
 
         {
-            let result = z.clone().powi(i32::MIN);
+            let result = ComplexMath::powi(z.clone(), i32::MIN);
             let expected = num_complex::ComplexFloat::powi(z, i32::MIN);
             approx_eq(result, expected);
         }
@@ -692,8 +692,8 @@ mod tests {
     fn test_tan_identity() {
         let z = Complex::new(0.8, -0.3);
 
-        let tan = z.clone().tan();
-        let expected = z.clone().sin() / z.cos();
+        let tan = ComplexMath::tan(z.clone());
+        let expected = ComplexMath::sin(z.clone()) / ComplexMath::cos(z);
 
         approx_eq(tan, expected);
     }
@@ -702,9 +702,9 @@ mod tests {
     fn test_log10() {
         let z = Complex::new(1.3, 0.4);
 
-        let result = z.clone().log10();
+        let result = ComplexMath::log10(z.clone());
 
-        let expected = z.ln() / std::f64::consts::LN_10;
+        let expected = ComplexMath::ln(z) / std::f64::consts::LN_10;
 
         approx_eq(result, expected);
     }
