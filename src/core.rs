@@ -40,6 +40,9 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
     /// Returns the value with its fractional part removed.
     fn trunc(self) -> Self;
 
+    /// Returns whether the sign bit of the value is set.
+    fn is_sign_negative(&self) -> bool { *self < Self::zero() }
+
     // Constants
     /// Returns Euler's number, *e*.
     fn e() -> Self;
@@ -154,6 +157,9 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
     /// Returns the natural logarithm of the value.
     fn ln(self) -> Self;
 
+    /// Returns `ln(1 + x)` for too small x. Override it for accuracy near zero.
+    fn ln_1p(self) -> Self { (Self::one() + self).ln() }
+
     /// Returns the base-10 logarithm of the value.
     fn log10(self) -> Self;
 
@@ -199,6 +205,7 @@ impl Real for f64 {
     }
     fn fract(self) -> Self { self.fract() }
     fn trunc(self) -> Self { self.trunc() }
+    fn is_sign_negative(&self) -> bool { f64::is_sign_negative(*self) }
 
     fn e() -> Self { f64::consts::E }
     fn frac_1_pi() -> Self { f64::consts::FRAC_1_PI }
@@ -239,6 +246,7 @@ impl Real for f64 {
     fn exp(self) -> Self { self.exp() }
     fn exp_m1(self) -> Self { self.exp_m1() }
     fn ln(self) -> Self { self.ln() }
+    fn ln_1p(self) -> Self { self.ln_1p() }
     fn log10(self) -> Self { self.log10() }
 
     fn sqrt(self) -> Self { self.sqrt() }
@@ -374,14 +382,21 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn asin(self) -> Self {
-        // asin(z) = -i ln(iz + sqrt(1 - z^2))
-        let z = self;
-        let z2 = z.clone() * z.clone(); // z^2
-        let iz = Complex::new(-z.im, z.re);
-        let i = Complex::new(T::zero(), T::one());
-        let one = Complex::new(T::one(), T::zero());
+        // Handle the real axis explicitly to preserve signed zero.
+        if self.im.is_zero() {
+            let w = ComplexMath::asinh(Self::new(
+                T::zero(),
+                self.re.clone().abs(),
+            ));
 
-        -i * (iz + (one - z2).sqrt()).ln()
+            let re = if self.re.is_sign_negative() { -w.im } else { w.im };
+            let im = if self.im.is_sign_negative() { -w.re } else { w.re };
+            return Self::new(re, im);
+        }
+
+        // asin(z) = -i asinh(i*z)
+        let w = ComplexMath::asinh(Self::new(-self.im, self.re));
+        Self::new(w.im, -w.re)
     }
 
     fn acos(self) -> Self {
@@ -454,9 +469,52 @@ impl<T: Real> ComplexMath for Complex<T> {
       }
 
     fn asinh(self) -> Self {
-        // asinh(z) = ln(z + sqrt(z^2 + 1))
-        let one = Complex::new(T::one(), T::zero());
-        (self.clone() + (self.clone() * self + one).sqrt()).ln()
+        // asinh(-z) = -asinh(z)
+        if self.re < T::zero() {
+            return -ComplexMath::asinh(-self);
+        }
+        // asinh(conj(z)) = conj(asinh(z))
+        if self.im < T::zero() {
+            return ComplexMath::asinh(self.conj()).conj()
+        }
+
+        // Here Re >= 0 && Im >= 0
+        let (x, y) = (self.re, self.im);
+        let one = T::one();
+        let two = T::from_f64(2.0);
+
+        // Im = arg(u), u = z + sqrt(1 + z^2); both parts of u are non-negative.
+        // 1 + z^2 = ((1-y)(1+y) + x^2) + 2xy i
+        let im = {
+            let s = Self::new(
+                (one.clone() - y.clone()) * (one.clone() + y.clone()) + x.clone() * x.clone(),
+                two.clone() * x.clone() * y.clone(),
+            ).sqrt();
+
+            (y.clone() + s.im).atan2(x.clone() + s.re)
+        };
+
+        // Re = ln|u| = acosh(A), computed through m = A - 1 without cancellation.
+        // A = (p + q) / 2, p = |z - i|, q = |z + i|
+        let re = {
+            let d = one.clone() - y.clone();
+            let e = one + y;
+            let p = x.clone().hypot(d.clone());
+            let q = x.clone().hypot(e.clone());
+
+            let x2 = x.clone() * x;
+            let p_minus_d = if d >= T::zero() {
+                let den = p + d;
+                if den.is_zero() { T::zero() } else { x2.clone() / den }
+            } else {
+                p - d
+            };
+            let m = (p_minus_d + x2 / (q + e)) * T::from_f64(0.5);
+
+            (m.clone() + (m.clone() * (m + two)).sqrt()).ln_1p()
+        };
+
+        Self::new(re, im)
     }
 
     fn acosh(self) -> Self {
@@ -746,6 +804,88 @@ mod tests {
         let expected = ComplexMath::ln(z) / std::f64::consts::LN_10;
 
         approx_eq(result, expected);
+    }
+
+    #[test]
+    fn test_asinh_accuracy() {
+        let cases = [
+            // z, expected
+            // large |z| (cancellation in z + sqrt(z^2 + 1))
+            ( c(-1.0e4, 0.0), c(-9.903487555036128, 0.0) ),
+            ( c(-1.0e8, 0.0), c(-19.113827924512311, 0.0) ),
+            ( c(1.0e8, 1.0e8), c(19.460401514792283, 0.7853981633974483) ),
+            ( c(-1.0e8, 1.0e8), c(-19.460401514792283, 0.7853981633974483) ),
+            ( c(1.0e8, -1.0e8), c(19.460401514792283, -0.7853981633974483) ),
+            ( c(0.0, 1.0e8), c(19.113827924512311, 1.5707963267948966) ),
+            // small |z| (cancellation in ln(1 + eps))
+            ( c(1.0e-10, 0.0), c(1.0e-10, 0.0) ),
+            ( c(0.0, 1.0e-10), c(0.0, 1.0e-10) ),
+            ( c(1.0e-10, 1.0e-10), c(1.0e-10, 1.0e-10) ),
+            ( c(1.0e-5, 0.5), c(1.1547005383279316e-5, 0.52359877555980886) ),
+            // imaginary axis, |y| < 1 and |y| > 1
+            ( c(0.0, 0.5), c(0.0, 0.5235987755982989) ),
+            ( c(0.0, 2.0), c(1.3169578969248167, 1.5707963267948966) ),
+            // near the branch points +-i
+            ( c(1.0e-3, 1.0), c(0.0316254112399638, 1.5391761860173468) ),
+            ( c(1.0e-8, 1.0000001), c(0.00044777087109671771, 1.5707739939449679) ),
+            ( c(1.0e-8, 0.9999999), c(2.2332851059580247e-5, 1.5703485559166216) ),
+            // all quadrants
+            ( c(3.0, 4.0), c(2.2999140408792696, 0.91761685335147866) ),
+            ( c(-3.0, 4.0), c(-2.2999140408792696, 0.91761685335147866) ),
+            ( c(3.0, -4.0), c(2.2999140408792696, -0.91761685335147866) ),
+            ( c(-3.0, -4.0), c(-2.2999140408792696, -0.91761685335147866) ),
+            ( c(0.5, -0.5), c(0.53063753095251783, -0.45227844715119068) ),
+        ];
+
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::asinh(z), expected);
+        }
+    }
+
+    #[test]
+    fn test_asin_accuracy() {
+        let cases = [
+            // z, expected
+            // real axis: x < -1 and x > 1 are cuts, Im >= 0 (continuous from above, as C99)
+            ( c(-1.0e8, 0.0), c(-1.5707963267948966, 19.113827924512311) ),
+            ( c(1.0e8, 0.0), c(1.5707963267948966, 19.113827924512311) ),
+            ( c(-2.0, 0.0), c(-1.5707963267948966, 1.3169578969248167) ),
+            ( c(2.0, 0.0), c(1.5707963267948966, 1.3169578969248167) ),
+            // real axis, |x| <= 1
+            ( c(0.5, 0.0), c(0.5235987755982989, 0.0) ),
+            ( c(-0.5, 0.0), c(-0.5235987755982989, 0.0) ),
+            ( c(1.0e-10, 0.0), c(1.0e-10, 0.0) ),
+            // imaginary axis
+            ( c(0.0, 1.0e-10), c(0.0, 1.0e-10) ),
+            ( c(0.0, 1.0e8), c(0.0, 19.113827924512311) ),
+            ( c(0.0, -1.0e8), c(0.0, -19.113827924512311) ),
+            // just off the cuts: the sign of Im follows the sign of Im z
+            ( c(-1.0e8, 1.0e-3), c(-1.5707963267848966, 19.113827924512311) ),
+            ( c(1.0e8, -1.0e-3), c(1.5707963267848966, -19.113827924512311) ),
+            ( c(2.0, 1.0e-8), c(1.5707963210213939, 1.3169578969248167) ),
+            ( c(-2.0, 1.0e-8), c(-1.5707963210213939, 1.3169578969248167) ),
+            ( c(2.0, -1.0e-8), c(1.5707963210213939, -1.3169578969248167) ),
+            // small |z|
+            ( c(1.0e-10, 1.0e-10), c(1.0e-10, 1.0e-10) ),
+            // all quadrants
+            ( c(0.5, 0.5), c(0.45227844715119068, 0.53063753095251783) ),
+            ( c(3.0, 4.0), c(0.63398386563917672, 2.3055090312434769) ),
+            ( c(-3.0, 4.0), c(-0.63398386563917672, 2.3055090312434769) ),
+            ( c(3.0, -4.0), c(0.63398386563917672, -2.3055090312434769) ),
+            ( c(-3.0, -4.0), c(-0.63398386563917672, -2.3055090312434769) ),
+            // Exactly at the branch points
+            (c(0.0, 1.0), c(0.0, 0.8813735870195430)),
+            (c(0.0, -1.0), c(0.0, -0.8813735870195430)),
+            // Extremely small values
+            (c(1.0e-200, 0.0), c(1.0e-200, 0.0)),
+            // Signed zero on branch cuts
+            (c(2.0, 0.0), c(std::f64::consts::FRAC_PI_2, 1.3169578969248167)),
+            (c(2.0, -0.0), c(std::f64::consts::FRAC_PI_2, -1.3169578969248167)),
+        ];
+
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::asin(z), expected);
+        }
     }
 
     #[test]

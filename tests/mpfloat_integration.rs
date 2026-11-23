@@ -225,6 +225,10 @@ impl Real for MpFloat {
         Self { inner: self.inner.trunc() }
     }
 
+    fn is_sign_negative(&self) -> bool {
+        self.inner().is_sign_positive()
+    }
+
     // ── Mathematical constants ────────────────────────────────────────────────────────────
     //
     // In rug, use Float::with_val to calculate constants with arbitrary precision.
@@ -308,6 +312,7 @@ impl Real for MpFloat {
     fn exp(self) -> Self { Self { inner: self.inner.exp() } }
     fn exp_m1(self) -> Self { Self { inner: self.inner.exp_m1() }}
     fn ln(self)  -> Self { Self { inner: self.inner.ln() } }
+    fn ln_1p(self) -> Self { Self { inner: self.inner.ln_1p() } }
     fn log10(self) -> Self { Self { inner: self.inner.log10() } }
 
     // ── Other functions ──────────────────────────────────────────────────────────────
