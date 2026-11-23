@@ -350,6 +350,112 @@ fn powu<T: Real>(mut base: Complex<T>, mut exp: u32) -> Complex<T> {
     }
 }
 
+/// Computes the inverse hyperbolic sine for the first quadrant.
+///
+/// For moderate inputs, use a cancellation-resistant formula based on
+/// the distances from z to the branch points ±i.
+///
+/// For large inputs, scale the input by s = max(|x|, |y|) to avoid
+/// overflow in intermediate calculations. The real part is computed
+/// without explicitly constructing A = (|z - i| + |z + i|) / 2,
+/// which may overflow even when the final result is representable.
+fn asinh_inner<T: Real>(z: Complex<T>) -> Complex<T> {
+    let (x, y) = (z.re, z.im);
+    let one = T::one();
+    let two = T::from_f64(2.0);
+
+    let scale = if x > y { x.clone() } else { y.clone() };
+
+    if scale > two {
+        // Normalize the input to avoid overflow.
+        //   X = x / s, Y = y / s, t = 1 / s
+        //   where s = max(x, y).
+        let xs = x / scale.clone();
+        let ys = y / scale.clone();
+        let t = one.clone() / scale.clone();
+
+        // Im = arg(z + sqrt(1 + z^2))
+        //
+        // Dividing the argument of sqrt by s gives:
+        //   w = sqrt(t^2 + (X + iY)^2)
+        //   Im = atan2(Y + Im(w), X + Re(w))
+        let im = {
+            let re = (xs.clone() - ys.clone())
+                * (xs.clone() + ys.clone())
+                + t.clone() * t.clone();
+
+            let im = two.clone() * xs.clone() * ys.clone();
+            let w = Complex::new(re, im).sqrt();
+            (ys.clone() + w.im).atan2(xs.clone() + w.re)
+        };
+
+        // Re = acosh(A)
+        //
+        // Instead of constructing A = s * A_scaled directly,
+        // compute:
+        //   acosh(A) = ln(A) + ln(1 + sqrt(1 - 1/A^2))
+        //
+        // This avoids overflow when A exceeds the representable range.
+        let re = {
+            let p = xs.clone().hypot(t.clone() - ys.clone());
+            let q = xs.clone().hypot(t + ys);
+
+            let a_scaled = (p + q) * T::from_f64(0.5);
+
+            // 1 / A = 1 / (s * A_scaled)
+            let inv_a = (one.clone() / scale.clone()) / a_scaled.clone();
+
+            scale.ln()
+                + a_scaled.ln()
+                + (one - inv_a.clone() * inv_a).sqrt().ln_1p()
+        };
+
+        return Complex::new(re, im);
+    }
+
+    // Moderate inputs:
+    // Re = acosh(A), computed through m = A - 1 to avoid cancellation
+    // when A is close to 1.
+    //
+    // Im = arg(z + sqrt(1 + z^2))
+    let im = {
+        let s = Complex::new(
+            (one.clone() - y.clone()) * (one.clone() + y.clone())
+                + x.clone() * x.clone(),
+            two.clone() * x.clone() * y.clone(),
+        )
+        .sqrt();
+
+        (y.clone() + s.im).atan2(x.clone() + s.re)
+    };
+
+    let re = {
+        let d = one.clone() - y.clone();
+        let e = one + y;
+
+        let p = x.clone().hypot(d.clone());
+        let q = x.clone().hypot(e.clone());
+
+        let x2 = x.clone() * x;
+
+        let p_minus_d = if d >= T::zero() {
+            let den = p + d;
+            if den.is_zero() {
+                T::zero()
+            } else {
+                x2.clone() / den
+            }
+        } else {
+            p - d
+        };
+
+        let m = (p_minus_d + x2 / (q + e)) * T::from_f64(0.5);
+
+        (m.clone() + (m.clone() * (m + two)).sqrt()).ln_1p()
+    };
+
+    Complex::new(re, im)
+}
 
 impl<T: Real> ComplexMath for Complex<T> {
     fn sin(self) -> Self
@@ -470,51 +576,16 @@ impl<T: Real> ComplexMath for Complex<T> {
 
     fn asinh(self) -> Self {
         // asinh(-z) = -asinh(z)
-        if self.re < T::zero() {
+        if self.re.is_sign_negative() {
             return -ComplexMath::asinh(-self);
         }
         // asinh(conj(z)) = conj(asinh(z))
-        if self.im < T::zero() {
+        if self.im.is_sign_negative() {
             return ComplexMath::asinh(self.conj()).conj()
         }
 
         // Here Re >= 0 && Im >= 0
-        let (x, y) = (self.re, self.im);
-        let one = T::one();
-        let two = T::from_f64(2.0);
-
-        // Im = arg(u), u = z + sqrt(1 + z^2); both parts of u are non-negative.
-        // 1 + z^2 = ((1-y)(1+y) + x^2) + 2xy i
-        let im = {
-            let s = Self::new(
-                (one.clone() - y.clone()) * (one.clone() + y.clone()) + x.clone() * x.clone(),
-                two.clone() * x.clone() * y.clone(),
-            ).sqrt();
-
-            (y.clone() + s.im).atan2(x.clone() + s.re)
-        };
-
-        // Re = ln|u| = acosh(A), computed through m = A - 1 without cancellation.
-        // A = (p + q) / 2, p = |z - i|, q = |z + i|
-        let re = {
-            let d = one.clone() - y.clone();
-            let e = one + y;
-            let p = x.clone().hypot(d.clone());
-            let q = x.clone().hypot(e.clone());
-
-            let x2 = x.clone() * x;
-            let p_minus_d = if d >= T::zero() {
-                let den = p + d;
-                if den.is_zero() { T::zero() } else { x2.clone() / den }
-            } else {
-                p - d
-            };
-            let m = (p_minus_d + x2 / (q + e)) * T::from_f64(0.5);
-
-            (m.clone() + (m.clone() * (m + two)).sqrt()).ln_1p()
-        };
-
-        Self::new(re, im)
+        asinh_inner(self)
     }
 
     fn acosh(self) -> Self {
@@ -845,13 +916,17 @@ mod tests {
     fn test_asinh_accuracy() {
         let cases = [
             // z, expected
-            // large |z| (cancellation in z + sqrt(z^2 + 1))
+            // Large inputs
             ( c(-1.0e4, 0.0), c(-9.903487555036128, 0.0) ),
             ( c(-1.0e8, 0.0), c(-19.113827924512311, 0.0) ),
             ( c(1.0e8, 1.0e8), c(19.460401514792283, 0.7853981633974483) ),
             ( c(-1.0e8, 1.0e8), c(-19.460401514792283, 0.7853981633974483) ),
             ( c(1.0e8, -1.0e8), c(19.460401514792283, -0.7853981633974483) ),
             ( c(0.0, 1.0e8), c(19.113827924512311, 1.5707963267948966) ),
+            ( c(1.0e200, 0.0), c(461.2101657793691, 0.0) ),
+            ( c(0.0, 1.0e200), c(461.2101657793691, std::f64::consts::FRAC_PI_2), ),
+            ( c(1.0e200, 1.0e200), c(461.55673936964905, 0.7853981633974483) ),
+            ( c(1.0e308, 1.0e308),  c(710.235929413006, 0.7853981633974483) ),
             // small |z| (cancellation in ln(1 + eps))
             ( c(1.0e-10, 0.0), c(1.0e-10, 0.0) ),
             ( c(0.0, 1.0e-10), c(0.0, 1.0e-10) ),
