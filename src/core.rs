@@ -146,6 +146,11 @@ pub trait Real: Num + std::ops::Neg<Output = Self>
     /// Returns the exponential function of the value.
     fn exp(self) -> Self;
 
+    /// Returns `exp(x - 1)`. Override it for accuracy near one.
+    fn exp_m1(self) -> Self {
+        self.exp() - Self::one()
+    }
+
     /// Returns the natural logarithm of the value.
     fn ln(self) -> Self;
 
@@ -232,6 +237,7 @@ impl Real for f64 {
     fn atanh(self) -> Self { self.atanh() }
 
     fn exp(self) -> Self { self.exp() }
+    fn exp_m1(self) -> Self { self.exp_m1() }
     fn ln(self) -> Self { self.ln() }
     fn log10(self) -> Self { self.log10() }
 
@@ -361,12 +367,10 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn tan(self) -> Self {
-        // tan(a + bi) = (sin(2a) + i sinh(2b)) / (cos(2b) + cosh(2b))
-        let (a2, b2) = (self.re * T::from_f64(2.0), self.im * T::from_f64(2.0));
-        let (sin_2a, cos_2a) = a2.sin_cos();
-        let (sinh_2b, cosh_2b) = (b2.clone().sinh(), b2.cosh());
-
-        Complex::new(sin_2a, sinh_2b) / (cos_2a + cosh_2b)
+        // tan(a + bi) = -i tanh(-b + ai)
+        let (a, b) = (self.re, self.im);
+        let tanh = Self::new(-b, a).tanh();
+        Self::new(tanh.im, -tanh.re)
     }
 
     fn asin(self) -> Self {
@@ -426,10 +430,27 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn tanh(self) -> Self {
-        // tanh(z) = (exp(2z) - 1) / (exp(2z) + 1)
-        let e2 = (self.clone() + self).exp();
-        let one = T::one();
-        (e2.clone() - one.clone()) / (e2 + one)
+        // tanh(x + iy) = { sinh(2x) + i sin(2y) } / { cosh(2x) + cos(2y) }
+        //              ↓ t = exp(-2|x|)
+        //              = { sign(x) (1 - t^2) + i 2t sin(2y) } / { 1 + 2t cos(2y) + t^2 }
+        //              ↓ d = 1 - t = -exp_m1(-2|x|)
+        //              = { sign(x) d * (1 + t) + i 4t sin(y) cos(y) } / { d^2 + 4t cos^2(y) }
+        let (x, y) = (self.re, self.im);
+        let (sin_y, cos_y) = y.sin_cos();
+
+        let mx2 = -T::from_f64(2.0) * x.clone().abs();
+        let t = mx2.clone().exp();
+        let d = -(mx2.exp_m1());
+        let t4 = T::from_f64(4.0) * t.clone();
+        let denom = d.clone() * d.clone() + t4.clone() * cos_y.clone() * cos_y.clone();
+        let re = {
+            let re = d * (T::one() + t);
+            if x < T::zero() { -re } else { re }
+        };
+        Complex::new(
+            re / denom.clone(),
+            t4 * sin_y * cos_y / denom,
+        )
       }
 
     fn asinh(self) -> Self {
@@ -556,8 +577,13 @@ impl<T: Real> ComplexMath for Complex<T> {
 mod tests {
     use crate::core::ComplexMath;
     use num_complex::Complex;
+    use num_traits::Zero;
 
     const EPS: f64 = 1e-10;
+
+    fn c(re: f64, im: f64) -> Complex<f64> {
+        Complex::new(re, im)
+    }
 
     fn approx_eq(a: Complex<f64>, b: Complex<f64>) {
         assert!(
@@ -572,6 +598,19 @@ mod tests {
             a.im,
             b.im
         );
+    }
+
+    fn assert_rel(a: Complex<f64>, b: Complex<f64>) {
+        for (a, b, fmt) in [(a.re, b.re, "re"), (a.im, b.im, "im")] {
+            let err = (a - b).abs();
+            if !a.is_zero() {
+                assert!(err <= EPS * a.abs().max(f64::MIN_POSITIVE), "{fmt}: {a} vs {b}")
+            } else if ! b.is_zero() {
+                assert!(err <= EPS * b.abs().max(f64::MIN_POSITIVE), "{fmt}: {a} vs {b}")
+            } else {
+                assert!(true); // a == b
+            };
+        }
     }
 
     #[test]
@@ -707,5 +746,59 @@ mod tests {
         let expected = ComplexMath::ln(z) / std::f64::consts::LN_10;
 
         approx_eq(result, expected);
+    }
+
+    #[test]
+    fn test_tan_accuracy() {
+        let cases = [
+            // target, expected
+            ( c(0.3, 400.0), c(0.0, 1.0) ),
+            ( c(0.3, -400.0), c(0.0, -1.0) ),
+            ( c(1e-10, 0.0), c(1e-10, 0.0) ),
+            ( c(0.0, 1e-10), c(0.0, 1e-10) ),
+            ( c(std::f64::consts::FRAC_1_SQRT_2, 0.0), c(0.854510432009601, 0.0) ),
+            ( c(1.0, 2.0), c(0.033812826079896690, 1.01479361614663) ),
+            ( c(100.0, 25.0), c(-3.36874405845758474e-22, 0.999999999999999999) ),
+        ];
+
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::tan(z), expected);
+        }
+    }
+
+    #[test]
+    fn test_tanh_accuracy() {
+        let cases = [
+            // target, expected
+            ( c(1.0e-10, 0.0), c(1.0e-10, 0.0) ),
+            ( c(20.0, 0.0), c(0.9999999999999999915, 0.0) ),
+            ( c(21.0, 0.0), c(0.99999999999999999885, 0.0) ),
+            ( c(400.0, 0.0), c(1.0, 0.0) ),
+            ( c(-1e-10, 0.0), c(-1.0e-10, 0.0) ),
+            ( c(-21.0, 0.0), c(-0.99999999999999999885, 0.0) ),
+            ( c(-400.0, 0.0), c(-1.0, 0.0) ),
+            ( c(1.0, 2.0), c(1.16673625724091988, -0.2434582011857252527) ),
+            ( c(1.0, -2.0), c(1.16673625724091988, 0.2434582011857252527) ),
+            ( c(0.0, 1.0), c(0.0, 1.5574077246549023) ),
+            ( c(0.0, std::f64::consts::FRAC_PI_2), c(0.0, 1.633123935319537e16) ),
+            (
+                c(1e-5, std::f64::consts::FRAC_PI_2),
+                c(
+                    1e5 + 3.333e-6,
+                    6.123233995736766e-17 /* π/2 - FRAC_PI_2 */ / (1e-5_f64.sinh() * 1e-5_f64.sinh()) /* for rounding-error */
+                )
+            ),
+            ( c(25.0, 1.0), c(1.0, 3.507614547488030451e-22) ),
+            (
+                c(1.0, std::f64::consts::PI),
+                c(
+                    1.0_f64.tanh(),
+                    -1.2246467991473532e-16 /* π - PI */ / (1.0_f64.cosh() * 1.0_f64.cosh())) /* for rounding-error */
+            ),
+        ];
+
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::tanh(z), expected);
+        }
     }
 }

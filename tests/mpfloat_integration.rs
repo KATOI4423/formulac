@@ -306,6 +306,7 @@ impl Real for MpFloat {
     // ── Exponential and logarithmic functions ──────────────────────────────────────────────────────────
 
     fn exp(self) -> Self { Self { inner: self.inner.exp() } }
+    fn exp_m1(self) -> Self { Self { inner: self.inner.exp_m1() }}
     fn ln(self)  -> Self { Self { inner: self.inner.ln() } }
     fn log10(self) -> Self { Self { inner: self.inner.log10() } }
 
