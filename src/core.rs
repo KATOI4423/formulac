@@ -524,10 +524,45 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn atanh(self) -> Self {
-        // atanh(z) = (1/2) ln((1+z)/(1-z))
-        let one = Complex::new(T::one(), T::zero());
+        // use `atanh(-z) = -atanh(z)` to avoid `ln_p1(x)` for x ~ -1.
+        if self.re.is_sign_negative() {
+            return -ComplexMath::atanh(-self);
+        }
 
-        ((one.clone() + self.clone()) / (one - self)).ln() * T::from_f64(0.5)
+        // Re(atanh(z)) = 1/4 * ln( 1 + 4x / ( (1-x)^2 + y^2 ) )
+        // Im(atanh(z)) = 1/2 * atan2(2y, 1 - x^2 - y^2)
+        let (x, y) = (self.re, self.im);
+        let y2 = y.clone() * y.clone();
+
+        let re = {
+            let x1 = T::one() - x.clone();
+
+            // Scale the denominator to avoid overflow.
+            let scale = {
+                let abs_x1 = x1.clone().abs();
+                let abs_y = y.clone().abs();
+
+                let s = if abs_x1 > abs_y { abs_x1 } else { abs_y };
+                if s > T::one() { s } else { T::one() }
+            };
+
+            let xs = x1 / scale.clone();
+            let ys = y.clone() / scale.clone();
+            let denom = xs.clone() * xs + ys.clone() * ys;
+
+            let d = T::from_f64(4.0) * (x.clone() / scale.clone()) / (scale * denom);
+
+            d.ln_1p() * T::from_f64(0.25)
+        };
+
+        let im = {
+            let a = T::from_f64(2.0) * y;
+            let b = T::one() - x.clone() * x - y2;
+
+            a.atan2(b) * T::from_f64(0.5)
+        };
+
+        Complex::new(re, im)
     }
 
     fn sin_cos(self) -> (Self, Self) {
@@ -662,9 +697,9 @@ mod tests {
         for (a, b, fmt) in [(a.re, b.re, "re"), (a.im, b.im, "im")] {
             let err = (a - b).abs();
             if !a.is_zero() {
-                assert!(err <= EPS * a.abs().max(f64::MIN_POSITIVE), "{fmt}: {a} vs {b}")
+                assert!(err <= EPS * a.abs().max(f64::MIN_POSITIVE), "{fmt}: {a:e} vs {b:e}")
             } else if ! b.is_zero() {
-                assert!(err <= EPS * b.abs().max(f64::MIN_POSITIVE), "{fmt}: {a} vs {b}")
+                assert!(err <= EPS * b.abs().max(f64::MIN_POSITIVE), "{fmt}: {a:e} vs {b:e}")
             } else {
                 assert!(true); // a == b
             };
@@ -939,6 +974,62 @@ mod tests {
 
         for (z, expected) in cases {
             assert_rel(ComplexMath::tanh(z), expected);
+        }
+    }
+
+    #[test]
+    fn test_atanh_accuracy() {
+        let cases = [
+            // target, expected
+            // Pure imaginary values
+            ( c(0.0, 0.5), c(0.0, 0.4636476090008061) ),
+            ( c(0.0, 2.0), c(0.0, 1.1071487177940904) ),
+            ( c(0.0, -0.5), c(0.0, -0.4636476090008061) ),
+            ( c(0.0, -2.0), c(0.0, -1.1071487177940904) ),
+
+            // General complex values
+            ( c(0.5, 0.5), c(0.40235947810852507, 0.5535743588970452) ),
+            ( c(0.5, 1.0), c(0.2388778612568591, 0.847575660670829) ),
+            ( c(2.0, 1.0), c(0.40235947810852507, 1.3389725222944935) ),
+
+            // Negative real and positive imaginary parts
+            ( c(-0.5, 0.5), c(-0.40235947810852507, 0.5535743588970452) ),
+
+            // Positive branch cut
+            ( c(2.0, 0.0), c(0.5493061443340548, std::f64::consts::FRAC_PI_2) ),
+            ( c(2.0, -0.0), c(0.5493061443340548, -std::f64::consts::FRAC_PI_2) ),
+
+            // Negative branch cut
+            ( c(-2.0, 0.0), c(-0.5493061443340548, std::f64::consts::FRAC_PI_2) ),
+            ( c(-2.0, -0.0), c(-0.5493061443340548, -std::f64::consts::FRAC_PI_2) ),
+
+            // Inside the branch cut interval
+            ( c(0.5, 0.0), c(0.5493061443340548, 0.0) ),
+            ( c(0.5, -0.0), c(0.5493061443340548, -0.0) ),
+
+            // Approaching the positive branch point from inside
+            ( c(0.999999, 0.0), c(7.254328619247669, 0.0) ),
+
+            // Approaching the positive branch point from above
+            ( c(1.0, 1.0e-8), c(9.556913962256155, 0.7853981658974483) ),
+
+            // Approaching the negative branch point from inside
+            ( c(-0.999999, 0.0), c(-7.254328619247669, 0.0) ),
+            ( c(-0.999999, 1.0e-10), c(-7.2543286167620472, 5.00000248333458343e-5) ),
+            ( c(-0.999999, -1.0e-10), c(-7.2543286167620472, -5.00000248333458343e-5) ),
+
+            // small |z|
+            ( c(1.0e-10, 0.0), c(1.0e-10, 0.0) ),
+            ( c(1.0e-10, 1.0e-10), c(1.0e-10, 1.0e-10) ),
+
+            // large |z|
+            ( c(1.0e-200, 0.0), c(1.0e-200, 0.0) ),
+            ( c(1.0e+200, 0.0), c(1.0e-200, std::f64::consts::FRAC_PI_2) ),
+            ( c(1.0e+200, 1.0e+200), c(5.0e-201, std::f64::consts::FRAC_PI_2) ),
+        ];
+
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::atanh(z), expected);
         }
     }
 }
