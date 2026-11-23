@@ -276,6 +276,10 @@ impl<T: Real> AstNode<T> {
         if let Some(c) = right.coeff {
             if op == BinaryOperatorKind::Add && c.is_neg_one() {
                 op = BinaryOperatorKind::Sub; // a + (-1) * b => a - b
+            } else if op == BinaryOperatorKind::Add && c.has_leading_neg_one() {
+                c.compile_without_leading_neg_one(out);
+                out.push(Instruction::BinaryOperator(BinaryOperatorKind::Mul));
+                op = BinaryOperatorKind::Sub;
             } else {
                 c.compile_into(out);
                 out.push(Instruction::BinaryOperator(BinaryOperatorKind::Mul));
@@ -763,6 +767,15 @@ mod astnode_tests {
                 Instruction::BinaryOperator(BinaryOperatorKind::Add),
             ],
         );
+    }
+
+    #[test]
+    fn test_compile_sin_cos_with_negated_product_coefficient_as_sub() {
+        // cos(x) + ((-1)*x)*sin(x) is emitted as a subtraction, without a `Neg`
+        let ast = x_at(0).cos() + (num(-1.0) * x_at(2)).mul(x_at(8).sin());
+        let program = ast.compile();
+        assert!(program.code().iter().any(|i| matches!(i, Instruction::BinaryOperator(BinaryOperatorKind::Sub))));
+        assert!(!program.code().iter().any(|i| matches!(i, Instruction::UnaryOperator(UnaryOperatorKind::Negative))));
     }
 
     #[test]

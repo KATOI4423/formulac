@@ -901,6 +901,7 @@ mod compile_test {
             ("sin(w*x + phy)*A + cos(w*x + phy)", u.sin() * a + u.cos()),
             ("cos(w*x + phy) - sin(w*x + phy)", u.cos() - u.sin()),
             ("A*sin(w*x + phy) / (B*cos(w*x + phy))", (a * u.sin()) / (b * u.cos())),
+            ("cos(w*x + phy) - x*sin(w*x + phy)", u.cos() - x * u.sin()),
         ] {
             let f = Builder::<f64, 1>::new(formula, ["x"])
                 .with_constants(consts)
