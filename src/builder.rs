@@ -168,6 +168,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     fn parse_astnode(&self) -> Result<AstNode<T>, ParseError>
     where
         T: FromStr,
+        Complex<T>: AddAssign + MulAssign,
     {
         let lexemes = lexer::from(&self.formula);
         let args: Vec<&str> = self.args.iter().map(|arg| arg.as_str()).collect();
@@ -215,6 +216,7 @@ impl<T: Real, const N: usize> Builder<T, N>
     pub fn parse(&self) -> Result<Expr<T, N>, ParseError>
     where
         T: FromStr,
+        Complex<T>: AddAssign + MulAssign,
     {
         Ok(Expr::new(self.parse_astnode()?, self.args.clone()))
     }
@@ -1171,6 +1173,53 @@ mod issue_test {
                 (actual - expected).norm() < 1e-4,
                 "z = {z}: expected {expected}, got {actual}"
             );
+        }
+    }
+
+    #[test]
+    fn test_issue_14() {
+        let z = Complex::new(2.0, -1.0);
+
+        // check values
+        let cases = [
+            ( 1, 3.0 * z * z ),
+            ( 2, 6.0 * z ),
+            ( 3, Complex::from(6.0)),
+            ( 4, Complex::ZERO),
+        ];
+        for (order, expected) in cases {
+            let formula = format!("diff(z^3, z, {order})");
+            let expr = Builder::new(&formula, ["z"])
+                .compile().unwrap();
+            let result = expr.eval(&[z]);
+            assert_eq!(result.re, expected.re);
+            assert_eq!(result.im, expected.im);
+        }
+
+        // check high-order diff
+        for (formula, expected) in [
+            ("exp(z)", z.exp()),
+            ("sin(z)", -z.cos()),
+            ("cos(z)", z.sin()),
+            ("z^5", Complex::ZERO),
+        ] {
+            let formula = format!("diff({formula}, z, 127)");
+            let expr = Builder::new(&formula, ["z"])
+                .compile().unwrap();
+            let result = expr.eval(&[z]);
+            assert_eq!(result.re, expected.re);
+            assert_eq!(result.im, expected.im);
+        }
+
+        // check issue's formula
+        for formula in ["exp(z)*sin(z)*z^3", "z^3/(z^2+1)", "diff(exp(z) * sin(z), z, 4)"] {
+            for order in 6..=10 {
+                let formula = format!("diff({formula}, z, {order})");
+                let expr = Builder::new(&formula, ["z"])
+                    .compile().unwrap();
+                let result = expr.eval(&[z]);
+                assert!(result.is_finite());
+            }
         }
     }
 }

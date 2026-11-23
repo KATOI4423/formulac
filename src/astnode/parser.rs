@@ -12,6 +12,11 @@
 //! Symbolic differentiation invoked by `diff(...)` is delegated to
 //! [`AstNode::differentiate`], which is implemented separately.
 
+use num_complex::Complex;
+use std::ops::{
+    AddAssign,
+    MulAssign,
+};
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -49,6 +54,7 @@ impl<T: Real> AstNode<T> {
     ) -> Result<Self, ParseError>
     where
         T: FromStr,
+        Complex<T>: AddAssign + MulAssign,
     {
         let (mut output, mut ops)
             = Self::process_tokens(lexemes, args, constants, users)?;
@@ -65,6 +71,7 @@ impl<T: Real> AstNode<T> {
     ) -> Result<(Vec<Self>, Vec<Token<T>>), ParseError>
     where
         T: FromStr,
+        Complex<T>: AddAssign + MulAssign,
     {
         let mut output: Vec<Self>  = Vec::new();
         let mut ops:    Vec<Token<T>> = Vec::new();
@@ -178,7 +185,10 @@ impl<T: Real> AstNode<T> {
         ops:    &mut Vec<Token<T>>,
         kind:   OperatorKind,
         span:   Span,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         let oper = BinaryOperatorKind::try_from(kind)
             .map_err(|_| ParseError::InvalidFormula {
                 reason: format!("unknown binary operator '{}'", kind),
@@ -205,7 +215,10 @@ impl<T: Real> AstNode<T> {
     fn flush_all(
         output: &mut Vec<Self>,
         ops:    &mut Vec<Token<T>>,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         while let Some(token) = ops.pop() {
             match token {
                 Token::LParen { span } | Token::RParen { span } => {
@@ -227,7 +240,10 @@ impl<T: Real> AstNode<T> {
         ops:    &mut Vec<Token<T>>,
         lex:    &Lexeme,
         arg_count: usize,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         loop {
             match ops.pop() {
                 Some(Token::LParen { .. }) => break,
@@ -265,7 +281,10 @@ impl<T: Real> AstNode<T> {
         output: &mut Vec<Self>,
         ops:    &mut Vec<Token<T>>,
         lex:    &Lexeme,
-    ) -> Result<(), ParseError> {
+    ) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         loop {
             match ops.last() {
                 Some(Token::LParen { .. }) => return Ok(()),
@@ -284,7 +303,10 @@ impl<T: Real> AstNode<T> {
     // ── token application ────────────────────────────────────────────────────
 
     /// Dispatches a single token to the appropriate `apply_*` function.
-    fn apply_token(output: &mut Vec<Self>, token: Token<T>) -> Result<(), ParseError> {
+    fn apply_token(output: &mut Vec<Self>, token: Token<T>) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         let span = token.span();
         match token {
             Token::UnaryOperator { kind, span }  => Self::apply_unary(output, kind, span),
@@ -383,17 +405,23 @@ impl<T: Real> AstNode<T> {
         Ok((expr, var_idx, order as usize))
     }
 
-    fn apply_diff(output: &mut Vec<Self>, span: Span) -> Result<(), ParseError> {
+    fn apply_diff(output: &mut Vec<Self>, span: Span) -> Result<(), ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         let (mut expr, var, order) = Self::parse_diff_args(output, span)?;
 
         for _ in 0..order {
-            expr = expr.differentiate(var)?;
+            expr = expr.differentiate(var)?.simplify();
         }
         output.push(expr);
         Ok(())
     }
 
-    fn finalize_parsing(output: &mut Vec<Self>, ops: &mut Vec<Token<T>>) -> Result<Self, ParseError> {
+    fn finalize_parsing(output: &mut Vec<Self>, ops: &mut Vec<Token<T>>) -> Result<Self, ParseError>
+    where
+        Complex<T>: AddAssign + MulAssign,
+    {
         // Drain the remaining operator stack.
         Self::flush_all(output, ops)?;
 
@@ -639,5 +667,65 @@ mod astnode_tests {
             ];
             assert!(AstNode::parse_diff_args(&mut output, span).is_err(), "diff({n}) is NOT Err");
         }
+    }
+
+    #[test]
+    fn diff_astnode() {
+        let span = Span::from(0..1);
+
+        let cases = [
+            // index, expected
+            (
+                1,
+                AstNode::Number { value: Complex::new(3.0, 0.0), span } * AstNode::Argument { index: 0, span }.powi(2),
+            ),
+            (
+                2,
+                AstNode::Number { value: Complex::new(6.0, 0.0), span } * AstNode::Argument { index: 0, span },
+            ),
+            (
+                3,
+                AstNode::Number { value: Complex::new(6.0, 0.0), span },
+            ),
+            (
+                4,
+                AstNode::Number { value: Complex::ZERO, span },
+            ),
+        ];
+
+        for (index, expected) in cases {
+            let formula = format!("diff(z^3, z, {index})");
+            let lexemes = lexer::from(&formula);
+            let ast = AstNode::from(
+                &lexemes,
+                &["z"],
+                &Constants::new(),
+                &UserFnTable::new(),
+            ).unwrap().simplify();
+
+            assert!(ast.structurally_eq(&expected));
+        }
+    }
+
+    #[test]
+    fn diff_max_order_astnode() {
+        // 0  1  2  3  4  5  6  7  8  9  10 11 12 13 14 15 16 17
+        // d  i  f  f  (  e  x  p  (  z  )  ,  z  ,  1  2  7  )
+        let exp = AstNode::FunctionCall {
+            kind: FunctionKind::Exp,
+            args: vec![Rc::new(AstNode::Argument { index: 0, span: Span::from(9..10) })],
+            span: Span::from(5..8),
+        };
+        let z = AstNode::Argument { index: 0, span: Span::from(12..13) };
+        let order = AstNode::Number { value: Complex::new(i8::MAX as f64, 0.0), span: Span::from(14..17) };
+
+        let mut stack = vec![exp.clone(), z.clone(), order];
+        AstNode::apply_diff(&mut stack, Span::from(0..4)).unwrap();
+        let result = stack.pop().unwrap();
+
+        assert!(result.structurally_eq(&exp));
+        // result.span() is same as args's.
+        assert_ne!(result.span(), exp.span());
+        assert_eq!(result.span(), Span::from(9..10));
     }
 }
