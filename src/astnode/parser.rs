@@ -350,7 +350,7 @@ impl<T: Real> AstNode<T> {
                     return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
                 }
                 let order = z.re.clone().to_i32();
-                if order > i8::MAX as i32 {
+                if order > i8::MAX as i32 || order < 1 {
                     return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
                 }
                 let var = match output.pop() {
@@ -611,4 +611,33 @@ mod astnode_tests {
             );
             assert!(result.is_err(), "{formula} should fail");
         }
-    }}
+    }
+
+    #[test]
+    fn test_diff_order_range() {
+        let span = Span::from(0..1);
+        let var = AstNode::Argument { index: 0, span };
+        let ast: AstNode<f64> = AstNode::FunctionCall {
+            kind: FunctionKind::Sin,
+            args: vec![Rc::new(var.clone())],
+            span,
+        };
+
+        for n in [1, i8::MAX as usize] {
+            let mut output = vec![
+                ast.clone(),
+                var.clone(),
+                AstNode::Number { value: Complex::new(n as f64, 0.0), span },
+            ];
+            assert!(AstNode::parse_diff_args(&mut output, span).is_ok(), "diff({n}) is Err");
+        }
+        for n in [0, i8::MAX as usize + 1] {
+            let mut output = vec![
+                ast.clone(),
+                var.clone(),
+                AstNode::Number { value: Complex::new(n as f64, 0.0), span },
+            ];
+            assert!(AstNode::parse_diff_args(&mut output, span).is_err(), "diff({n}) is NOT Err");
+        }
+    }
+}

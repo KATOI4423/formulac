@@ -411,7 +411,7 @@ Notes:
 | String          | Function        | Description                                                          |
 | --------------- | --------------- | -------------------------------------------------------------------- |
 | `diff(f, x)`    | `diff(f, x)`    | First-order derivative of `f` with respect to `x`                    |
-| `diff(f, x, n)` | `diff(f, x, n)` | n-th order derivative of `f` with respect to `x` (**max `i8::MAX`**) |
+| `diff(f, x, n)` | `diff(f, x, n)` | n-th order derivative of `f` with respect to `x` (**[`1`, `i8::MAX`]**) |
 
 ---
 
