@@ -333,9 +333,9 @@ Notes:
   - For small types (e.g., `f64`), this is negligible
   - For large types, this trades performance for flexibility
 - `Builder::compile()` requires:
-  ```rust
-  T: Send + Sync + 'static
-  ```
+```rust
+T: Send + Sync + 'static
+```
   - The compiled program owns its data (constants, user functions) behind an `Arc`
   - `CompiledFormula` is therefore `Send + Sync` and can be shared across threads
   - The only mutable state is the `Scratch` buffer: give each thread its own
