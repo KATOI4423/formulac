@@ -723,6 +723,9 @@ impl<T: Real> ComplexMath for Complex<T> {
     fn powc(self, rhs: Self) -> Self
     {
         // z ^ w = exp(ln(z) * w)
+        if self.is_zero() && rhs.re > T::zero() {
+            return Self::zero();
+        }
         (rhs * self.ln()).exp()
     }
 
@@ -872,6 +875,33 @@ mod tests {
         let expected = (w * z.ln()).exp();
 
         approx_eq(result, expected);
+    }
+
+    #[test]
+    fn test_powc_accuracy() {
+        // finite test cases
+        for (z, w, expected) in [
+            ( c(0.0, 0.0), c(2.5, 0.0), c(0.0, 0.0) ),
+            ( c(0.0, 0.0), c(2.5, 3.0), c(0.0, 0.0) ),
+            ( c(0.0, 0.0), c(1.0, 3.0), c(0.0, 0.0) ),
+            ( c(0.0, 0.0), c(0.5, -3.0), c(0.0, 0.0) ),
+            ( c(1.0, 0.0), c(2.5, 3.0), c(1.0, 0.0) ),
+            ( c(0.0, 1.0), c(2.5, 3.0), c(-6.35214599841284e-3, -6.35214599841284e-3) ),
+        ] {
+            let result = ComplexMath::powc(z, w);
+            assert_rel(result, expected);
+        }
+
+        // infinite/NaN test cases
+        for (z, w) in [
+            ( c(0.0, 0.0), c(0.0, 3.0) ),
+            ( c(0.0, 0.0), c(0.0, 0.0) ),
+            ( c(0.0, 0.0), c(-2.5, 0.0) ),
+            ( c(0.0, 0.0), c(-2.5, 3.0) ),
+        ] {
+            let result = ComplexMath::powc(z, w);
+            assert!(!result.re.is_finite() || !result.im.is_finite(), "({z})^({w}) -> {result}");
+        }
     }
 
     #[test]
