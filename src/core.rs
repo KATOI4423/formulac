@@ -694,9 +694,10 @@ impl<T: Real> ComplexMath for Complex<T> {
                 return Complex::new(self.re.sqrt(), T::zero());
             } else if self.re < T::zero() {
                 return Complex::new(T::zero(), self.re.abs().sqrt());
-            } else {
+            } else if self.is_zero() {
                 return Complex::zero();
             }
+            // Exceptional values (NaN) are handled below.
         }
 
         //  ________   _____________               _____________
@@ -705,10 +706,10 @@ impl<T: Real> ComplexMath for Complex<T> {
         let half = T::from_f64(0.5);
 
         let (re, im) = if self.re > T::zero() {
-            let u = ((r + self.re) * half.clone()).sqrt();
+            let u = ((r * half.clone()) + self.re * half.clone()).sqrt();
             (u.clone(), self.im * half / u)
         } else {
-            let v = ((r - self.re) * half.clone()).sqrt();
+            let v = ((r * half.clone()) - (self.re * half.clone())).sqrt();
             let v = if self.im >= T::zero() { v } else { -v };
             (self.im * half / v.clone(), v)
         };
@@ -744,7 +745,7 @@ impl<T: Real> ComplexMath for Complex<T> {
 mod tests {
     use crate::core::ComplexMath;
     use num_complex::Complex;
-    use num_traits::Zero;
+    use num_traits::{Signed, Zero};
 
     const EPS: f64 = 1e-10;
 
@@ -863,6 +864,48 @@ mod tests {
         for (z, expected) in list {
             approx_eq(ComplexMath::sqrt(z), expected);
         }
+    }
+
+    #[test]
+    fn test_sqrt_accuracy() {
+        // finite test cases
+        for (z, expected) in [
+            ( c(1e308, 1e308), c(1.098684113467809966e154, 4.5508986056222734e153) ),
+            ( c(-1e308, 1e308), c(4.5508986056222734e153, 1.098684113467809966e154) ),
+            ( c(1e308, 0.0), c(1e154, 0.0) ),
+            ( c(-1e308, 0.0), c(0.0, 1e154) ),
+            ( c(-1e308, -0.0), c(0.0, 1e154) ),
+            ( c(-4.0, -0.0), c(0.0, 2.0) ), // sqrt(-4.0 - 0.0i) -> +2.0i
+            ( c(-4.0, 0.0), c(0.0, 2.0) ), // sqrt(-4.0 + 0.0i) -> +2.0i
+            ( c(1e308, 1e-308), c(1e154, 0.0) ), // Im(sqrt(z)) = 5.0...E-463
+            ( c(1e-308, 1e308), c(7.071067811865475244e153, 7.071067811865475244e153) ),
+            ( c(1e-308, 1e-308), c(1.098684113467809966e-154, 4.5508986056222734e-155)),
+            ( c(-1e-308, 1e-308), c(4.5508986056222734e-155, 1.098684113467809966e-154) ),
+
+        ] {
+            let result = ComplexMath::sqrt(z);
+            assert_rel(result, expected);
+        }
+
+        // NaN test cases
+        for z in [
+            c(f64::NAN, 0.0),
+            c(0.0, f64::NAN),
+            c(f64::NAN, f64::NAN),
+        ] {
+            let result = ComplexMath::sqrt(z);
+            assert!(result.re.is_nan() && result.im.is_nan(), "sqrt({z}) -> {result}");
+        }
+
+        // infinite test cases
+        let result = ComplexMath::sqrt(c(f64::INFINITY, 0.0));
+        assert!(result.re.is_infinite() && result.re.is_positive() && result.im.is_zero());
+        let result = ComplexMath::sqrt(c(f64::NEG_INFINITY, 0.0));
+        assert!(result.re.is_zero() && result.im.is_infinite() && result.im.is_positive());
+        let result = ComplexMath::sqrt(c(f64::INFINITY, 1.0));
+        assert!(result.re.is_infinite() && result.re.is_positive() && result.im.is_zero());
+        let result = ComplexMath::sqrt(c(f64::NEG_INFINITY, 1.0));
+        assert!(result.re.is_zero() && result.im.is_infinite() && result.im.is_positive());
     }
 
     #[test]
