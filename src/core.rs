@@ -600,7 +600,6 @@ impl<T: Real> ComplexMath for Complex<T> {
         // Re(atanh(z)) = 1/4 * ln( 1 + 4x / ( (1-x)^2 + y^2 ) )
         // Im(atanh(z)) = 1/2 * atan2(2y, 1 - x^2 - y^2)
         let (x, y) = (self.re, self.im);
-        let y2 = y.clone() * y.clone();
 
         let re = {
             let x1 = T::one() - x.clone();
@@ -624,8 +623,20 @@ impl<T: Real> ComplexMath for Complex<T> {
         };
 
         let im = {
-            let a = T::from_f64(2.0) * y;
-            let b = T::one() - x.clone() * x - y2;
+            // atan2 does not change when both arguments are divided by the same
+            // positive value. Divide them by s^2 so that neither 2y nor x^2 + y^2
+            // overflows for huge inputs. For |z| <= 1, s = 1 and nothing is rounded.
+            let scale = {
+                let abs_y = y.clone().abs();
+                let s = if x > abs_y { x.clone() } else { abs_y };
+                if s > T::one() { s } else { T::one() }
+            };
+            let ys = y / scale.clone();
+
+            let a = T::from_f64(2.0) * ys.clone() / scale.clone();
+            // (1 - x)(1 + x) avoids cancellation in 1 - x^2 near |x| = 1.
+            let b = ((T::one() - x.clone()) / scale.clone()) * ((T::one() + x) / scale)
+                - ys.clone() * ys;
 
             a.atan2(b) * T::from_f64(0.5)
         };
@@ -1203,6 +1214,46 @@ mod tests {
 
         for (z, expected) in cases {
             assert_rel(ComplexMath::atanh(z), expected);
+        }
+    }
+
+    #[test]
+    fn test_atanh_imag_near_branch_points() {
+        // 1 - x^2 - y^2 cancelled near x = +-1 (relative error up to 8e-11),
+        // which the 1e-10 tolerance of assert_rel cannot detect.
+        let cases = [
+            // z, expected
+            ( c(1.000000010318334, 3.3480469705374203e-9), c(9.51621969283969, 1.4139175933520196) ),
+            ( c(0.9999999999, 1.0e-12), c(11.85947401510907, 0.0049998329299221645) ),
+            ( c(-0.9999999, -1.0e-9), c(-8.4055963922722, -0.004999833595964148) ),
+        ];
+        for (z, expected) in cases {
+            let r = ComplexMath::atanh(z);
+            for (got, exp, part) in [(r.re, expected.re, "re"), (r.im, expected.im, "im")] {
+                assert!((got - exp).abs() <= 1.0e-14 * exp.abs(), "atanh({z}).{part}: {got:e} vs {exp:e}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_atanh_imag_does_not_overflow() {
+        // 2y and x^2 + y^2 overflowed for |y| > ~9e307, and atan2(-inf, -inf)
+        // gave 3*pi/8 instead of pi/2.
+        let cases = [
+            // z, expected imaginary part
+            ( c(1.0e308, 1.0e308), std::f64::consts::FRAC_PI_2 ),
+            ( c(-1.0e308, 1.0e308), std::f64::consts::FRAC_PI_2 ),
+            ( c(0.0, 1.0e308), std::f64::consts::FRAC_PI_2 ),
+            ( c(1.0e300, -1.0e308), -std::f64::consts::FRAC_PI_2 ),
+            ( c(1.7e308, 1.7e308), std::f64::consts::FRAC_PI_2 ),
+            ( c(1.0e308, 1.0), std::f64::consts::FRAC_PI_2 ),
+        ];
+        for (z, expected) in cases {
+            let r = ComplexMath::atanh(z);
+            assert!((r.im - expected).abs() <= 1.0e-15, "atanh({z}).im: {:e}", r.im);
+            // The real part is about x / |z|^2, below 1e-300 for these inputs.
+            assert!(r.re.is_finite() && r.re.abs() < 1.0e-300, "atanh({z}).re: {:e}", r.re);
+            assert_eq!(r.re.is_sign_negative(), z.re.is_sign_negative(), "atanh({z}).re: {:e}", r.re);
         }
     }
 }
