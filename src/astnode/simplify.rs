@@ -121,7 +121,7 @@ impl<T: Real> AstNode<T> {
         // else => kind == unaryOperatorKind::Negative
         match expr {
             Self::Number { value, span } => Self::Number { value: kind.apply(value), span },
-            other => (-Self::one(span) * other).simplify(), // goto fold_mul(span, -1, other)
+            other => Self::fold_mul(span, Self::Number { value: -Complex::one(), span }, other),
         }
     }
 
@@ -306,12 +306,9 @@ impl<T: Real> AstNode<T> {
     where
         Complex<T>: AddAssign + MulAssign,
     {
-        Self::fold_binary(
-            BinaryOperatorKind::Add,
-            span,
-            left,
-            Self::Number { value: -Complex::one(), span: right.span() } * right,
-        )
+        // `left` and `right` are already simplified: do not simplify them again.
+        let neg = Self::fold_mul(right.span(), Self::Number { value: -Complex::one(), span: right.span() }, right);
+        Self::fold_add(span, left, neg)
     }
 
     // ── multiplication ───────────────────────────────────────────────────────
@@ -688,6 +685,47 @@ mod fold_tests {
         let AstNode::BinaryOperator { left, .. } = &r else { panic!("{r:?}") };
         assert!(matches!(left.as_ref(), AstNode::BinaryOperator { left: l, .. }
             if matches!(l.as_ref(), AstNode::FunctionCall { kind: FunctionKind::Sin, .. })));
+    }
+
+    #[test]
+    fn fold_unary_negative_is_mul_by_minus_one() {
+        // -sin(x) → (-1) * sin(x), with -1 as a Number (not a unary operator)
+        let r = (-x_at(1).sin()).simplify();
+        let AstNode::BinaryOperator { kind: BinaryOperatorKind::Mul, left, right, .. } = &r else { panic!("{r:?}") };
+        assert!(matches!(left.as_ref(), AstNode::Number { value, .. } if *value == c(-1.0, 0.0)), "{r:?}");
+        assert!(matches!(right.as_ref(), AstNode::FunctionCall { kind: FunctionKind::Sin, .. }), "{r:?}");
+
+        // -(-x) → x, -(-(-x)) → (-1) * x
+        assert!((-(-x_at(2))).simplify().structurally_eq(&x_at(0)));
+        assert!((-(-(-x_at(3)))).simplify().structurally_eq(&(num_at(-1.0, 0) * x_at(0))));
+    }
+
+    #[test]
+    fn fold_sub_chain_cancels_terms() {
+        // x - y - x → (-1) * y
+        let y = AstNode::<f64>::Argument { index: 1, span: Span::from(4..5) };
+        let r = (x_at(0) - y.clone() - x_at(8)).simplify();
+        assert!(r.structurally_eq(&(num_at(-1.0, 0) * y)), "{r:?}");
+    }
+
+    #[test]
+    fn long_subtraction_chain_matches_addition_of_negated_terms() {
+        // sin(1*x) - sin(2*x) - ... - sin(n*x) must give the same tree as
+        // sin(1*x) + (-1)*sin(2*x) + ... + (-1)*sin(n*x).
+        // Re-simplifying the already simplified left side at every `-` made the
+        // chain cost about n^3.5 (n = 200 took over 1 s in release builds).
+        let n = 200;
+        let term = |k: usize| (num_at(k as f64, 4 * k) * x_at(4 * k + 2)).sin();
+
+        let sub_chain = (2..=n).fold(term(1), |acc, k| acc - term(k));
+        let add_chain = (2..=n).fold(term(1), |acc, k| acc + num_at(-1.0, 4 * k) * term(k));
+
+        let (sub, add) = (sub_chain.simplify(), add_chain.simplify());
+        assert!(sub.structurally_eq(&add));
+
+        let mut terms = Vec::new();
+        AstNode::collect_add_terms(sub, &mut terms);
+        assert_eq!(terms.len(), n);
     }
 
     #[test]
