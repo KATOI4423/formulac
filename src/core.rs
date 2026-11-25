@@ -513,18 +513,9 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn atan(self) -> Self {
-        // atan(z) = (i/2) ln((1 - iz)/(1 + iz))
-        let i = Complex::new(T::zero(), T::one());
-        let one = Complex::new(T::one(), T::zero());
-
-        let iz = i * self;
-
-        let num = one.clone() - iz.clone();
-        let den = one + iz;
-
-        let half_i = Complex::new(T::zero(), T::one() * T::from_f64(0.5));
-
-        half_i * (num / den).ln()
+        // atan(z) = -i atanh(i*z)
+        let w = ComplexMath::atanh(Self::new(-self.im, self.re));
+        Self::new(w.im, -w.re)
     }
 
     fn sinh(self) -> Self {
@@ -1254,6 +1245,31 @@ mod tests {
             // The real part is about x / |z|^2, below 1e-300 for these inputs.
             assert!(r.re.is_finite() && r.re.abs() < 1.0e-300, "atanh({z}).re: {:e}", r.re);
             assert_eq!(r.re.is_sign_negative(), z.re.is_sign_negative(), "atanh({z}).re: {:e}", r.re);
+        }
+    }
+
+    #[test]
+    fn test_atan_accuracy() {
+        use std::f64::consts::FRAC_PI_2;
+        let cases = [
+            // z, expected
+            // large inputs (the old formula returned NaN or the wrong sign)
+            ( c(2.0, 1.0e17), c(FRAC_PI_2, 1.0e-17) ),
+            ( c(1.0e300, 0.0), c(FRAC_PI_2, 0.0) ),
+            ( c(-1.0e300, 1.0), c(-FRAC_PI_2, 0.0) ),
+            ( c(1.0e200, 1.0e200), c(FRAC_PI_2, 5.0e-201) ),
+            // near the branch points +-i
+            ( c(9.092313988674352e-8, 1.0000000901080492), c(1.1758460393551862, 8.282153592342087) ),
+            ( c(1.0e-10, 0.9999999999), c(0.3926990610386323, 11.686212239400122) ),
+            // general points
+            ( c(0.5, 0.5), c(0.5535743588970452, 0.40235947810852507) ),
+            ( c(3.0, -4.0), c(1.4483069952314644, -0.15899719167999918) ),
+            // imaginary axis cuts |y| > 1: Re follows the sign of Re z (as C99)
+            ( c(0.0, 2.0), c(FRAC_PI_2, 0.5493061443340549) ),
+            ( c(-0.0, 2.0), c(-FRAC_PI_2, 0.5493061443340549) ),
+        ];
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::atan(z), expected);
         }
     }
 }
