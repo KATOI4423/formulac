@@ -42,6 +42,7 @@ use crate::token::{
 // Managements paten state
 struct ParenState {
     comma_count: usize,
+    is_call: bool,
 }
 
 impl<T: Real> AstNode<T> {
@@ -86,10 +87,12 @@ impl<T: Real> AstNode<T> {
             let token = Token::try_from(lexeme, args, constants, users)?;
             match token {
                 Token::Number { value, span } => {
+                    Self::reject_juxtaposition(prev_is_value, span)?;
                     output.push(Self::Number { value, span });
                     prev_is_value = true;
                 }
                 Token::Argument { index, span } => {
+                    Self::reject_juxtaposition(prev_is_value, span)?;
                     output.push(Self::Argument { index, span });
                     prev_is_value = true;
                 }
@@ -104,14 +107,17 @@ impl<T: Real> AstNode<T> {
                 // Functions and diff are pushed onto the op stack;
                 // they are resolved when their closing ')' is encountered.
                 Token::DiffOperator { .. } | Token::Function { .. } | Token::UserFunction { .. } => {
+                    Self::reject_juxtaposition(prev_is_value, lexeme.span())?;
                     ops.push(token);
                     prev_is_value = false;
                 }
                 // '(' resets prev_is_value so the next token
                 // (e.g. `-` in `(-x)`) is treated as unary.
                 Token::LParen { .. } => {
+                    Self::reject_juxtaposition(prev_is_value, lexeme.span())?;
+                    let is_call = matches!(ops.last(), Some(Token::DiffOperator { .. } | Token::Function { .. } | Token::UserFunction { .. }));
                     ops.push(token);
-                    paren_states.push(ParenState { comma_count: 0 });
+                    paren_states.push(ParenState { comma_count: 0, is_call });
                     prev_is_value = false;
                 }
                 Token::RParen { .. } => {
@@ -126,6 +132,11 @@ impl<T: Real> AstNode<T> {
                     }
 
                     let arg_count = state.comma_count + if prev_is_value { 1 } else { 0 };
+                    if !state.is_call && arg_count != 1 {
+                        return Err(ParseError::InvalidFormula {
+                            reason: "expected exactly one expression inside '(...)'".into(), span: lexeme.span(),
+                        });
+                    }
                     Self::flush_until_lparen(&mut output, &mut ops, lexeme, arg_count)?;
                     prev_is_value = true;
                 }
@@ -153,7 +164,28 @@ impl<T: Real> AstNode<T> {
             }
         }
 
+        if !prev_is_value && !lexemes.is_empty() {
+            return Err(ParseError::InvalidFormula {
+                reason: "missing operand at end of formula".into(),
+                span: lexemes.last().unwrap().span(),
+            });
+        }
         Ok((output, ops))
+    }
+
+    /// Rejects a value, function, `diff` or `(` that directly follows a value.
+    ///
+    /// Two values side by side mean a missing operator or `,`, such as
+    /// `diff(f, x n)` or `x 3`. Detecting it here, instead of relying on the
+    /// node count left at the end, keeps the extra value from being absorbed
+    /// by an empty `()` or a trailing binary operator (e.g. `diff(f, x 3, ())`).
+    fn reject_juxtaposition(prev_is_value: bool, span: Span) -> Result<(), ParseError> {
+        if prev_is_value {
+            return Err(ParseError::InvalidFormula {
+                reason: "missing operator or ',' between values".into(), span,
+            });
+        }
+        Ok(())
     }
 
     /// Pushes a unary operator onto the op stack.
@@ -269,7 +301,7 @@ impl<T: Real> AstNode<T> {
                     }
                     Self::apply_fn(output, func.arity(), span, |args| Self::UserFunctionCall { func, args, span })?;
                 },
-                Token::DiffOperator { span } => Self::apply_diff(output, span)?,
+                Token::DiffOperator { span } => Self::apply_diff(output, span, arg_count)?,
                 other => ops.push(other), // not a call; put it back
             }
         }
@@ -313,7 +345,13 @@ impl<T: Real> AstNode<T> {
             Token::BinaryOperator { kind, span } => Self::apply_binary(output, kind, span),
             Token::Function { kind, span } => Self::apply_fn(output, kind.arity(), span, |args| Self::FunctionCall { kind, args, span }),
             Token::UserFunction { func, span } => Self::apply_fn(output, func.arity(), span, |args| Self::UserFunctionCall { func, args, span }),
-            Token::DiffOperator { span }  => Self::apply_diff(output, span),
+            // `diff` is resolved only by its closing ')' in `flush_until_lparen`,
+            // where the argument count is known. Reaching here means it was not
+            // followed by a parenthesized argument list (e.g. `z diff z`).
+            Token::DiffOperator { span }  => Err(ParseError::InvalidDerivative {
+                span,
+                reason: "expected '(' after diff".into(),
+            }),
             other => Err(ParseError::InvalidFormula {
                 reason: format!("unexpected token in operator stack: {:?}", other),
                 span,
@@ -358,42 +396,53 @@ impl<T: Real> AstNode<T> {
         Ok(())
     }
 
-    fn parse_diff_args(output: &mut Vec<Self>, span: Span) -> Result<(AstNode<T>, usize, usize), ParseError>
+    /// Pops the arguments of `diff(...)` from `output`.
+    ///
+    /// `arg_count` is the number of comma-separated arguments in the call.
+    /// Only `diff(f, x)` (order 1) and `diff(f, x, n)` are accepted; checking
+    /// `arg_count` keeps a missing comma such as `diff(f, x n)` from being
+    /// taken as `diff(f, x, n)`.
+    fn parse_diff_args(output: &mut Vec<Self>, span: Span, arg_count: usize) -> Result<(AstNode<T>, usize, usize), ParseError>
     {
-        let top = output.pop().ok_or(ParseError::InvalidDerivative {
-            span,
-            reason: "missing argument (expected variable or order)".into(),
-        })?;
-
-        let (var_idx, order) = match top {
-            // diff(f, x, n) — explicit order
-            Self::Number { value: z, .. } => {
-                if !z.im.is_zero() || !z.re.clone().fract().is_zero() {
-                    return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
-                }
-                let order = z.re.clone().to_i32();
-                if order > i8::MAX as i32 || order < 1 {
-                    return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
-                }
-                let var = match output.pop() {
-                    Some(Self::Argument { index, .. }) => index,
-                    Some(other) => return Err(ParseError::InvalidDerivative {
-                        span,
-                        reason: format!("expected Argument before order, got {:?}", other),
-                    }),
-                    None => return Err(ParseError::InvalidDerivative {
-                        span,
-                        reason: "missing variable before order".into(),
-                    }),
-                };
-                (var, order)
-            }
+        let order = match arg_count {
             // diff(f, x) — default order 1
-            Self::Argument { index, .. } => (index, 1),
-
-            other => return Err(ParseError::InvalidDerivative {
+            2 => 1,
+            // diff(f, x, n) — explicit order
+            3 => match output.pop() {
+                Some(Self::Number { value: z, .. }) => {
+                    if !z.im.is_zero() || !z.re.clone().fract().is_zero() {
+                        return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
+                    }
+                    let order = z.re.clone().to_i32();
+                    if order > i8::MAX as i32 || order < 1 {
+                        return Err(ParseError::InvalidDerivativeOrder { span, order: format!("{:?}", z) });
+                    }
+                    order
+                }
+                Some(other) => return Err(ParseError::InvalidDerivative {
+                    span,
+                    reason: format!("expected Number as order, got {:?}", other),
+                }),
+                None => return Err(ParseError::InvalidDerivative {
+                    span,
+                    reason: "missing order".into(),
+                }),
+            },
+            n => return Err(ParseError::InvalidDerivative {
                 span,
-                reason: format!("expected Argument or Number, got {:?}", other),
+                reason: format!("expected 2 or 3 arguments (diff(f, x) or diff(f, x, n)), got {n}"),
+            }),
+        };
+
+        let var_idx = match output.pop() {
+            Some(Self::Argument { index, .. }) => index,
+            Some(other) => return Err(ParseError::InvalidDerivative {
+                span,
+                reason: format!("expected Argument as variable, got {:?}", other),
+            }),
+            None => return Err(ParseError::InvalidDerivative {
+                span,
+                reason: "missing variable".into(),
             }),
         };
 
@@ -405,11 +454,11 @@ impl<T: Real> AstNode<T> {
         Ok((expr, var_idx, order as usize))
     }
 
-    fn apply_diff(output: &mut Vec<Self>, span: Span) -> Result<(), ParseError>
+    fn apply_diff(output: &mut Vec<Self>, span: Span, arg_count: usize) -> Result<(), ParseError>
     where
         Complex<T>: AddAssign + MulAssign,
     {
-        let (mut expr, var, order) = Self::parse_diff_args(output, span)?;
+        let (mut expr, var, order) = Self::parse_diff_args(output, span, arg_count)?;
 
         for _ in 0..order {
             expr = expr.differentiate(var)?.simplify();
@@ -642,6 +691,134 @@ mod astnode_tests {
     }
 
     #[test]
+    fn diff_argument_count_tests() {
+        // Only diff(f, x) and diff(f, x, n) are valid.
+        let valid = [
+            "diff(z^2, z)",
+            "diff(z^2, z, 2)",
+            "diff(sin(z), z, 3)",
+            "diff(pow(z, 3), z)",
+            "1 + diff(z^2, z) * 2",
+            "diff(diff(z^3, z), z, 2)",
+        ];
+
+        let invalid = [
+            // missing comma
+            "diff(z^2, z 2)",
+            "diff(z^2 z, 2)",
+            "diff(z^2 z)",
+            "diff(z^2 3, z)",
+            "1 + diff(z^2, z 2)",
+            "diff(z^2, z 2) * 3",
+            "diff(sin(z), z 2)",
+            "diff(diff(z^3, z 2), z)",
+            "diff(diff(z^3, z), z 2)",
+            // wrong number of arguments
+            "diff()",
+            "diff(z^2)",
+            "diff(z^2, z, 2, 3)",
+            "diff(z^2, z,)",
+            "diff(, z)",
+            // wrong kind of argument
+            "diff(z^2, 2)",
+            "diff(z^2, z, z)",
+            "diff(z^2, 2, z)",
+            // not followed by '('
+            "diff z",
+            "z diff z",
+        ];
+
+        for formula in valid {
+            let lexemes = lexer::from(formula);
+            let result = AstNode::from(
+                &lexemes,
+                &["z"],
+                &Constants::<f64>::new(),
+                &UserFnTable::new(),
+            );
+            assert!(result.is_ok(), "{formula}: {:?}", result.err());
+        }
+
+        for formula in invalid {
+            let lexemes = lexer::from(formula);
+            let result = AstNode::from(
+                &lexemes,
+                &["z"],
+                &Constants::<f64>::new(),
+                &UserFnTable::new(),
+            );
+            assert!(result.is_err(), "{formula} should fail");
+        }
+    }
+
+    #[test]
+    fn diff_missing_comma_error() {
+        // `diff(z^2, z 2)` must not be taken as `diff(z^2, z, 2)`.
+        // The error points at the value that follows another value without ','.
+        let lexemes = lexer::from("diff(z^2, z 2)");
+        let result = AstNode::from(&lexemes, &["z"], &Constants::<f64>::new(), &UserFnTable::new());
+        assert!(
+            matches!(result, Err(ParseError::InvalidFormula { span, .. }) if span == Span::from(12..13)),
+            "{:?}", result,
+        );
+    }
+
+    #[test]
+    fn missing_comma_or_operator_is_not_compensated() {
+        // An extra value from a missing ',' or operator must not be absorbed by
+        // an empty '()' or by a trailing binary operator.
+        let invalid = [
+            "diff(z^2, z 3, ())",
+            "diff(z^2 3, z) *",
+            "sin(z 2) *",
+            "z 3 +",
+            "2 ()",
+            "()",
+            "(z, 2)",
+            "z *",
+        ];
+        for formula in invalid {
+            let lexemes = lexer::from(formula);
+            let result = AstNode::from(&lexemes, &["z"], &Constants::<f64>::new(), &UserFnTable::new());
+            assert!(result.is_err(), "{formula} should fail: {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_diff_arg_count() {
+        let span = Span::from(0..1);
+        let var = AstNode::Argument { index: 0, span };
+        let ast: AstNode<f64> = AstNode::FunctionCall {
+            kind: FunctionKind::Sin,
+            args: vec![Rc::new(var.clone())],
+            span,
+        };
+        let order = AstNode::Number { value: Complex::new(2.0, 0.0), span };
+
+        // diff(f, x): order defaults to 1
+        let mut output = vec![ast.clone(), var.clone()];
+        let (_, idx, n) = AstNode::parse_diff_args(&mut output, span, 2).unwrap();
+        assert_eq!((idx, n), (0, 1));
+        assert!(output.is_empty());
+
+        // diff(f, x, n)
+        let mut output = vec![ast.clone(), var.clone(), order.clone()];
+        let (_, idx, n) = AstNode::parse_diff_args(&mut output, span, 3).unwrap();
+        assert_eq!((idx, n), (0, 2));
+        assert!(output.is_empty());
+
+        // Three values but two arguments (missing comma): the order is not accepted.
+        let mut output = vec![ast.clone(), var.clone(), order.clone()];
+        assert!(AstNode::parse_diff_args(&mut output, span, 2).is_err());
+
+        // Argument counts other than 2 and 3 are rejected.
+        for arg_count in [0, 1, 4] {
+            let mut output = vec![ast.clone(), var.clone(), order.clone(), order.clone()];
+            assert!(AstNode::parse_diff_args(&mut output, span, arg_count).is_err(), "arg_count = {arg_count}");
+        }
+    }
+
+    #[test]
     fn test_diff_order_range() {
         let span = Span::from(0..1);
         let var = AstNode::Argument { index: 0, span };
@@ -657,7 +834,7 @@ mod astnode_tests {
                 var.clone(),
                 AstNode::Number { value: Complex::new(n as f64, 0.0), span },
             ];
-            assert!(AstNode::parse_diff_args(&mut output, span).is_ok(), "diff({n}) is Err");
+            assert!(AstNode::parse_diff_args(&mut output, span, 3).is_ok(), "diff({n}) is Err");
         }
         for n in [0, i8::MAX as usize + 1] {
             let mut output = vec![
@@ -665,7 +842,7 @@ mod astnode_tests {
                 var.clone(),
                 AstNode::Number { value: Complex::new(n as f64, 0.0), span },
             ];
-            assert!(AstNode::parse_diff_args(&mut output, span).is_err(), "diff({n}) is NOT Err");
+            assert!(AstNode::parse_diff_args(&mut output, span, 3).is_err(), "diff({n}) is NOT Err");
         }
     }
 
@@ -720,7 +897,7 @@ mod astnode_tests {
         let order = AstNode::Number { value: Complex::new(i8::MAX as f64, 0.0), span: Span::from(14..17) };
 
         let mut stack = vec![exp.clone(), z.clone(), order];
-        AstNode::apply_diff(&mut stack, Span::from(0..4)).unwrap();
+        AstNode::apply_diff(&mut stack, Span::from(0..4), 3).unwrap();
         let result = stack.pop().unwrap();
 
         assert!(result.structurally_eq(&exp));
