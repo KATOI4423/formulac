@@ -503,13 +503,29 @@ impl<T: Real> ComplexMath for Complex<T> {
     }
 
     fn acos(self) -> Self {
-        // acos(z) = -i ln(z + i sqrt(1 - z^2))
-        let z = self;
-        let z2 = z.clone() * z.clone(); // z^2
-        let i = Complex::new(T::zero(), T::one());
-        let one = Complex::new(T::one(), T::zero());
+        // Kahan's formula, free of cancellation and of overflow in z^2:
+        //   Re = 2 atan2(Re sqrt(1 - z), Re sqrt(1 + z))
+        //   Im = asinh(Im(conj(sqrt(1 + z)) * sqrt(1 - z)))
+        let on_real_axis = self.im.is_zero();
+        let im_negative = self.im.is_sign_negative();
 
-        -(i.clone()) * (z + i * (one - z2).sqrt()).ln()
+        let one = Self::new(T::one(), T::zero());
+        let s1 = ComplexMath::sqrt(one.clone() - self.clone());
+        let s2 = ComplexMath::sqrt(one + self);
+
+        let re = T::from_f64(2.0) * s1.re.clone().atan2(s2.re.clone());
+        let im = Real::asinh(s2.re * s1.im - s2.im * s1.re);
+
+        // `sqrt` ignores the sign of a zero imaginary part, so on the real axis
+        // the sign of Im is set here. Im(acos(z)) has the opposite sign of Im(z),
+        // which keeps acos(z) = pi/2 - asin(z) on the cuts |x| > 1 (as C99).
+        let im = if on_real_axis {
+            let mag = im.abs();
+            if im_negative { mag } else { -mag }
+        } else {
+            im
+        };
+        Self::new(re, im)
     }
 
     fn atan(self) -> Self {
@@ -1246,6 +1262,48 @@ mod tests {
             assert!(r.re.is_finite() && r.re.abs() < 1.0e-300, "atanh({z}).re: {:e}", r.re);
             assert_eq!(r.re.is_sign_negative(), z.re.is_sign_negative(), "atanh({z}).re: {:e}", r.re);
         }
+    }
+
+    #[test]
+    fn test_acos_accuracy() {
+        use std::f64::consts::{FRAC_PI_2, PI};
+        let cases = [
+            // z, expected
+            // large inputs (z^2 overflowed or cancelled in the old formula)
+            ( c(1.0e8, 1.0), c(1.0e-8, -19.11382792451231) ),
+            ( c(-1.0e8, 1.0), c(3.141592643589793, -19.11382792451231) ),
+            ( c(1.0e308, 1.0e308), c(0.7853981633974483, -710.235929413006) ),
+            // near the branch points +-1
+            ( c(0.9999999, 1.0e-12), c(0.0004472135991146314, -2.236068033962024e-9) ),
+            ( c(-0.9999999999, 1.0e-12), c(3.1415785112768133, -7.070979135048279e-8) ),
+            // general points
+            ( c(1.0e-9, 2.0), c(1.570796326347683, -1.4436354751788103) ),
+            ( c(0.5, 0.5), c(1.1185178796437059, -0.5306375309525179) ),
+            ( c(3.0, -4.0), c(0.9368124611557199, 2.305509031243477) ),
+            ( c(-3.0, 4.0), c(2.2047801924340735, -2.305509031243477) ),
+            // real axis, |x| <= 1
+            ( c(0.5, 0.0), c(1.0471975511965979, 0.0) ),
+            // real axis cuts |x| > 1: Im has the opposite sign of Im z (as C99)
+            ( c(2.0, 0.0), c(0.0, -1.3169578969248168) ),
+            ( c(2.0, -0.0), c(0.0, 1.3169578969248168) ),
+            ( c(-2.0, 0.0), c(PI, -1.3169578969248168) ),
+            ( c(1.0e8, 0.0), c(0.0, -19.11382792451231) ),
+            ( c(-1.0e8, 0.0), c(PI, -19.11382792451231) ),
+            ( c(1.0e300, 0.0), c(0.0, -691.4686750787737) ),
+        ];
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::acos(z), expected);
+        }
+
+        // acos(z) = pi/2 - asin(z), also on the cuts.
+        for z in [c(2.0, 0.0), c(2.0, -0.0), c(-2.0, 0.0), c(-2.0, -0.0), c(0.5, 0.0), c(0.3, -0.4)] {
+            let asin = ComplexMath::asin(z);
+            assert_rel(ComplexMath::acos(z), c(FRAC_PI_2 - asin.re, -asin.im));
+        }
+
+        // Signed zero of Im on the real axis, |x| <= 1
+        assert!(ComplexMath::acos(c(0.5, 0.0)).im.is_sign_negative());
+        assert!(ComplexMath::acos(c(0.5, -0.0)).im.is_sign_positive());
     }
 
     #[test]
