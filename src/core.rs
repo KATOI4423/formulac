@@ -431,27 +431,24 @@ fn asinh_inner<T: Real>(z: Complex<T>) -> Complex<T> {
 
     let re = {
         let d = one.clone() - y.clone();
-        let e = one + y;
+        let e = one.clone() + y;
 
         let p = x.clone().hypot(d.clone());
         let q = x.clone().hypot(e.clone());
 
-        let x2 = x.clone() * x;
-
-        let p_minus_d = if d >= T::zero() {
+        if d >= T::zero() {
+            // m = x^2 * k. Keep x outside of sqrt(m * (m + 2)) so that a tiny x
+            // does not underflow through x^2.
             let den = p + d;
-            if den.is_zero() {
-                T::zero()
-            } else {
-                x2.clone() / den
-            }
+            let k1 = if den.is_zero() { T::zero() } else { one.clone() / den };
+            let k = (k1 + one.clone() / (q + e)) * T::from_f64(0.5);
+            let m = x.clone() * x.clone() * k.clone();
+            let sq = x * (k * (m.clone() + two)).sqrt();
+            (m + sq).ln_1p()
         } else {
-            p - d
-        };
-
-        let m = (p_minus_d + x2 / (q + e)) * T::from_f64(0.5);
-
-        (m.clone() + (m.clone() * (m + two)).sqrt()).ln_1p()
+            let m = (p - d + x.clone() * x.clone() / (q + e)) * T::from_f64(0.5);
+            (m.clone() + (m.clone() * (m + two)).sqrt()).ln_1p()
+        }
     };
 
     Complex::new(re, im)
@@ -1022,6 +1019,34 @@ mod tests {
 
         for (z, expected) in cases {
             assert_rel(ComplexMath::asinh(z), expected);
+        }
+    }
+
+    #[test]
+    fn test_asinh_tiny_real_part() {
+        // x^2 underflows for |x| < ~1.5e-154; the real part must not become 0.
+        let cases = [
+            // z, expected
+            ( c(1.0e-170, 0.0), c(1.0e-170, 0.0) ),
+            ( c(-1.0e-170, 0.0), c(-1.0e-170, 0.0) ),
+            ( c(1.0e-170, 1.0e-170), c(1.0e-170, 1.0e-170) ),
+            ( c(1.0e-170, 0.5), c(1.1547005383792515e-170, 0.5235987755982989) ),
+            ( c(1.0e-200, 0.3), c(1.0482848367219182e-200, 0.3046926540153975) ),
+            ( c(1.0e-300, 0.999), c(2.236627204212921e-299, 1.526071239626163) ),
+            ( c(5.0e-324, 0.0), c(5.0e-324, 0.0) ),
+        ];
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::asinh(z), expected);
+        }
+
+        // asin(z) = -i asinh(iz) shares the same path.
+        let cases = [
+            ( c(0.0, 1.0e-170), c(0.0, 1.0e-170) ),
+            ( c(1.0e-170, 1.0e-170), c(1.0e-170, 1.0e-170) ),
+            ( c(0.3, 1.0e-200), c(0.3046926540153975, 1.0482848367219182e-200) ),
+        ];
+        for (z, expected) in cases {
+            assert_rel(ComplexMath::asin(z), expected);
         }
     }
 
