@@ -221,7 +221,7 @@ impl<T: Real> AstNode<T> {
     fn same_factors(lhs: &[Self], rhs: &[Self]) -> bool {
         lhs.len() == rhs.len()
             && lhs.iter().zip(rhs)
-                .all(|(l, r)| l.structurally_eq(&r))
+                .all(|(l, r)| l.structurally_eq(r))
     }
 
     /// Combines `a*X + b*X → (a+b)*X`, where `X` is any product of symbolic
