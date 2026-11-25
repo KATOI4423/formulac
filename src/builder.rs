@@ -652,6 +652,20 @@ mod compile_test {
     }
 
     #[test]
+    fn test_function_requires_parentheses() {
+        // Without '(' the function used to swallow the rest of the expression.
+        assert!(Builder::<f64, 1>::new("sin z + 1", ["z"]).compile().is_err());
+
+        let f = Builder::<f64, 1>::new("sin(z) + 1", ["z"])
+            .compile().unwrap();
+        let z = Complex::new(1.0, 0.0);
+        let result = f.eval(&[z]);
+        let expected = z.sin() + 1.0;
+        assert_abs_diff_eq!(result.re, expected.re, epsilon=1.0e-12);
+        assert_abs_diff_eq!(result.im, expected.im, epsilon=1.0e-12);
+    }
+
+    #[test]
     fn test_binary_operator_precedence() {
         let f = Builder::<f64, _>::new("2 + 3 * 4", [])
             .compile().unwrap();

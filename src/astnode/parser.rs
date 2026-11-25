@@ -83,8 +83,19 @@ impl<T: Real> AstNode<T> {
 
         let mut paren_states = Vec::new();
 
+        // A function, user function or `diff` whose `(` has not been seen yet.
+        // The token right after the name must be `(`; otherwise the name would
+        // stay on the op stack and later swallow whatever values happen to be
+        // on the output stack (e.g. `sin z + 1` taken as `sin(z + 1)`).
+        let mut pending_call: Option<Token<T>> = None;
+
         for lexeme in lexemes {
             let token = Token::try_from(lexeme, args, constants, users)?;
+            if let Some(call) = pending_call.take()
+                && !matches!(token, Token::LParen { .. })
+            {
+                return Err(Self::expected_lparen_error(&call));
+            }
             match token {
                 Token::Number { value, span } => {
                     Self::reject_juxtaposition(prev_is_value, span)?;
@@ -106,8 +117,10 @@ impl<T: Real> AstNode<T> {
                 }
                 // Functions and diff are pushed onto the op stack;
                 // they are resolved when their closing ')' is encountered.
+                // The next token must be '(' (checked at the top of the loop).
                 Token::DiffOperator { .. } | Token::Function { .. } | Token::UserFunction { .. } => {
                     Self::reject_juxtaposition(prev_is_value, lexeme.span())?;
+                    pending_call = Some(token.clone());
                     ops.push(token);
                     prev_is_value = false;
                 }
@@ -164,6 +177,12 @@ impl<T: Real> AstNode<T> {
             }
         }
 
+        // A function name at the very end (e.g. `2 * sin`) gets the specific
+        // message rather than "missing operand".
+        if let Some(call) = pending_call {
+            return Err(Self::expected_lparen_error(&call));
+        }
+
         if !prev_is_value && !lexemes.is_empty() {
             return Err(ParseError::InvalidFormula {
                 reason: "missing operand at end of formula".into(),
@@ -186,6 +205,31 @@ impl<T: Real> AstNode<T> {
             });
         }
         Ok(())
+    }
+
+    /// Builds the error for a function, user function or `diff` that is not
+    /// directly followed by `(` (e.g. `sin z`, `f`, `diff z`).
+    ///
+    /// The span points at the function name.
+    fn expected_lparen_error(token: &Token<T>) -> ParseError {
+        match token {
+            Token::Function { kind, span } => ParseError::InvalidFormula {
+                reason: format!("expected '(' after function '{}'", kind),
+                span: *span,
+            },
+            Token::UserFunction { func, span } => ParseError::InvalidFormula {
+                reason: format!("expected '(' after function '{}'", func.name()),
+                span: *span,
+            },
+            Token::DiffOperator { span } => ParseError::InvalidDerivative {
+                span: *span,
+                reason: "expected '(' after diff".into(),
+            },
+            other => ParseError::InternalError {
+                reason: format!("not a function token: {:?}", other),
+                span: other.span(),
+            },
+        }
     }
 
     /// Pushes a unary operator onto the op stack.
@@ -343,15 +387,18 @@ impl<T: Real> AstNode<T> {
         match token {
             Token::UnaryOperator { kind, span }  => Self::apply_unary(output, kind, span),
             Token::BinaryOperator { kind, span } => Self::apply_binary(output, kind, span),
-            Token::Function { kind, span } => Self::apply_fn(output, kind.arity(), span, |args| Self::FunctionCall { kind, args, span }),
-            Token::UserFunction { func, span } => Self::apply_fn(output, func.arity(), span, |args| Self::UserFunctionCall { func, args, span }),
-            // `diff` is resolved only by its closing ')' in `flush_until_lparen`,
-            // where the argument count is known. Reaching here means it was not
-            // followed by a parenthesized argument list (e.g. `z diff z`).
-            Token::DiffOperator { span }  => Err(ParseError::InvalidDerivative {
-                span,
-                reason: "expected '(' after diff".into(),
-            }),
+            // Function calls and `diff` are resolved only by their closing ')'
+            // in `flush_until_lparen`, where the argument count is known.
+            // This arm is unreachable: `process_tokens` rejects a name not
+            // followed by '(', and the '(' above a function token stops every
+            // flush before the function is popped. Reaching here is a parser
+            // bug, so report it as such instead of applying the function to
+            // whatever happens to be on the output stack.
+            t @ (Token::Function { .. } | Token::UserFunction { .. } | Token::DiffOperator { .. })
+                => Err(ParseError::InternalError {
+                    reason: format!("function token reached apply_token without its '(': {:?}", t),
+                    span,
+                }),
             other => Err(ParseError::InvalidFormula {
                 reason: format!("unexpected token in operator stack: {:?}", other),
                 span,
@@ -782,6 +829,131 @@ mod astnode_tests {
             let result = AstNode::from(&lexemes, &["z"], &Constants::<f64>::new(), &UserFnTable::new());
             assert!(result.is_err(), "{formula} should fail: {:?}", result);
         }
+    }
+
+    /// User functions for the call tests: `f` takes one argument, `g` none.
+    fn test_users() -> UserFnTable<f64> {
+        let mut users = UserFnTable::new();
+        users.insert("f".to_string(), UserFn::new("f", |[x]: [Complex<f64>; 1]| x * x));
+        users.insert("g".to_string(), UserFn::new("g", |[]: [Complex<f64>; 0]| Complex::ONE));
+        users
+    }
+
+    #[test]
+    fn function_without_parentheses_is_error() {
+        // A function name must be followed directly by '('. Otherwise the
+        // function used to swallow the rest of the expression
+        // (`sin z + 1` was evaluated as `sin(z + 1)`).
+        let valid = [
+            "sin(z)",
+            "sin (z)",
+            "-sin(z)",
+            "sin(-z)",
+            "sin(sin(z))",
+            "2 * sin(z) + 1",
+            "pow(sin(z), 2)",
+            "f(z)",
+            "f(sin(z))",
+            "g()",
+            "f(g())",
+            "diff(sin(z), z)",
+        ];
+
+        // Each of these must be rejected by the "expected '(' after ..." check,
+        // not by some other error.
+        let invalid_function = [
+            "sin z",
+            "sin z + 1",
+            "exp z * 2",
+            "-sin z",
+            "2 * sin z",
+            "sin -z",
+            "sin + 1",
+            "sin 1",
+            "sin PI",
+            "sin 2i",
+            "sin sin z",
+            "sin(sin z)",
+            "pow(sin z, 2)",
+            "pow z",
+            "pow z, 2",
+            "sin",
+            "sin +",
+            "2 * sin",
+            "sin * z",
+            "f z",
+            "f + 1",
+            "f",
+            "g",
+            "g + 1",
+            "f(g)",
+        ];
+        let invalid_diff = [
+            "diff z",
+            "diff sin(z), z",
+        ];
+
+        let users = test_users();
+        let parse = |formula: &str| {
+            let lexemes = lexer::from(formula);
+            AstNode::from(&lexemes, &["z"], &Constants::<f64>::new(), &users)
+        };
+
+        for formula in valid {
+            let result = parse(formula);
+            assert!(result.is_ok(), "{formula}: {:?}", result.err());
+        }
+
+        for formula in invalid_function {
+            let result = parse(formula);
+            assert!(
+                matches!(&result, Err(ParseError::InvalidFormula { reason, .. }) if reason.contains("expected '('")),
+                "{formula}: {:?}", result,
+            );
+        }
+
+        for formula in invalid_diff {
+            let result = parse(formula);
+            assert!(
+                matches!(&result, Err(ParseError::InvalidDerivative { reason, .. }) if reason.contains("expected '('")),
+                "{formula}: {:?}", result,
+            );
+        }
+    }
+
+    #[test]
+    fn function_without_parentheses_error_span() {
+        // The error points at the function name, not at the following token.
+        let users = test_users();
+        let parse = |formula: &str| {
+            let lexemes = lexer::from(formula);
+            AstNode::from(&lexemes, &["z"], &Constants::<f64>::new(), &users)
+        };
+
+        let result = parse("sin z");
+        assert!(
+            matches!(&result, Err(ParseError::InvalidFormula { span, .. }) if *span == Span::from(0..3)),
+            "{:?}", result,
+        );
+
+        let result = parse("2 * f z");
+        assert!(
+            matches!(&result, Err(ParseError::InvalidFormula { span, .. }) if *span == Span::from(4..5)),
+            "{:?}", result,
+        );
+
+        let result = parse("diff z");
+        assert!(
+            matches!(&result, Err(ParseError::InvalidDerivative { span, .. }) if *span == Span::from(0..4)),
+            "{:?}", result,
+        );
+
+        // At end of input
+        let result = parse("sin");
+        assert!(
+            matches!(&result, Err(ParseError::InvalidFormula { span, .. }) if *span == Span::from(0..3)),
+            "{:?}", result,
+        );
     }
 
     #[test]
